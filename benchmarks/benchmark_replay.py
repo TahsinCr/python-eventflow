@@ -80,6 +80,21 @@ def main() -> None:
     def query_replay_window() -> object:
         return history.query(limit=args.replay)
 
+    def latest_history() -> object:
+        return history.latest()
+
+    def latest_sync_bus() -> object:
+        return sync_bus.latest()
+
+    def query_sync_bus() -> object:
+        return sync_bus.query(limit=args.replay)
+
+    def latest_async_bus() -> object:
+        return async_bus.latest()
+
+    def query_async_bus() -> object:
+        return async_bus.query(limit=args.replay)
+
     def subscribe_sync() -> None:
         subscription = sync_bus.subscribe(receive_sync, replay=args.replay)
         subscription.cancel()
@@ -101,6 +116,36 @@ def main() -> None:
     _measure_sync(
         "Bounded history query",
         query_replay_window,
+        iterations=args.iterations,
+        samples=args.samples,
+    )
+    _measure_sync(
+        "MemoryEventHistory.latest",
+        latest_history,
+        iterations=args.iterations,
+        samples=args.samples,
+    )
+    _measure_sync(
+        "EventBus.latest",
+        latest_sync_bus,
+        iterations=args.iterations,
+        samples=args.samples,
+    )
+    _measure_sync(
+        "EventBus.query(limit=replay)",
+        query_sync_bus,
+        iterations=args.iterations,
+        samples=args.samples,
+    )
+    _measure_sync(
+        "AsyncEventBus.latest",
+        latest_async_bus,
+        iterations=args.iterations,
+        samples=args.samples,
+    )
+    _measure_sync(
+        "AsyncEventBus.query(limit=replay)",
+        query_async_bus,
         iterations=args.iterations,
         samples=args.samples,
     )

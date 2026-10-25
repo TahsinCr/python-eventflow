@@ -12,7 +12,8 @@ All notable changes to this project are documented in this file.
 - Check package line coverage and build, inspect, rebuild, and install wheel and
   source distributions in CI.
 - Audit declared runtime dependencies for known vulnerabilities in CI.
-- Add a standalone, standard-library replay benchmark for sync and async buses.
+- Add a standalone benchmark for history latest/query and sync/async replay
+  paths.
 
 ### Changed
 
@@ -36,10 +37,10 @@ All notable changes to this project are documented in this file.
   coroutine objects as truthy matches.
 - Remove cancellation-sensitive awaits from periodic task cleanup so a
   repeated cancellation cannot leave a finished schedule registered.
-- Remove async periodic schedule records when their task completes, including
-  tasks cancelled before their coroutine starts.
-- Let repeated async subscription cancellation retry removal after an earlier
-  attempt is interrupted while waiting for the bus lock.
+- Remove async periodic schedule records when cancellation happens before task
+  startup and when a running task exits.
+- Let repeated async subscription cancellation retry removal after a lock-wait
+  cancellation, and preserve `wait_for()` cleanup during repeated cancellation.
 - Preserve unfiltered history fast paths through bus queries and validate
   filter conflicts even when history is disabled.
 - Reject awaitable results from synchronous callbacks during direct, executor,

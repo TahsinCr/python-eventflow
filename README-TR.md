@@ -759,10 +759,11 @@ Proje Python 3.10 ve üzerini destekler; paket setuptools ile derlenir.
 Uyumluluk bağımlılıkları yalnızca Python 3.10'da kurulur. Geliştirme kurulumu ve kontroller
 [Kurulum](https://github.com/TahsinCr/python-eventflow/blob/main/README-TR.md#install)
 bölümünde yer alır.
-Depo kökünde `python -m benchmarks.benchmark_replay` komutunu çalıştırarak tam
-history sorgusunu ve sınırlı sync/async replay hazırlığını ölçebilirsiniz.
-Standart kütüphane ile çalışan araç varsayılan olarak 100.000 event kullanır;
-`--events`, `--replay`, `--iterations` ve `--samples` seçenekleriyle ayarlanır.
+Depo kökünde `python -m benchmarks.benchmark_replay` komutuyla history ve bus
+API'leri üzerinden `latest()`/`query()` çağrılarını, ayrıca sınırlı sync/async
+replay hazırlığını karşılaştırabilirsiniz. Standart kütüphane ile çalışan araç
+varsayılan olarak 100.000 event kullanır; `--events`, `--replay`,
+`--iterations` ve `--samples` seçenekleriyle ayarlanır.
 
 Copyright © 2026 TahsinCr. EventFlow, MIT Lisansı ile lisanslanmıştır.
 [LICENSE](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE) ve
