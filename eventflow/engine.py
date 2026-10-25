@@ -88,7 +88,10 @@ class EventEngine:
             return bus
 
     def add(self, name: str, bus: EventBus[Any]) -> EventBus[Any]:
-        """Register a customized bus under a channel name."""
+        """Register a bus owned by this engine under a channel name.
+
+        Do not share the same bus instance between engine instances.
+        """
 
         if not isinstance(bus, EventBus):
             raise TypeError("Event engine channels must be EventBus instances")
@@ -285,6 +288,11 @@ class AsyncEventEngine:
             return bus
 
     def add(self, name: str, bus: AsyncEventBus[Any]) -> AsyncEventBus[Any]:
+        """Register a bus owned by this engine under a channel name.
+
+        Do not share the same bus instance between engine instances.
+        """
+
         if not isinstance(bus, AsyncEventBus):
             raise TypeError("Async event engine channels must be AsyncEventBus instances")
         name = _channel_name(name)

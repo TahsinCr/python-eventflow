@@ -264,6 +264,11 @@ directly. The bus attempts delivery to the selected handlers, then raises an
 a `PublishResult`. The `bus.stats` property provides cumulative
 `published`, `delivered`, and `failed` counts.
 
+These counters are not a per-publish invariant. `published` is incremented
+before callbacks run; `delivered` and `failed` are finalized afterward. An
+in-flight or cancelled async publish can leave them different. `failed` counts
+collected errors from handlers, filters, and actions, not only failed handlers.
+
 To catch grouped failures with the same import on Python 3.10 and newer, import
 `ExceptionGroup` from `eventflow.compatibility`. On Python 3.11 and newer, that
 name refers to the built-in exception group class.
@@ -302,6 +307,9 @@ filter options as a subscription and an optional positive `limit`. With a
 limit, it returns the newest matching events in chronological order.
 `latest()` returns the newest match or `None`. Without history,
 `query()` returns an empty tuple and `latest()` returns `None`.
+History order reflects when events were recorded, not when callbacks start or
+finish. Async publish hooks can yield after recording, and separate publish
+calls may overlap.
 
 A new subscriber can receive recent events before it starts handling live
 ones. Pass `replay=N` to deliver up to the N newest retained events that match
@@ -414,7 +422,10 @@ asyncio.run(main())
 ~~~
 
 Closing a bus cancels its schedules. With `ErrorPolicy.RAISE`, an error during
-a periodic publish stops that schedule.
+a periodic publish stops that schedule. A schedule does not return each
+`PublishResult`; configure the bus `on_error` hook to observe handler, filter,
+or action failures. With `ErrorPolicy.ISOLATE`, the schedule continues and the
+publish result is otherwise discarded.
 
 ## Async applications
 
@@ -511,6 +522,8 @@ refer to the same channel. `engine.channel(name)` returns a channel, creating
 it when necessary. Use `engine.add(name, bus)` to register a bus with custom
 settings. `remove(name)` closes one channel; `stop()` closes every channel.
 An engine can own a bus instance under only one channel name at a time.
+Treat a bus passed to `add()` as owned by that engine; do not pass the same bus
+to another engine, since removing or stopping either engine closes it.
 The engine exposes `running` and a sorted `channel_names` tuple.
 During `stop()`, both engines attempt every channel. If some closes fail, the
 failures are raised together and the engine retains those channels so a later

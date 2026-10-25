@@ -272,6 +272,12 @@ denedikten sonra toplanan hatalar için `ExceptionGroup` yükseltir; o yayın
 çağrısı `PublishResult` döndürmez. `bus.stats` toplam `published`,
 `delivered` ve `failed` sayaçlarını verir.
 
+Bu sayaçlar her yayın için değişmez bir eşitlik oluşturmaz. `published` callback'ler
+çalışmadan önce artar; `delivered` ve `failed` işlem sonunda güncellenir. Devam
+eden veya iptal edilen async yayınlarda değerler farklı kalabilir. `failed`,
+yalnızca başarısız handler'ları değil; handler, filtre ve action hatası
+kayıtlarını sayar.
+
 Python 3.10 ve üzerindeki sürümlerde aynı import ile gruplandırılmış hataları
 yakalamak için `ExceptionGroup` sınıfını `eventflow.compatibility` modülünden
 alın. Python 3.11 ve üzerindeki sürümlerde bu ad yerleşik sınıfa işaret eder.
@@ -311,6 +317,9 @@ seçeneklerini ve isteğe bağlı pozitif `limit` değerini kabul eder. Limit
 verildiğinde en yeni eşleşen event'leri kronolojik sırada döndürür.
 `latest()` en yeni eşleşmeyi, yoksa `None` verir. History kapalıysa `query()`
 boş tuple, `latest()` `None` döndürür.
+History sırası event'lerin kaydedilme sırasıdır; callback'lerin başlama veya
+tamamlanma sırası değildir. Async publish hook'ları kayıt sonrasında bekleyebilir
+ve ayrı yayın çağrıları örtüşebilir.
 
 Sonradan katılan bir abonenin canlı teslimattan önce yakın geçmişi alması için
 `replay=N` kullanın:
@@ -421,7 +430,10 @@ asyncio.run(main())
 ~~~
 
 Bus kapandığında zamanlamaları iptal edilir. `ErrorPolicy.RAISE` seçiliyken
-periyodik yayın sırasında hata oluşursa ilgili zamanlama durur.
+periyodik yayın sırasında hata oluşursa ilgili zamanlama durur. Zamanlama her
+yayının `PublishResult` değerini döndürmez; handler, filtre ve action hatalarını
+görmek için bus üzerinde `on_error` hook'u yapılandırın. `ErrorPolicy.ISOLATE`
+seçildiğinde zamanlama sürer ve yayın sonucu başka bir yolla tutulmaz.
 
 <a id="async-applications"></a>
 ## Async uygulamalar
@@ -523,6 +535,9 @@ Bu nedenle `" Orders "` ve `"orders"` aynı kanala gider.
 kapatıp kaldırır; `stop()` tüm kanalları kapatır. Engine ayrıca `running` ve
 sıralanmış `channel_names` özelliklerini sunar. Aynı bus örneği aynı anda yalnızca
 tek kanal adına kaydedilebilir.
+`add()` ile verilen bus o engine'in sahipliğine geçer; aynı örneği başka bir
+engine'e vermeyin. Engine'lerden birinin `remove()` veya `stop()` çağrısı bus'ı
+kapatır.
 `stop()` sırasında iki engine de bütün kanalları kapatmayı dener. Bazı kanallar
 kapatılamazsa hatalar birlikte yükseltilir ve engine bu kanalların sahipliğini
 korur; sonraki `stop()` çağrısı temizliği yeniden deneyebilir. Başarılı bir

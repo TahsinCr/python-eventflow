@@ -498,6 +498,26 @@ class EventBusTests(unittest.TestCase):
         bus.close()
         self.assertFalse(waiting.active)
 
+    def test_periodic_publish_reports_failures_through_error_action(self) -> None:
+        for policy in (ErrorPolicy.ISOLATE, ErrorPolicy.RAISE):
+            with self.subTest(policy=policy):
+                reported: list[Exception] = []
+                notified = threading.Event()
+
+                def on_error(context: EventErrorContext[int]) -> None:
+                    reported.append(context.error)
+                    notified.set()
+
+                def fail(_event: int) -> None:
+                    raise RuntimeError("periodic handler failed")
+
+                bus = EventBus[int](error_policy=policy, on_error=on_error)
+                bus.subscribe(fail)
+                bus.publish_every(1, 0.001, times=1)
+                self.assertTrue(notified.wait(1.0))
+                bus.close()
+                self.assertIsInstance(reported[0], RuntimeError)
+
     def test_periodic_schedule_capacity_is_bounded(self) -> None:
         bus = EventBus[str](max_schedules=1)
         schedule = bus.publish_every("first", 60.0, immediately=False)
@@ -1112,6 +1132,28 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
         waiting = await bus.publish_every("late", 60.0, immediately=False)
         await bus.close()
         self.assertFalse(waiting.active)
+
+    async def test_async_periodic_publish_reports_failures_through_error_action(
+        self,
+    ) -> None:
+        for policy in (ErrorPolicy.ISOLATE, ErrorPolicy.RAISE):
+            with self.subTest(policy=policy):
+                reported: list[Exception] = []
+                notified = asyncio.Event()
+
+                async def on_error(context: EventErrorContext[int]) -> None:
+                    reported.append(context.error)
+                    notified.set()
+
+                async def fail(_event: int) -> None:
+                    raise RuntimeError("periodic handler failed")
+
+                bus = AsyncEventBus[int](error_policy=policy, on_error=on_error)
+                await bus.subscribe(fail)
+                await bus.publish_every(1, 0.001, times=1)
+                await asyncio.wait_for(notified.wait(), 1.0)
+                await bus.close()
+                self.assertIsInstance(reported[0], RuntimeError)
 
     async def test_async_periodic_schedule_capacity_is_bounded(self) -> None:
         bus = AsyncEventBus[str](max_schedules=1)
