@@ -8,6 +8,7 @@ from collections import deque
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import cast
+from unittest.mock import patch
 
 from eventflow import (
     AsyncEventBus,
@@ -456,6 +457,16 @@ class EventBusTests(unittest.TestCase):
         finally:
             schedule.cancel()
             bus.close()
+
+    def test_periodic_thread_start_failure_releases_schedule_capacity(self) -> None:
+        bus = EventBus[str](max_schedules=1)
+        with patch("threading.Thread.start", side_effect=RuntimeError("start failed")):
+            with self.assertRaisesRegex(RuntimeError, "start failed"):
+                bus.publish_every("failed", 60.0, immediately=False)
+
+        schedule = bus.publish_every("recovered", 60.0, immediately=False)
+        schedule.cancel()
+        bus.close()
 
     def test_close_waits_for_periodic_thread_exit(self) -> None:
         bus = EventBus[int]()

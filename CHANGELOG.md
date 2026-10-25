@@ -26,6 +26,8 @@ All notable changes to this project are documented in this file.
   repeated cancellation cannot leave a finished schedule registered.
 - Prevent registering one bus instance under multiple engine channel names,
   including while a removed channel is still closing.
+- Release synchronous periodic schedule capacity when its worker thread cannot
+  start.
 - Wake synchronous `wait_for()` calls when `clear()` removes their subscriptions.
 - Run Pyright against the Python version selected by each CI matrix job.
 - Keep cancelled periodic publishers under bus ownership until their threads

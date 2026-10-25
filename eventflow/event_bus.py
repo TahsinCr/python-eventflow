@@ -451,7 +451,13 @@ class EventBus(BaseEventBus[T]):
         )
         with self._lock:
             self._schedules[schedule_id] = (subscription, thread)
-            thread.start()
+            try:
+                thread.start()
+            except BaseException:
+                self._schedules.pop(schedule_id, None)
+                subscription._deactivate()
+                stopped.set()
+                raise
         return subscription
 
     def wait_for(
