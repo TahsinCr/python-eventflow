@@ -11,7 +11,7 @@ from typing import Any, Generic, TypeVar
 from .contracts import ErrorPolicy, EventBusStats
 from .errors import EventBusClosedError
 from .filtering import EventFilter, EventType, coerce_event_filter
-from .history import EventHistory, MemoryEventHistory
+from .history import EventHistory, MemoryEventHistory, _validate_query_limit
 
 
 T = TypeVar("T")
@@ -42,6 +42,28 @@ def validate_positive_timeout(value: float, *, name: str) -> float:
     ):
         raise ValueError(f"{name} must be positive and finite")
     return float(value)
+
+
+def validate_nonnegative_count(value: int, *, name: str) -> int:
+    """Validate a count that may be zero."""
+
+    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+        raise ValueError(f"{name} must be a non-negative integer")
+    return value
+
+
+def validate_nonnegative_timeout(value: float, *, name: str) -> float:
+    """Validate and normalize a finite timeout that may be zero."""
+
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise ValueError(f"{name} must be non-negative and finite")
+    try:
+        normalized = float(value)
+    except OverflowError as exc:
+        raise ValueError(f"{name} must be non-negative and finite") from exc
+    if not math.isfinite(normalized) or normalized < 0:
+        raise ValueError(f"{name} must be non-negative and finite")
+    return normalized
 
 
 class BaseEventBus(Generic[T], ABC):
@@ -121,6 +143,7 @@ class BaseEventBus(Generic[T], ABC):
         predicate: Callable[[T], bool] | None = None,
         limit: int | None = None,
     ) -> tuple[T, ...]:
+        _validate_query_limit(limit)
         if self._history is None:
             return ()
         normalized_filter = coerce_event_filter(

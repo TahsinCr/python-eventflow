@@ -339,7 +339,8 @@ silmek için yapılandırılmış history nesnesinde `clear()` çağırın.
 olarak alması gerekiyorsa `wait_for()` kullanın. Abonelikle aynı filtre
 seçeneklerini ve isteğe bağlı timeout değerini kabul eder. Event gelirse onu,
 timeout dolarsa veya eşleşme olmadan bus kapanırsa `None` döndürür. Senkron
-bekleme çağıran thread'i bloklar.
+bekleme çağıran thread'i bloklar. Timeout sonlu ve negatif olmayan bir sayı
+olmalıdır; sıfır anında zaman aşımı anlamına gelir.
 
 Aşağıdaki async örnekte yayın task'ı oluşturulduktan sonra bekleme başlar.
 `wait_for()`, publisher task çalışmadan önce geçici aboneliğini kaydeder:

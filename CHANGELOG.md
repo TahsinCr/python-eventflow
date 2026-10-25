@@ -38,8 +38,8 @@ All notable changes to this project are documented in this file.
   and report collected failures together.
 - Report a cancelled callback as a delivery failure in concurrent async mode
   while preserving cancellation of the publishing task.
-- Reject boolean and fractional values for replay and in-memory history
-  capacities.
+- Validate replay counts, history query limits, and wait timeouts consistently,
+  including boolean, fractional, negative, and non-finite values.
 
 ## [v1.0] - 2026-10-24
 

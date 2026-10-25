@@ -331,7 +331,8 @@ Use `wait_for()` when the caller needs one matching event as a value instead
 of registering a long-lived handler. It accepts the same filter options as
 `subscribe()` and an optional timeout. It returns the event, or `None` if the
 wait times out or the bus closes before a match. A synchronous wait blocks the
-calling thread.
+calling thread. Timeouts must be finite, non-negative numbers; zero requests
+an immediate wait.
 
 This async example schedules a publisher and then waits for its event. The
 wait registers its temporary subscription before the publisher task gets to

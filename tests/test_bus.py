@@ -209,6 +209,32 @@ class EventBusTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             MemoryEventHistory[int](capacity=True)
 
+    def test_replay_wait_and_query_arguments_are_validated(self) -> None:
+        bus_without_history = EventBus[int]()
+        history = MemoryEventHistory[int](capacity=2)
+        bus_with_history = EventBus[int](history=history)
+
+        for raw_replay in (True, 1.5, -1):
+            with self.assertRaisesRegex(ValueError, "non-negative integer"):
+                bus_without_history.subscribe(
+                    lambda _event: None,
+                    replay=cast(int, raw_replay),
+                )
+
+        for raw_timeout in (True, float("nan"), float("inf"), -float("inf"), -0.1):
+            with self.assertRaisesRegex(ValueError, "non-negative and finite"):
+                bus_without_history.wait_for(timeout=cast(float, raw_timeout))
+        self.assertIsNone(bus_without_history.wait_for(timeout=0))
+
+        for raw_limit in (True, 1.5, 0, -1):
+            limit = cast(int, raw_limit)
+            with self.assertRaisesRegex(ValueError, "positive integer"):
+                bus_without_history.query(limit=limit)
+            with self.assertRaisesRegex(ValueError, "positive integer"):
+                bus_with_history.query(limit=limit)
+            with self.assertRaisesRegex(ValueError, "positive integer"):
+                history.query(limit=limit)
+
     def test_unfiltered_limited_history_reads_do_not_copy_the_complete_buffer(self) -> None:
         class NoFullIterationDeque(deque[int]):
             def __iter__(self):  # type: ignore[override]
@@ -711,6 +737,21 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(bus.closed)
         with self.assertRaises(EventBusClosedError):
             await bus.publish(5)
+
+    async def test_async_replay_and_wait_arguments_are_validated(self) -> None:
+        bus = AsyncEventBus[int]()
+
+        async def receive(_event: int) -> None:
+            return None
+
+        for raw_replay in (True, 1.5, -1):
+            with self.assertRaisesRegex(ValueError, "non-negative integer"):
+                await bus.subscribe(receive, replay=cast(int, raw_replay))
+
+        for raw_timeout in (True, float("nan"), float("inf"), -float("inf"), -0.1):
+            with self.assertRaisesRegex(ValueError, "non-negative and finite"):
+                await bus.wait_for(timeout=cast(float, raw_timeout))
+        self.assertIsNone(await bus.wait_for(timeout=0))
 
     async def test_async_unfiltered_replay_limits_the_history_query(self) -> None:
         history = _RecordingQueryHistory()

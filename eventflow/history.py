@@ -14,6 +14,13 @@ from .filtering import EventFilter
 T = TypeVar("T")
 
 
+def _validate_query_limit(limit: int | None) -> None:
+    if limit is not None and (
+        isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0
+    ):
+        raise ValueError("Event history query limit must be a positive integer")
+
+
 class EventHistory(Generic[T], ABC):
     @abstractmethod
     def append(self, event: T) -> None: ...
@@ -69,8 +76,7 @@ class MemoryEventHistory(EventHistory[T]):
         *,
         limit: int | None = None,
     ) -> tuple[T, ...]:
-        if limit is not None and limit <= 0:
-            raise ValueError("Event history query limit must be positive")
+        _validate_query_limit(limit)
         with self._lock:
             if event_filter is None:
                 if limit is None:

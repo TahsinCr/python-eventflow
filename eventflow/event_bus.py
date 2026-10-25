@@ -15,6 +15,8 @@ from .actions import EventBusActions, EventErrorContext, EventTimeoutContext
 from .base import (
     BaseEventBus,
     normalize_replay_capacity,
+    validate_nonnegative_count,
+    validate_nonnegative_timeout,
     validate_positive_capacity,
     validate_positive_timeout,
 )
@@ -162,8 +164,7 @@ class EventBus(BaseEventBus[T]):
             raise InvalidEventHandlerError(
                 "EventBus accepts synchronous handlers; use AsyncEventBus"
             )
-        if replay < 0:
-            raise ValueError("Replay count cannot be negative")
+        replay = validate_nonnegative_count(replay, name="Replay count")
         delivery_limit = self._delivery_limit(once=once, times=times)
         normalized_filter = coerce_event_filter(
             event_filter,
@@ -468,8 +469,8 @@ class EventBus(BaseEventBus[T]):
         predicate: Callable[[T], bool] | None = None,
         timeout: float | None = None,
     ) -> T | None:
-        if timeout is not None and timeout < 0:
-            raise ValueError("Event wait timeout cannot be negative")
+        if timeout is not None:
+            timeout = validate_nonnegative_timeout(timeout, name="Event wait timeout")
         normalized_filter = coerce_event_filter(
             event_filter,
             event_type=event_type,

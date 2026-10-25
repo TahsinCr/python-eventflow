@@ -11,7 +11,13 @@ from dataclasses import dataclass, field as dataclass_field
 from typing import Generic, TypeVar
 
 from .actions import AsyncEventBusActions, EventErrorContext, EventTimeoutContext
-from .base import BaseEventBus, normalize_replay_capacity, validate_positive_capacity
+from .base import (
+    BaseEventBus,
+    normalize_replay_capacity,
+    validate_nonnegative_count,
+    validate_nonnegative_timeout,
+    validate_positive_capacity,
+)
 from .contracts import DeliveryMode, ErrorPolicy, EventBusStats, PublishResult
 from .compatibility import ExceptionGroup
 from .errors import EventBusError, InvalidEventHandlerError
@@ -154,8 +160,7 @@ class AsyncEventBus(BaseEventBus[T]):
             raise InvalidEventHandlerError(
                 "AsyncEventBus accepts async handlers only"
             )
-        if replay < 0:
-            raise ValueError("Replay count cannot be negative")
+        replay = validate_nonnegative_count(replay, name="Replay count")
         delivery_limit = self._delivery_limit(once=once, times=times)
         normalized_filter = coerce_event_filter(
             event_filter,
@@ -444,8 +449,8 @@ class AsyncEventBus(BaseEventBus[T]):
         timeout: float | None = None,
     ) -> T | None:
         loop = self._bind_loop()
-        if timeout is not None and timeout < 0:
-            raise ValueError("Event wait timeout cannot be negative")
+        if timeout is not None:
+            timeout = validate_nonnegative_timeout(timeout, name="Event wait timeout")
         normalized_filter = coerce_event_filter(
             event_filter,
             event_type=event_type,
