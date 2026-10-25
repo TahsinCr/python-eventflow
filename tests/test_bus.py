@@ -445,6 +445,25 @@ class EventBusTests(unittest.TestCase):
         release.set()
         bus.close()
 
+    def test_clear_wakes_wait_for_without_timeout(self) -> None:
+        bus = EventBus[int]()
+        result: list[int | None] = []
+        worker = threading.Thread(target=lambda: result.append(bus.wait_for()))
+        worker.start()
+
+        with bus._condition:
+            registered = bus._condition.wait_for(
+                lambda: bus.subscriber_count == 1,
+                timeout=1.0,
+            )
+        self.assertTrue(registered)
+        bus.clear()
+        worker.join(1.0)
+
+        self.assertFalse(worker.is_alive())
+        self.assertEqual(result, [None])
+        bus.close()
+
     def test_wait_for_receives_matching_event_and_close_wakes_waiter(self) -> None:
         bus = EventBus[int]()
         result: list[int | None] = []

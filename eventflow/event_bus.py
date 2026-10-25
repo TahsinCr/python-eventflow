@@ -479,7 +479,7 @@ class EventBus(BaseEventBus[T]):
         try:
             with self._condition:
                 ready = self._condition.wait_for(
-                    lambda: bool(received) or self._closed,
+                    lambda: bool(received) or self._closed or not subscription.active,
                     timeout=timeout,
                 )
                 timed_out = not ready
@@ -498,6 +498,8 @@ class EventBus(BaseEventBus[T]):
             self._subscribers.clear()
         for subscription in subscriptions:
             subscription._deactivate()
+        with self._condition:
+            self._condition.notify_all()
 
     def close(self) -> None:
         with self._condition:

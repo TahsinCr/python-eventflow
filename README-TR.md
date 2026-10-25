@@ -645,9 +645,8 @@ hook'ları async olmalıdır.
 İşiniz bitince `close()` çağırın; context manager bunu otomatik yapar.
 Kapatılmış bus yeni yayın veya abonelik kabul etmez ve `EventBusClosedError`
 yükseltir. `clear()` abonelikleri kaldırır, history'yi silmez.
-`AsyncEventBus` temizlenirken bekleyen wait çağrıları `None` ile tamamlanır.
-Senkron bus'taki bekleme event gelene, timeout dolana veya bus kapanana kadar
-sürer.
+Her iki bus türünde de `clear()`, bekleyen `wait_for()` çağrılarını `None` ile
+tamamlar. Senkron wait, bus kapandığında da `None` döndürür.
 
 Senkron bus periyodik worker'ların durması için `shutdown_timeout` süresince
 bekler. Worker zamanında durmazsa `EventShutdownTimeoutError` yükselir.

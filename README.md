@@ -628,9 +628,8 @@ Hooks on `EventBus` are synchronous; hooks on `AsyncEventBus` are async.
 Use `close()` when a bus is no longer needed; context managers do this
 automatically. A closed bus rejects new subscriptions and publications with
 `EventBusClosedError`. `clear()` removes subscriptions but leaves history
-intact. On `AsyncEventBus`, clearing also completes pending waits with
-`None`. A synchronous wait continues until an event arrives, its timeout
-expires, or the bus closes.
+intact and completes pending `wait_for()` calls with `None` on both bus types.
+A synchronous wait also returns `None` when the bus closes.
 
 The synchronous bus waits up to `shutdown_timeout` for periodic workers to
 stop. If a worker does not stop in time, `EventShutdownTimeoutError` is
