@@ -85,8 +85,12 @@ class CallbackSubscription(Subscription):
             self._enabled = False
 
     def _hook(self, name: str, callback: Callable) -> Callable:
-        asynchronous = inspect.iscoroutinefunction(callback) or inspect.iscoroutinefunction(getattr(callback, "__call__", None))
-        if not callable(callback) or asynchronous != self.asynchronous:
+        if not callable(callback):
+            raise TypeError("Hook must be callable")
+        asynchronous = inspect.iscoroutinefunction(callback) or inspect.iscoroutinefunction(
+            type(callback).__call__
+        )
+        if asynchronous != self.asynchronous:
             raise TypeError("Hook must match callback sync/async mode")
         with self._policy_lock:
             self._hooks.setdefault(name, []).append(callback)

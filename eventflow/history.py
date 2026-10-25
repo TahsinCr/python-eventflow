@@ -40,9 +40,9 @@ class MemoryEventHistory(EventHistory[T]):
     """Thread-safe bounded history preserving publication order."""
 
     def __init__(self, capacity: int = 1_000) -> None:
-        if int(capacity) <= 0:
-            raise ValueError("Event history capacity must be positive")
-        self._events: deque[T] = deque(maxlen=int(capacity))
+        if isinstance(capacity, bool) or not isinstance(capacity, int) or capacity <= 0:
+            raise ValueError("Event history capacity must be a positive integer")
+        self._events: deque[T] = deque(maxlen=capacity)
         self._lock = threading.RLock()
 
     @property

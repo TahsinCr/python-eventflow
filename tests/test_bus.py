@@ -27,6 +27,16 @@ from eventflow import (
 from eventflow.compatibility import ExceptionGroup
 
 
+class _FailingQueryHistory(MemoryEventHistory[int]):
+    def query(
+        self,
+        event_filter: EventFilter[int] | None = None,
+        *,
+        limit: int | None = None,
+    ) -> tuple[int, ...]:
+        raise RuntimeError("history query failed")
+
+
 class EventBusTests(unittest.TestCase):
     def test_parametrized_event_contracts_construct(self) -> None:
         event_filter = EventFilter[int](predicate=lambda value: value > 0)
@@ -115,6 +125,32 @@ class EventBusTests(unittest.TestCase):
         replayed: list[int] = []
         bus.subscribe(replayed.append, replay=2)
         self.assertEqual(replayed, [3, 4])
+
+    def test_replay_setup_failures_do_not_leak_subscriptions(self) -> None:
+        bus = EventBus[int](history=2)
+        bus.publish(1)
+
+        def broken_filter(_event: int) -> bool:
+            raise RuntimeError("filter failed")
+
+        with self.assertRaisesRegex(RuntimeError, "filter failed"):
+            bus.subscribe(lambda _event: None, predicate=broken_filter, replay=1)
+        self.assertEqual(bus.subscriber_count, 0)
+
+        failing_history = EventBus[int](history=_FailingQueryHistory(2))
+        with self.assertRaisesRegex(RuntimeError, "history query failed"):
+            failing_history.subscribe(lambda _event: None, replay=1)
+        self.assertEqual(failing_history.subscriber_count, 0)
+
+    def test_capacity_arguments_reject_bool_and_fractional_values(self) -> None:
+        with self.assertRaises(ValueError):
+            EventBus[int](replay_buffer_limit=0.5)  # type: ignore[arg-type]
+        with self.assertRaises(ValueError):
+            AsyncEventBus[int](replay_buffer_limit=True)
+        with self.assertRaises(ValueError):
+            MemoryEventHistory[int](capacity=1.5)  # type: ignore[arg-type]
+        with self.assertRaises(ValueError):
+            MemoryEventHistory[int](capacity=True)
 
     def test_unfiltered_limited_history_reads_do_not_copy_the_complete_buffer(self) -> None:
         class NoFullIterationDeque(deque[int]):
@@ -245,6 +281,35 @@ class EventBusTests(unittest.TestCase):
         bus.close()
         self.assertTrue(bus.closed)
 
+    def test_close_does_not_wait_for_an_inflight_callback(self) -> None:
+        bus = EventBus[int]()
+        entered = threading.Event()
+        release = threading.Event()
+        finished = threading.Event()
+        published: list[PublishResult] = []
+
+        def handler(_event: int) -> None:
+            entered.set()
+            release.wait(1.0)
+            finished.set()
+
+        bus.subscribe(handler)
+        publishing = threading.Thread(target=lambda: published.append(bus.publish(1)))
+        publishing.start()
+        try:
+            self.assertTrue(entered.wait(1.0))
+            bus.close()
+            self.assertFalse(finished.is_set())
+            with self.assertRaises(EventBusClosedError):
+                bus.publish(2)
+        finally:
+            release.set()
+            publishing.join(1.0)
+
+        self.assertFalse(publishing.is_alive())
+        self.assertTrue(finished.is_set())
+        self.assertEqual(published[0].delivered, 1)
+
     def test_history_capacity_shorthand_and_bus_query_tools(self) -> None:
         bus = EventBus[int](history=2)
         for value in (1, 2, 3):
@@ -355,6 +420,30 @@ class EventBusTests(unittest.TestCase):
         release.set()
         closer.join(1.0)
         self.assertFalse(closer.is_alive())
+
+    def test_cancelled_periodic_thread_stays_owned_until_it_exits(self) -> None:
+        from eventflow import EventShutdownTimeoutError
+
+        entered = threading.Event()
+        release = threading.Event()
+        bus = EventBus[int](max_schedules=1, shutdown_timeout=0.02)
+
+        def block(_value: int) -> None:
+            entered.set()
+            release.wait(1.0)
+
+        bus.subscribe(block)
+        schedule = bus.publish_every(1, 0.001)
+        self.assertTrue(entered.wait(1.0))
+        schedule.cancel()
+
+        with self.assertRaisesRegex(EventBusError, "capacity"):
+            bus.publish_every(2, 60.0, immediately=False)
+        with self.assertRaises(EventShutdownTimeoutError):
+            bus.close()
+
+        release.set()
+        bus.close()
 
     def test_wait_for_receives_matching_event_and_close_wakes_waiter(self) -> None:
         bus = EventBus[int]()
@@ -603,6 +692,73 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bus.subscriber_count, 0)
         await bus.close()
 
+    async def test_async_replay_setup_failures_do_not_leak_subscriptions(self) -> None:
+        bus = AsyncEventBus[int](history=2)
+        await bus.publish(1)
+
+        def broken_filter(_event: int) -> bool:
+            raise RuntimeError("filter failed")
+
+        async def receive(_event: int) -> None:
+            return None
+
+        with self.assertRaisesRegex(RuntimeError, "filter failed"):
+            await bus.subscribe(receive, predicate=broken_filter, replay=1)
+        self.assertEqual(bus.subscriber_count, 0)
+
+        failing_history = AsyncEventBus[int](history=_FailingQueryHistory(2))
+        with self.assertRaisesRegex(RuntimeError, "history query failed"):
+            await failing_history.subscribe(receive, replay=1)
+        self.assertEqual(failing_history.subscriber_count, 0)
+
+    async def test_async_close_can_resume_after_caller_cancellation(self) -> None:
+        bus = AsyncEventBus[int]()
+
+        async def receive(_event: int) -> None:
+            return None
+
+        subscription = await bus.subscribe(receive)
+        await subscription._lock.acquire()
+        closing = asyncio.create_task(bus.close())
+        await asyncio.sleep(0)
+        self.assertFalse(closing.done())
+        closing.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await closing
+        self.assertEqual(bus.subscriber_count, 1)
+
+        subscription._lock.release()
+        await bus.close()
+        self.assertFalse(subscription.active)
+        self.assertEqual(bus.subscriber_count, 0)
+
+    async def test_async_close_does_not_wait_for_an_inflight_callback(self) -> None:
+        bus = AsyncEventBus[int]()
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        finished = asyncio.Event()
+
+        async def handler(_event: int) -> None:
+            entered.set()
+            await release.wait()
+            finished.set()
+
+        await bus.subscribe(handler)
+        publishing = asyncio.create_task(bus.publish(1))
+        try:
+            await asyncio.wait_for(entered.wait(), 1.0)
+            await bus.close()
+            self.assertFalse(finished.is_set())
+            with self.assertRaises(EventBusClosedError):
+                await bus.publish(2)
+        finally:
+            release.set()
+            await asyncio.gather(publishing, return_exceptions=True)
+            await bus.close()
+
+        self.assertTrue(finished.is_set())
+        self.assertEqual(publishing.result().delivered, 1)
+
     async def test_async_wait_subscription_is_atomic_with_publish(self) -> None:
         bus = AsyncEventBus[int]()
         await bus._lock.acquire()
@@ -708,6 +864,80 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
         finally:
             await schedule.cancel()
             await bus.close()
+
+    async def test_cancelled_periodic_task_stays_owned_until_it_exits(self) -> None:
+        bus = AsyncEventBus[int](max_schedules=1)
+        entered = asyncio.Event()
+        cancellation_received = asyncio.Event()
+        release = asyncio.Event()
+        finished = asyncio.Event()
+
+        async def block(_value: int) -> None:
+            entered.set()
+            try:
+                await release.wait()
+            except asyncio.CancelledError:
+                cancellation_received.set()
+                await release.wait()
+                raise
+            finally:
+                finished.set()
+
+        await bus.subscribe(block)
+        schedule = await bus.publish_every(1, 0.001)
+        await asyncio.wait_for(entered.wait(), 1.0)
+        await schedule.cancel()
+        await asyncio.wait_for(cancellation_received.wait(), 1.0)
+
+        with self.assertRaisesRegex(EventBusError, "capacity"):
+            await bus.publish_every(2, 60.0, immediately=False)
+
+        release.set()
+        await bus.close()
+        self.assertTrue(finished.is_set())
+
+    async def test_concurrent_callback_cancellation_is_a_delivery_failure(self) -> None:
+        bus = AsyncEventBus[int](delivery_mode=DeliveryMode.CONCURRENT)
+        received: list[int] = []
+
+        async def cancel_self(_event: int) -> None:
+            raise asyncio.CancelledError
+
+        async def receive(event: int) -> None:
+            received.append(event)
+
+        await bus.subscribe(cancel_self)
+        await bus.subscribe(receive)
+
+        result = await bus.publish(7)
+        self.assertEqual((result.matched, result.delivered, result.failed), (2, 1, 1))
+        self.assertIsInstance(result.errors[0], EventBusError)
+        self.assertEqual(received, [7])
+        self.assertEqual(
+            (bus.stats.published, bus.stats.delivered, bus.stats.failed),
+            (1, 1, 1),
+        )
+
+    async def test_concurrent_publish_cancellation_still_propagates(self) -> None:
+        bus = AsyncEventBus[int](delivery_mode=DeliveryMode.CONCURRENT)
+        entered = asyncio.Event()
+        cancelled = asyncio.Event()
+
+        async def wait_for_release(_event: int) -> None:
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancelled.set()
+                raise
+
+        await bus.subscribe(wait_for_release)
+        publishing = asyncio.create_task(bus.publish(1))
+        await asyncio.wait_for(entered.wait(), 1.0)
+        publishing.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await publishing
+        self.assertTrue(cancelled.is_set())
 
     async def test_threadsafe_publish_uses_owning_loop(self) -> None:
         bus = AsyncEventBus[int]()

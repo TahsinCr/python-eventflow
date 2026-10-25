@@ -26,11 +26,9 @@ def validate_positive_capacity(value: int, *, name: str) -> int:
 
 
 def normalize_replay_capacity(value: int) -> int:
-    """Preserve the event buses' established replay-capacity normalization."""
+    """Validate a replay buffer capacity as a positive integer."""
 
-    if value <= 0:
-        raise ValueError("Replay buffer limit must be positive")
-    return int(value)
+    return validate_positive_capacity(value, name="Replay buffer limit")
 
 
 def validate_positive_timeout(value: float, *, name: str) -> float:
@@ -136,5 +134,4 @@ class BaseEventBus(Generic[T], ABC):
     def _is_async_handler(handler: Any) -> bool:
         if inspect.iscoroutinefunction(handler):
             return True
-        call = getattr(handler, "__call__", None)
-        return call is not None and inspect.iscoroutinefunction(call)
+        return callable(handler) and inspect.iscoroutinefunction(type(handler).__call__)

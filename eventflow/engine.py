@@ -14,6 +14,7 @@ from .actions import (
     EventTimeoutContext,
 )
 from .async_event_bus import AsyncEventBus
+from .compatibility import ExceptionGroup
 from .contracts import DeliveryMode, ErrorPolicy, PublishResult
 from .event_bus import EventBus
 from .filtering import EventFilter, EventType
@@ -55,6 +56,7 @@ class EventEngine:
             on_timeout=on_timeout,
         )
         self._channels: dict[str, EventBus[Any]] = {}
+        self._pending_close: dict[int, EventBus[Any]] = {}
         self._lock = threading.RLock()
         self._running = True
 
@@ -105,17 +107,41 @@ class EventEngine:
         self,
         channel: str,
         callback: Callable[[Any], None],
-        **options: Any,
+        *,
+        event_filter: EventFilter[Any] | None = None,
+        event_type: EventType | None = None,
+        predicate: Callable[[Any], bool] | None = None,
+        once: bool = False,
+        times: int | None = None,
+        replay: int = 0,
     ) -> Subscription:
-        return self.channel(channel).subscribe(callback, **options)
+        return self.channel(channel).subscribe(
+            callback,
+            event_filter=event_filter,
+            event_type=event_type,
+            predicate=predicate,
+            once=once,
+            times=times,
+            replay=replay,
+        )
 
     def once(
         self,
         channel: str,
         callback: Callable[[Any], None],
-        **options: Any,
+        *,
+        event_filter: EventFilter[Any] | None = None,
+        event_type: EventType | None = None,
+        predicate: Callable[[Any], bool] | None = None,
+        replay: int = 0,
     ) -> Subscription:
-        return self.channel(channel).once(callback, **options)
+        return self.channel(channel).once(
+            callback,
+            event_filter=event_filter,
+            event_type=event_type,
+            predicate=predicate,
+            replay=replay,
+        )
 
     def publish_every(
         self,
@@ -153,9 +179,13 @@ class EventEngine:
         name = _channel_name(name)
         with self._lock:
             bus = self._channels.pop(name, None)
+            if bus is not None:
+                self._pending_close[id(bus)] = bus
         if bus is None:
             return False
         bus.close()
+        with self._lock:
+            self._pending_close.pop(id(bus), None)
         return True
 
     def start(self) -> None:
@@ -168,9 +198,21 @@ class EventEngine:
         with self._lock:
             channels = tuple(self._channels.values())
             self._channels.clear()
+            for channel in channels:
+                self._pending_close[id(channel)] = channel
+            pending = tuple(self._pending_close.values())
             self._running = False
-        for channel in channels:
-            channel.close()
+        errors: list[Exception] = []
+        for channel in pending:
+            try:
+                channel.close()
+            except Exception as exc:
+                errors.append(exc)
+            else:
+                with self._lock:
+                    self._pending_close.pop(id(channel), None)
+        if errors:
+            raise ExceptionGroup("One or more event channels failed to close", errors)
 
     close = stop
 
@@ -209,6 +251,7 @@ class AsyncEventEngine:
             on_timeout=on_timeout,
         )
         self._channels: dict[str, AsyncEventBus[Any]] = {}
+        self._pending_close: dict[int, AsyncEventBus[Any]] = {}
         self._lock = threading.RLock()
         self._running = True
 
@@ -255,17 +298,41 @@ class AsyncEventEngine:
         self,
         channel: str,
         callback: Callable[[Any], Awaitable[None]],
-        **options: Any,
+        *,
+        event_filter: EventFilter[Any] | None = None,
+        event_type: EventType | None = None,
+        predicate: Callable[[Any], bool] | None = None,
+        once: bool = False,
+        times: int | None = None,
+        replay: int = 0,
     ) -> AsyncSubscription:
-        return await self.channel(channel).subscribe(callback, **options)
+        return await self.channel(channel).subscribe(
+            callback,
+            event_filter=event_filter,
+            event_type=event_type,
+            predicate=predicate,
+            once=once,
+            times=times,
+            replay=replay,
+        )
 
     async def once(
         self,
         channel: str,
         callback: Callable[[Any], Awaitable[None]],
-        **options: Any,
+        *,
+        event_filter: EventFilter[Any] | None = None,
+        event_type: EventType | None = None,
+        predicate: Callable[[Any], bool] | None = None,
+        replay: int = 0,
     ) -> AsyncSubscription:
-        return await self.channel(channel).once(callback, **options)
+        return await self.channel(channel).once(
+            callback,
+            event_filter=event_filter,
+            event_type=event_type,
+            predicate=predicate,
+            replay=replay,
+        )
 
     async def publish_every(
         self,
@@ -303,9 +370,13 @@ class AsyncEventEngine:
         name = _channel_name(name)
         with self._lock:
             bus = self._channels.pop(name, None)
+            if bus is not None:
+                self._pending_close[id(bus)] = bus
         if bus is None:
             return False
         await bus.close()
+        with self._lock:
+            self._pending_close.pop(id(bus), None)
         return True
 
     async def start(self) -> None:
@@ -318,9 +389,21 @@ class AsyncEventEngine:
         with self._lock:
             channels = tuple(self._channels.values())
             self._channels.clear()
+            for channel in channels:
+                self._pending_close[id(channel)] = channel
+            pending = tuple(self._pending_close.values())
             self._running = False
-        for channel in channels:
-            await channel.close()
+        errors: list[Exception] = []
+        for channel in pending:
+            try:
+                await channel.close()
+            except Exception as exc:
+                errors.append(exc)
+            else:
+                with self._lock:
+                    self._pending_close.pop(id(channel), None)
+        if errors:
+            raise ExceptionGroup("One or more async event channels failed to close", errors)
 
     close = stop
 

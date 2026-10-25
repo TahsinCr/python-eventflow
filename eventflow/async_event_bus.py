@@ -165,24 +165,20 @@ class AsyncEventBus(BaseEventBus[T]):
         async with self._lock:
             self._ensure_open()
             history = self._history
+            replay_snapshot = history.query() if replay and history is not None else ()
             subscription, subscriber = self._subscribe_locked(
                 callback,
                 normalized_filter,
                 delivery_limit,
                 replaying=bool(replay and history is not None),
             )
-            replay_snapshot = (
-                history.query()
-                if subscriber.replaying and history is not None
-                else ()
-            )
 
-        replay_events = tuple(
-            event for event in replay_snapshot if normalized_filter.matches(event)
-        )[-replay:]
+        try:
+            replay_events = tuple(
+                event for event in replay_snapshot if normalized_filter.matches(event)
+            )[-replay:]
 
-        if subscriber.replaying:
-            try:
+            if subscriber.replaying:
                 pending: tuple[T, ...] | None = replay_events
                 while pending is not None:
                     for event in pending:
@@ -207,9 +203,9 @@ class AsyncEventBus(BaseEventBus[T]):
                             if final:
                                 break
                     pending = subscriber.finish_replay()
-            except BaseException:
-                await asyncio.shield(subscription.cancel())
-                raise
+        except BaseException:
+            await asyncio.shield(subscription.cancel())
+            raise
         return subscription
 
     def _subscribe_locked(
@@ -302,8 +298,17 @@ class AsyncEventBus(BaseEventBus[T]):
         else:
             outcomes = await asyncio.gather(
                 *(self._deliver(subscriber, event) for subscriber in matched),
+                return_exceptions=True,
             )
-            for was_delivered, error in outcomes:
+            for outcome in outcomes:
+                if isinstance(outcome, asyncio.CancelledError):
+                    errors.append(
+                        EventBusError("An async event callback was cancelled")
+                    )
+                    continue
+                if isinstance(outcome, BaseException):
+                    raise outcome
+                was_delivered, error = outcome
                 if was_delivered:
                     delivered += 1
                 if error is not None:
@@ -396,8 +401,6 @@ class AsyncEventBus(BaseEventBus[T]):
             async def cancel() -> None:
                 if task is not None and task is not asyncio.current_task():
                     task.cancel()
-                async with self._lock:
-                    self._schedules.pop(schedule_id, None)
 
             subscription = AsyncSubscription(schedule_id, cancel)
 
@@ -502,26 +505,30 @@ class AsyncEventBus(BaseEventBus[T]):
     async def close(self) -> None:
         self._bind_loop()
         async with self._lock:
-            if self._closed:
+            if self._closed and not self._subscribers and not self._schedules:
                 return
             self._closed = True
             subscriptions = tuple(
                 subscriber.subscription for subscriber in self._subscribers.values()
             )
             schedules = tuple(self._schedules.values())
-            self._subscribers.clear()
-            self._schedules.clear()
             waiters = tuple(self._waiters)
             for waiter in waiters:
                 if not waiter.done():
                     waiter.set_result(None)
         for subscription in subscriptions:
-            await subscription._deactivate()
-        for schedule, _task in schedules:
-            await schedule.cancel()
+            await subscription.cancel()
+            async with self._lock:
+                self._subscribers.pop(subscription.id, None)
         current_task = asyncio.current_task()
+        for schedule, task in schedules:
+            if task is not current_task:
+                task.cancel()
+            await schedule.cancel()
         pending_tasks = tuple(
-            task for _schedule, task in schedules if task is not current_task
+            task
+            for _schedule, task in tuple(self._schedules.values())
+            if task is not current_task
         )
         if pending_tasks:
             await asyncio.gather(

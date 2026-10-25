@@ -413,6 +413,11 @@ a periodic publish stops that schedule.
 `DeliveryMode.SEQUENTIAL` awaits matching handlers in subscription order.
 `DeliveryMode.CONCURRENT` awaits them together. Concurrent mode can be useful
 when handlers are independent, but their completion order is not guaranteed.
+Sequential ordering applies within one `publish()` call; separate publish calls
+may overlap. In concurrent mode, a handler that ends with
+`asyncio.CancelledError` is recorded as a failed delivery in `PublishResult`.
+Cancelling the task that called `publish()` still propagates cancellation to
+the caller and cancels outstanding handler tasks.
 
 ~~~python
 import asyncio
@@ -496,6 +501,9 @@ refer to the same channel. `engine.channel(name)` returns a channel, creating
 it when necessary. Use `engine.add(name, bus)` to register a bus with custom
 settings. `remove(name)` closes one channel; `stop()` closes every channel.
 The engine exposes `running` and a sorted `channel_names` tuple.
+During `stop()`, both engines attempt every channel. If some closes fail, the
+failures are raised together and the engine retains those channels so a later
+`stop()` can retry cleanup.
 
 `AsyncEventEngine` offers the same channel model for async buses. Its
 `channel()` and `add()` methods return directly. Publish, subscribe, once,
@@ -628,7 +636,8 @@ The synchronous bus waits up to `shutdown_timeout` for periodic workers to
 stop. If a worker does not stop in time, `EventShutdownTimeoutError` is
 raised. The worker is not forcibly terminated, so `close()` can be retried
 after the blocking handler finishes. Async close cancels and awaits periodic
-tasks.
+tasks. Closing a bus does not wait for active `publish()` calls: a callback
+that has already started may finish after `close()` returns.
 
 <a id="bus-api"></a>
 ### Bus methods
@@ -651,16 +660,21 @@ without `await` and returns a `concurrent.futures.Future`.
 <a id="engine-api"></a>
 ### Engine methods
 
-`EventEngine` provides `channel(name)`, `add(name, bus)`, `remove(name)`,
-`publish(channel, event)`, `subscribe(channel, callback, **options)`,
-`once(channel, callback, **options)`, `wait_for(channel, **options)`,
-`publish_every(channel, event, interval, **options)`, `start()`, and
+`EventEngine` provides `channel()`, `add()`, `remove()`, `publish()`,
+`subscribe()`, `once()`, `wait_for()`, `publish_every()`, `start()`, and
 `stop()`. `channel()` and `add()` return directly.
 
-`AsyncEventEngine` provides the same channel operations for async buses.
-`channel()` and `add()` return directly; publishing, subscription, waiting,
-removal, start, and stop are awaited. Both engines support context managers;
-the async engine uses `async with`.
+Engine `subscribe()` accepts `event_filter`, `event_type`, `predicate`, `once`,
+`times`, and `replay`. Engine `once()` accepts the filter options and `replay`.
+The async engine exposes the same typed options for async handlers.
+
+`AsyncEventEngine` provides the same operations for async buses. `channel()`
+and `add()` return directly; publishing, subscription, waiting, removal, start,
+and stop are awaited. Both engines support context managers; the async engine
+uses `async with`.
+
+After a successful `stop()`, an engine can be reused: a later `channel()` or
+`add()` call creates or registers new open channels and marks it running again.
 
 <a id="public-types"></a>
 ### Public types and errors

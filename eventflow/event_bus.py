@@ -175,6 +175,7 @@ class EventBus(BaseEventBus[T]):
             history = self._history
             subscription_id = self._next_id
             self._next_id += 1
+            replay_snapshot = history.query() if replay and history is not None else ()
 
             def cancel() -> None:
                 with self._lock:
@@ -190,43 +191,42 @@ class EventBus(BaseEventBus[T]):
                 pending=deque(maxlen=self._replay_buffer_limit),
             )
             self._subscribers[subscription_id] = subscriber
-            replay_snapshot = (
-                history.query()
-                if subscriber.replaying and history is not None
-                else ()
-            )
 
-        replay_events = tuple(
-            event for event in replay_snapshot if normalized_filter.matches(event)
-        )[-replay:]
+        try:
+            replay_events = tuple(
+                event for event in replay_snapshot if normalized_filter.matches(event)
+            )[-replay:]
 
-        if subscriber.replaying:
-            pending: tuple[T, ...] | None = replay_events
-            while pending is not None:
-                for event in pending:
-                    claimed, final = subscriber.claim()
-                    if not claimed:
-                        break
-                    if final:
-                        subscription._consume()
-                    try:
-                        callback(event)
-                    except Exception as exc:
-                        action_errors = self._notify_errors(event, (exc,))
-                        with self._lock:
-                            self._failed += 1 + len(action_errors)
-                        if self._error_policy is ErrorPolicy.RAISE:
-                            subscription.cancel()
-                            raise ExceptionGroup(
-                                "Event replay failed",
-                                [exc, *action_errors],
-                            ) from exc
-                    else:
-                        with self._lock:
-                            self._delivered += 1
-                        if final:
+            if subscriber.replaying:
+                pending: tuple[T, ...] | None = replay_events
+                while pending is not None:
+                    for event in pending:
+                        claimed, final = subscriber.claim()
+                        if not claimed:
                             break
-                pending = subscriber.finish_replay()
+                        if final:
+                            subscription._consume()
+                        try:
+                            callback(event)
+                        except Exception as exc:
+                            action_errors = self._notify_errors(event, (exc,))
+                            with self._lock:
+                                self._failed += 1 + len(action_errors)
+                            if self._error_policy is ErrorPolicy.RAISE:
+                                subscription.cancel()
+                                raise ExceptionGroup(
+                                    "Event replay failed",
+                                    [exc, *action_errors],
+                                ) from exc
+                        else:
+                            with self._lock:
+                                self._delivered += 1
+                            if final:
+                                break
+                    pending = subscriber.finish_replay()
+        except BaseException:
+            subscription.cancel()
+            raise
         return subscription
 
     def once(
@@ -412,9 +412,6 @@ class EventBus(BaseEventBus[T]):
 
             def cancel() -> None:
                 stopped.set()
-                with self._lock:
-                    if not self._closed:
-                        self._schedules.pop(schedule_id, None)
 
             subscription = Subscription(schedule_id, cancel)
 

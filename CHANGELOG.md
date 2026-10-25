@@ -4,6 +4,30 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Ship the PEP 561 `py.typed` marker and run tests, Ruff, and Pyright across
+  supported Python versions and Linux, Windows, and macOS in GitHub Actions.
+- Expose typed filter and replay options on the engine subscription methods.
+
+### Changed
+
+- Clarify that bus shutdown does not wait for callbacks already running in
+  active publish calls.
+
+### Fixed
+
+- Keep cancelled periodic publishers under bus ownership until their threads
+  or tasks have actually finished.
+- Clean up replay subscriptions when replay filtering or setup raises, and make
+  asynchronous bus shutdown safe to retry after caller cancellation.
+- Attempt to close every engine channel, retain channels whose shutdown failed,
+  and report collected failures together.
+- Report a cancelled callback as a delivery failure in concurrent async mode
+  while preserving cancellation of the publishing task.
+- Reject boolean and fractional values for replay and in-memory history
+  capacities.
+
 ## [v1.0] - 2026-10-24
 
 ### Added

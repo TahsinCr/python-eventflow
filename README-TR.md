@@ -423,6 +423,11 @@ Varsayılan `DeliveryMode.SEQUENTIAL`, eşleşen handler'ları abonelik sırası
 tek tek await eder. `DeliveryMode.CONCURRENT` handler'ları birlikte bekler.
 Handler'lar birbirinden bağımsızsa concurrent kip bekleme süresini azaltabilir;
 tamamlanma sırası garanti edilmez.
+Sıralı teslimat garantisi tek bir `publish()` çağrısı içindedir; ayrı yayın
+çağrıları birbiriyle çakışabilir. Concurrent kipte `asyncio.CancelledError` ile
+sonlanan bir handler, `PublishResult` içinde başarısız teslimat olarak raporlanır.
+`publish()` çağrısını yapan task iptal edilirse iptal çağırana yayılır ve devam
+eden handler task'ları iptal edilir.
 
 ~~~python
 import asyncio
@@ -508,6 +513,11 @@ Bu nedenle `" Orders "` ve `"orders"` aynı kanala gider.
 `engine.add(name, bus)` özel ayarlı bus kaydeder. `remove(name)` bir kanalı
 kapatıp kaldırır; `stop()` tüm kanalları kapatır. Engine ayrıca `running` ve
 sıralanmış `channel_names` özelliklerini sunar.
+`stop()` sırasında iki engine de bütün kanalları kapatmayı dener. Bazı kanallar
+kapatılamazsa hatalar birlikte yükseltilir ve engine bu kanalların sahipliğini
+korur; sonraki `stop()` çağrısı temizliği yeniden deneyebilir. Başarılı bir
+`stop()` sonrasında engine yeniden kullanılabilir; sonraki `channel()` veya
+`add()` çağrısı yeni ya da açık kanallarla çalışmayı tekrar başlatır.
 
 `AsyncEventEngine` aynı düzeni async bus'lar için sağlar. `channel()` ve
 `add()` doğrudan sonuç döndürür; yayın, abonelik, bekleme, kaldırma, start ve
@@ -643,7 +653,8 @@ Senkron bus periyodik worker'ların durması için `shutdown_timeout` süresince
 bekler. Worker zamanında durmazsa `EventShutdownTimeoutError` yükselir.
 Worker zorla durdurulmaz; bloklayan handler tamamlandıktan sonra `close()`
 yeniden çağrılabilir. Async kapatma periyodik task'ları iptal eder ve
-tamamlanmalarını bekler.
+tamamlanmalarını bekler. Bus'ı kapatmak sürmekte olan `publish()` çağrılarını
+bekletmez; başlamış bir callback `close()` döndükten sonra tamamlanabilir.
 
 <a id="bus-api"></a>
 ### Bus metotları
@@ -666,16 +677,19 @@ await edilir. `publish_threadsafe(event)` başka bir thread'den await etmeden
 <a id="engine-api"></a>
 ### Engine metotları
 
-`EventEngine`; `channel(name)`, `add(name, bus)`, `remove(name)`,
-`publish(channel, event)`, `subscribe(channel, callback, **options)`,
-`once(channel, callback, **options)`, `wait_for(channel, **options)`,
-`publish_every(channel, event, interval, **options)`, `start()` ve
-`stop()` metotlarını sunar. `channel()` ve `add()` doğrudan sonuç döndürür.
+`EventEngine`; `channel()`, `add()`, `remove()`, `publish()`, `subscribe()`,
+`once()`, `wait_for()`, `publish_every()`, `start()` ve `stop()` metotlarını
+sunar. `channel()` ve `add()` doğrudan sonuç döndürür.
 
-`AsyncEventEngine` async bus'lar için aynı kanal işlemlerini sunar.
-`channel()` ve `add()` doğrudan sonuç verir; yayın, abonelik, bekleme,
-kaldırma, başlatma ve durdurma işlemleri await edilir. İki engine de context
-manager ile kullanılabilir; async sürümde `async with` yazılır.
+Engine'in `subscribe()` metodu `event_filter`, `event_type`, `predicate`,
+`once`, `times` ve `replay` seçeneklerini açıkça sunar. `once()` filtre
+seçeneklerini ve `replay` parametresini kabul eder. Async engine aynı seçenekleri
+asenkron handler'lar için sağlar.
+
+`AsyncEventEngine` aynı işlemleri async bus'lar için sunar. `channel()` ve
+`add()` doğrudan sonuç verir; yayın, abonelik, bekleme, kaldırma, başlatma ve
+durdurma işlemleri await edilir. İki engine de context manager ile kullanılabilir;
+async sürümde `async with` yazılır.
 
 <a id="public-types"></a>
 ### Public tipler ve hatalar
