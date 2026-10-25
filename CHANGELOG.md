@@ -53,6 +53,7 @@ All notable changes to this project are documented in this file.
 - Run Pyright against the Python version selected by each CI matrix job.
 - Keep cancelled periodic publishers under bus ownership until their threads
   or tasks have actually finished.
+- Make the replay benchmark use the checkout under test when run as a script.
 - Clean up replay subscriptions when replay filtering or setup raises, and make
   asynchronous bus shutdown safe to retry after caller cancellation.
 - Attempt to close every engine channel, retain channels whose shutdown failed,

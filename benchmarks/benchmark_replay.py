@@ -4,9 +4,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+import sys
 from collections.abc import Awaitable, Callable
+from pathlib import Path
 from statistics import median
 from time import perf_counter
+
+if __package__ in {None, ""}:
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from eventflow import AsyncEventBus, EventBus, MemoryEventHistory
 
