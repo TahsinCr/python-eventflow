@@ -762,16 +762,24 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
             return None
 
         subscription = await bus.subscribe(receive)
-        await subscription._lock.acquire()
+        original_cancel = subscription._cancel
+        cancel_started = asyncio.Event()
+
+        async def blocked_cancel() -> None:
+            cancel_started.set()
+            await asyncio.Event().wait()
+            await original_cancel()
+
+        subscription._cancel = blocked_cancel
         closing = asyncio.create_task(bus.close())
-        await asyncio.sleep(0)
-        self.assertFalse(closing.done())
+        await asyncio.wait_for(cancel_started.wait(), 1.0)
         closing.cancel()
         with self.assertRaises(asyncio.CancelledError):
             await closing
         self.assertEqual(bus.subscriber_count, 1)
+        self.assertFalse(subscription.active)
 
-        subscription._lock.release()
+        subscription._cancel = original_cancel
         await bus.close()
         self.assertFalse(subscription.active)
         self.assertEqual(bus.subscriber_count, 0)

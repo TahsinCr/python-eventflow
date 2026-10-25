@@ -422,9 +422,8 @@ class AsyncEventBus(BaseEventBus[T]):
                             break
                         await asyncio.sleep(interval)
                 finally:
-                    await subscription._deactivate()
-                    async with self._lock:
-                        self._schedules.pop(schedule_id, None)
+                    subscription._deactivate()
+                    self._schedules.pop(schedule_id, None)
 
             task = asyncio.create_task(run(), name=f"AsyncEventBusPeriodic-{schedule_id}")
             self._schedules[schedule_id] = (subscription, task)
@@ -500,7 +499,7 @@ class AsyncEventBus(BaseEventBus[T]):
                 if not waiter.done():
                     waiter.set_result(None)
         for subscription in subscriptions:
-            await subscription._deactivate()
+            subscription._deactivate()
 
     async def close(self) -> None:
         self._bind_loop()

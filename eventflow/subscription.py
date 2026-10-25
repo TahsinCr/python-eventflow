@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import asyncio
 import threading
 from collections.abc import Awaitable, Callable
 
@@ -55,7 +54,6 @@ class AsyncSubscription:
         self._id = subscription_id
         self._cancel = cancel
         self._active = True
-        self._lock = asyncio.Lock()
 
     @property
     def id(self) -> int:
@@ -65,18 +63,17 @@ class AsyncSubscription:
     def active(self) -> bool:
         return self._active
 
-    async def _deactivate(self) -> bool:
-        async with self._lock:
-            if not self._active:
-                return False
-            self._active = False
-            return True
+    def _deactivate(self) -> bool:
+        if not self._active:
+            return False
+        self._active = False
+        return True
 
     async def cancel(self) -> None:
         await self._consume()
 
     async def _consume(self) -> bool:
-        if not await self._deactivate():
+        if not self._deactivate():
             return False
         await self._cancel()
         return True
