@@ -408,14 +408,20 @@ class AsyncEventBus(BaseEventBus[T]):
             schedule_id = self._next_id
             self._next_id += 1
             task: asyncio.Task[None] | None = None
+            started = False
 
             async def cancel() -> None:
                 if task is not None and task is not asyncio.current_task():
                     task.cancel()
+                    if not started:
+                        # A task cancelled before its first step skips run's finally block.
+                        self._schedules.pop(schedule_id, None)
 
             subscription = AsyncSubscription(schedule_id, cancel)
 
             async def run() -> None:
+                nonlocal started
+                started = True
                 completed = 0
                 try:
                     if not immediately:
@@ -434,15 +440,10 @@ class AsyncEventBus(BaseEventBus[T]):
                         await asyncio.sleep(interval)
                 finally:
                     subscription._deactivate()
+                    self._schedules.pop(schedule_id, None)
 
             task = asyncio.create_task(run(), name=f"AsyncEventBusPeriodic-{schedule_id}")
             self._schedules[schedule_id] = (subscription, task)
-
-            def cleanup(_task: asyncio.Task[None]) -> None:
-                subscription._deactivate()
-                self._schedules.pop(schedule_id, None)
-
-            task.add_done_callback(cleanup)
         return subscription
 
     async def wait_for(
