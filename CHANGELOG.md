@@ -36,6 +36,8 @@ All notable changes to this project are documented in this file.
   repeated cancellation cannot leave a finished schedule registered.
 - Remove async periodic schedule records when their task completes, including
   tasks cancelled before their coroutine starts.
+- Let repeated async subscription cancellation retry removal after an earlier
+  attempt is interrupted while waiting for the bus lock.
 - Prevent registering one bus instance under multiple engine channel names,
   including while a removed channel is still closing.
 - Release synchronous periodic schedule capacity when its worker thread cannot

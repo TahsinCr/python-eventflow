@@ -842,6 +842,31 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bus.subscriber_count, 0)
         await bus.close()
 
+    async def test_replay_cleanup_survives_a_second_cancellation(self) -> None:
+        bus = AsyncEventBus[int](history=2)
+        await bus.publish(1)
+        entered = asyncio.Event()
+
+        async def handler(_event: int) -> None:
+            entered.set()
+            await asyncio.Event().wait()
+
+        subscribing = asyncio.create_task(bus.subscribe(handler, replay=1))
+        await asyncio.wait_for(entered.wait(), 1.0)
+        await bus._lock.acquire()
+        try:
+            subscribing.cancel()
+            await asyncio.sleep(0)
+            subscribing.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await subscribing
+        finally:
+            bus._lock.release()
+
+        await asyncio.sleep(0)
+        self.assertEqual(bus.subscriber_count, 0)
+        await bus.close()
+
     async def test_async_replay_setup_failures_do_not_leak_subscriptions(self) -> None:
         bus = AsyncEventBus[int](history=2)
         await bus.publish(1)

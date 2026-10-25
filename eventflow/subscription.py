@@ -73,10 +73,9 @@ class AsyncSubscription:
         await self._consume()
 
     async def _consume(self) -> bool:
-        if not self._deactivate():
-            return False
+        deactivated = self._deactivate()
         await self._cancel()
-        return True
+        return deactivated
 
     async def __aenter__(self) -> "AsyncSubscription":
         return self
