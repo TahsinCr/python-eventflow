@@ -34,12 +34,13 @@ T = TypeVar("T")
 
 def _invoke_sync_callback(callback: Callable[[T], None], event: T) -> None:
     result = callback(event)
-    if inspect.isawaitable(result):
-        if inspect.iscoroutine(result):
-            result.close()
-        raise InvalidEventHandlerError(
-            "Synchronous handlers must not return awaitables; use AsyncEventBus"
-        )
+    if result is None or not inspect.isawaitable(result):
+        return
+    if inspect.iscoroutine(result):
+        result.close()
+    raise InvalidEventHandlerError(
+        "Synchronous handlers must not return awaitables; use AsyncEventBus"
+    )
 
 
 @dataclass(slots=True)
