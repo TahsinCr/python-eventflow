@@ -423,10 +423,11 @@ a periodic publish stops that schedule.
 `DeliveryMode.CONCURRENT` awaits them together. Concurrent mode can be useful
 when handlers are independent, but their completion order is not guaranteed.
 Sequential ordering applies within one `publish()` call; separate publish calls
-may overlap. In concurrent mode, a handler that ends with
-`asyncio.CancelledError` is recorded as a failed delivery in `PublishResult`.
-Cancelling the task that called `publish()` still propagates cancellation to
-the caller and cancels outstanding handler tasks.
+may overlap. In sequential mode, a handler-raised `asyncio.CancelledError`
+propagates from `publish()` and stops delivery to later handlers. In concurrent
+mode, an independently cancelled handler task is recorded as a failed delivery
+in `PublishResult`. Cancelling the task that called `publish()` propagates in
+either mode and cancels in-flight handler work.
 
 ~~~python
 import asyncio
@@ -611,8 +612,11 @@ invokes the underlying callback directly and bypasses its policies; use
 
 A synchronous timeout is observational: Python cannot safely terminate a
 running thread, so the callback completes before an overrun is reported.
-An asynchronous timeout cancels the callback task. A callback's own
-`TimeoutError` is distinct from `CallbackTimeoutError`.
+An asynchronous timeout is cooperative: it requests cancellation and waits for
+the callback task to finish before raising `CallbackTimeoutError`. A callback
+that suppresses cancellation, or a hook that does not return, can extend the
+invocation beyond its configured budget. Python cannot force-stop a coroutine.
+A callback's own `TimeoutError` is distinct from `CallbackTimeoutError`.
 
 <a id="reference"></a>
 ## Lifecycle and reference

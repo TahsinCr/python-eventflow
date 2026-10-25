@@ -432,10 +432,11 @@ tek tek await eder. `DeliveryMode.CONCURRENT` handler'ları birlikte bekler.
 Handler'lar birbirinden bağımsızsa concurrent kip bekleme süresini azaltabilir;
 tamamlanma sırası garanti edilmez.
 Sıralı teslimat garantisi tek bir `publish()` çağrısı içindedir; ayrı yayın
-çağrıları birbiriyle çakışabilir. Concurrent kipte `asyncio.CancelledError` ile
-sonlanan bir handler, `PublishResult` içinde başarısız teslimat olarak raporlanır.
-`publish()` çağrısını yapan task iptal edilirse iptal çağırana yayılır ve devam
-eden handler task'ları iptal edilir.
+çağrıları birbiriyle çakışabilir. Sequential kipte handler'ın yükselttiği
+`asyncio.CancelledError`, `publish()` çağrısından dışarı çıkar ve sonraki
+handler'lara teslimatı durdurur. Concurrent kipte bağımsız olarak iptal edilen
+handler task'ı başarısız teslimat olarak `PublishResult`'a eklenir. `publish()`
+çağıran task iptal edilirse her iki kipte de iptal çağırana yayılır.
 
 ~~~python
 import asyncio
@@ -624,8 +625,11 @@ uygulanacaksa `invoke()` veya `invoke_async()` kullanın.
 
 Senkron timeout gözlemseldir: Python çalışan thread'i güvenli biçimde
 sonlandıramaz, bu nedenle süre aşımı callback tamamlandıktan sonra bildirilir.
-Async timeout callback task'ını iptal eder. Callback'in kendi
-`TimeoutError` hatası, `CallbackTimeoutError` ile aynı değildir.
+Async timeout işbirliğine dayalıdır: callback task'ı iptal edilir ve
+`CallbackTimeoutError` yükseltilmeden önce task'ın bitmesi beklenir. İptali
+yakalayıp sürdüren callback veya tamamlanmayan bir hook, çağrıyı yapılandırılmış
+bütçeden uzun tutabilir. Python bir coroutine'i zorla durduramaz. Callback'in
+kendi `TimeoutError` hatası, `CallbackTimeoutError` ile aynı değildir.
 
 <a id="reference"></a>
 ## Yaşam döngüsü ve başvuru

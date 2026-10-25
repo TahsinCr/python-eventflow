@@ -1108,6 +1108,23 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
             (1, 1, 1),
         )
 
+    async def test_sequential_callback_cancellation_aborts_publish(self) -> None:
+        bus = AsyncEventBus[int]()
+        received: list[int] = []
+
+        async def cancel_self(_event: int) -> None:
+            raise asyncio.CancelledError
+
+        async def receive(event: int) -> None:
+            received.append(event)
+
+        await bus.subscribe(cancel_self)
+        await bus.subscribe(receive)
+
+        with self.assertRaises(asyncio.CancelledError):
+            await bus.publish(7)
+        self.assertEqual(received, [])
+
     async def test_concurrent_publish_cancellation_still_propagates(self) -> None:
         bus = AsyncEventBus[int](delivery_mode=DeliveryMode.CONCURRENT)
         entered = asyncio.Event()

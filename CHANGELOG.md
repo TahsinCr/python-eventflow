@@ -17,6 +17,8 @@ All notable changes to this project are documented in this file.
 
 - Clarify that bus shutdown does not wait for callbacks already running in
   active publish calls.
+- Document sequential and concurrent callback cancellation semantics and the
+  cooperative limits of async callback timeouts.
 - Request only the requested replay window from history for unfiltered
   subscriptions, avoiding full-history copies with the built-in memory history.
 - Document that custom history `append()` implementations run under the
