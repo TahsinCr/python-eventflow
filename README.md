@@ -229,10 +229,13 @@ the other selected handlers. Each call to `publish()` returns a `PublishResult`:
 
 | Field | Meaning |
 | --- | --- |
-| `matched` | Subscriptions selected for this event |
+| `matched` | Subscriptions selected for immediate delivery by this publish call |
 | `delivered` | Handlers that completed successfully |
 | `failed` / `errors` | Collected delivery or action failures |
 | `successful` | `True` when no failures were collected |
+
+Events buffered for a subscription while replay is in progress are excluded
+from `matched`, even when its filter accepts them.
 
 A synchronous `on_error` hook can report a failure without coupling the handler
 to a particular logging system:

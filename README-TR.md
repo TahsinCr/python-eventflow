@@ -237,10 +237,13 @@ diğer handler'lara teslimata devam eder. Her `publish()` çağrısı
 
 | Alan | Anlamı |
 | --- | --- |
-| `matched` | Bu event için seçilen abonelik sayısı |
+| `matched` | Bu publish çağrısında anında teslimat için seçilen abonelik sayısı |
 | `delivered` | Başarıyla tamamlanan handler sayısı |
 | `failed` / `errors` | Toplanan teslimat veya action hataları |
 | `successful` | Hata toplanmadıysa `True` |
+
+Replay devam ederken abonelik için tampona alınan event'ler, filtreyle eşleşse
+bile `matched` sayısına girmez.
 
 Senkron `on_error` hook'u, handler'ı belirli bir log sistemine bağlamadan
 hataları raporlamak için kullanılabilir:
