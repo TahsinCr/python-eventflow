@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import threading
 import time
 import unittest
+import warnings
 from collections import deque
 from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
@@ -657,6 +659,57 @@ class EventBusTests(unittest.TestCase):
 
         with self.assertRaises(InvalidEventHandlerError):
             EventBus[int]().subscribe(handler)
+
+    def test_sync_handlers_reject_awaitables_in_all_delivery_paths(self) -> None:
+        async def handler(_event: int) -> None:
+            pass
+
+        def wrapper(event: int) -> object:
+            return handler(event)
+
+        with warnings.catch_warnings(record=True) as observed:
+            warnings.simplefilter("always", RuntimeWarning)
+
+            direct = EventBus[int]()
+            direct_subscription = direct.subscribe(wrapper)  # type: ignore[arg-type]
+            direct_result = direct.publish(1)
+            self.assertEqual((direct_result.delivered, direct_result.failed), (0, 1))
+            self.assertIsInstance(direct_result.errors[0], InvalidEventHandlerError)
+
+            history = MemoryEventHistory[int](capacity=2)
+            history.append(2)
+            replay_bus = EventBus[int](history=history)
+            replay_subscription = replay_bus.subscribe(
+                wrapper,
+                replay=1,
+            )
+            self.assertEqual(replay_bus.stats.delivered, 0)
+            self.assertEqual(replay_bus.stats.failed, 1)
+
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                executor_bus = EventBus[int](executor=executor)
+                executor_subscription = executor_bus.subscribe(
+                    wrapper,  # type: ignore[arg-type]
+                )
+                executor_result = executor_bus.publish(3)
+                self.assertEqual(
+                    (executor_result.delivered, executor_result.failed), (0, 1)
+                )
+                self.assertIsInstance(
+                    executor_result.errors[0], InvalidEventHandlerError
+                )
+                executor_subscription.cancel()
+                executor_bus.close()
+
+            direct_subscription.cancel()
+            replay_subscription.cancel()
+            direct.close()
+            replay_bus.close()
+            gc.collect()
+
+        self.assertFalse(
+            any(issubclass(item.category, RuntimeWarning) for item in observed)
+        )
 
 
 class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):

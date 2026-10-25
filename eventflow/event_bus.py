@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 import math
 import threading
 import time
@@ -29,6 +30,16 @@ from .subscription import Subscription
 
 
 T = TypeVar("T")
+
+
+def _invoke_sync_callback(callback: Callable[[T], None], event: T) -> None:
+    result = callback(event)
+    if inspect.isawaitable(result):
+        if inspect.iscoroutine(result):
+            result.close()
+        raise InvalidEventHandlerError(
+            "Synchronous handlers must not return awaitables; use AsyncEventBus"
+        )
 
 
 @dataclass(slots=True)
@@ -214,7 +225,7 @@ class EventBus(BaseEventBus[T]):
                         if final:
                             subscription._consume()
                         try:
-                            callback(event)
+                            _invoke_sync_callback(callback, event)
                         except Exception as exc:
                             action_errors = self._notify_errors(event, (exc,))
                             with self._lock:
@@ -353,7 +364,7 @@ class EventBus(BaseEventBus[T]):
         previous = getattr(self._executor_context, "active", False)
         self._executor_context.active = True
         try:
-            callback(event)
+            _invoke_sync_callback(callback, event)
         finally:
             self._executor_context.active = previous
 
@@ -384,7 +395,7 @@ class EventBus(BaseEventBus[T]):
         if final:
             subscriber.subscription._consume()
         try:
-            subscriber.callback(event)
+            _invoke_sync_callback(subscriber.callback, event)
         except Exception as exc:
             return False, exc
         return True, None

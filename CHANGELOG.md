@@ -40,6 +40,8 @@ All notable changes to this project are documented in this file.
   attempt is interrupted while waiting for the bus lock.
 - Preserve unfiltered history fast paths through bus queries and validate
   filter conflicts even when history is disabled.
+- Reject awaitable results from synchronous callbacks during direct, executor,
+  and replay delivery, closing coroutine objects before reporting the error.
 - Prevent registering one bus instance under multiple engine channel names,
   including while a removed channel is still closing.
 - Release synchronous periodic schedule capacity when its worker thread cannot
