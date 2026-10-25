@@ -11,6 +11,7 @@ All notable changes to this project are documented in this file.
 - Expose typed filter and replay options on the engine subscription methods.
 - Check package line coverage and build, inspect, rebuild, and install wheel and
   source distributions in CI.
+- Audit declared runtime dependencies for known vulnerabilities in CI.
 - Add a standalone, standard-library replay benchmark for sync and async buses.
 
 ### Changed

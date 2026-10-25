@@ -49,6 +49,25 @@ jobs:
       - name: Check public package types
         run: pyright --pythonversion "${{ matrix.python-version }}"
 
+  dependency-audit:
+    name: Audit runtime dependencies
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.10"
+
+      - name: Install dependency audit tool
+        run: python -m pip install "pip-audit>=2.7,<3"
+
+      - name: Audit declared runtime dependencies
+        run: pip-audit .
+
   package:
     name: Build and verify distributions
     runs-on: ubuntu-latest
