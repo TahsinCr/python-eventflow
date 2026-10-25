@@ -18,6 +18,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Reject asynchronous event filter predicates instead of treating their
+  coroutine objects as truthy matches.
 - Wake synchronous `wait_for()` calls when `clear()` removes their subscriptions.
 - Run Pyright against the Python version selected by each CI matrix job.
 - Keep cancelled periodic publishers under bus ownership until their threads

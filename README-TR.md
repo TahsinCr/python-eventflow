@@ -219,7 +219,8 @@ with EventBus[PaymentReceived]() as bus:
 
 Handler'a yalnızca ikinci ödeme ulaşır. Sınıf filtresi birden çok sınıf içeren
 tuple da olabilir. Predicate, event'i alıp boolean döndüren senkron bir
-fonksiyondur; async bus'ta da senkron çalışır.
+fonksiyondur; async bus'ta da senkron çalışır. Filtreleme senkron olduğu için
+async predicate'ler ve awaitable döndüren fonksiyonlar kabul edilmez.
 
 Bus metodunda `EventFilter` ile doğrudan `event_type`/`predicate` argümanları
 alternatif kullanımlardır; ikisini birlikte vermeyin. İlk eşleşmeden sonra

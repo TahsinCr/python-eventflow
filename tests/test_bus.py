@@ -5,7 +5,9 @@ import threading
 import time
 import unittest
 from collections import deque
+from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
+from typing import cast
 
 from eventflow import (
     AsyncEventBus,
@@ -50,6 +52,29 @@ class EventBusTests(unittest.TestCase):
         self.assertIsInstance(AsyncEventBusActions[int](), AsyncEventBusActions)
         with self.assertRaises(AttributeError):
             event_filter.predicate = None  # type: ignore[misc]
+
+    def test_event_filter_rejects_async_predicates(self) -> None:
+        async def predicate(_event: int) -> bool:
+            return True
+
+        class AsyncPredicate:
+            async def __call__(self, _event: int) -> bool:
+                return True
+
+        with self.assertRaisesRegex(TypeError, "must be synchronous"):
+            EventFilter[int](predicate=predicate)
+        with self.assertRaisesRegex(TypeError, "must be synchronous"):
+            EventFilter[int](predicate=AsyncPredicate())  # type: ignore[arg-type]
+
+        async def deferred_result() -> bool:
+            return True
+
+        result = deferred_result()
+        sync_predicate = cast(Callable[[int], bool], lambda _event: result)
+        event_filter = EventFilter[int](predicate=sync_predicate)
+        with self.assertRaisesRegex(TypeError, "return a boolean synchronously"):
+            event_filter.matches(1)
+        self.assertIsNone(result.cr_frame)
 
     def test_bus_inherits_base_and_filters_by_type_and_predicate(self) -> None:
         bus = EventBus[object]()

@@ -211,7 +211,9 @@ with EventBus[PaymentReceived]() as bus:
 
 Only the second payment reaches the handler. A type filter may also be a tuple
 of classes. Predicates are synchronous functions that receive the event and
-return a boolean, including when attached to an async bus.
+return a boolean, including when attached to an async bus. Async predicates
+and predicates that return awaitables are rejected because filtering itself
+is synchronous.
 
 Use either an `EventFilter` or the direct `event_type`/`predicate` arguments
 on a bus method; do not combine the two forms. For a handler that should stop

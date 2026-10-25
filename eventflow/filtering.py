@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import inspect
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
@@ -24,11 +25,23 @@ class EventFilter(Generic[T]):
                 raise TypeError("Event filter types must contain one or more classes")
         if self.predicate is not None and not callable(self.predicate):
             raise TypeError("Event filter predicate must be callable")
+        if self.predicate is not None and (
+            inspect.iscoroutinefunction(self.predicate)
+            or inspect.iscoroutinefunction(type(self.predicate).__call__)
+        ):
+            raise TypeError("Event filter predicates must be synchronous")
 
     def matches(self, event: T) -> bool:
         if self.event_type is not None and not isinstance(event, self.event_type):
             return False
-        return self.predicate(event) if self.predicate is not None else True
+        if self.predicate is None:
+            return True
+        result = self.predicate(event)
+        if inspect.isawaitable(result):
+            if inspect.iscoroutine(result):
+                result.close()
+            raise TypeError("Event filter predicates must return a boolean synchronously")
+        return result
 
 
 def coerce_event_filter(
