@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
 from eventflow import (
@@ -42,6 +44,33 @@ class EventEngineTests(unittest.TestCase):
         engine.stop()
         self.assertTrue(recreated.closed)
         self.assertEqual(engine.channel_names, ())
+
+    def test_custom_bus_cannot_be_registered_under_multiple_channels(self) -> None:
+        engine = EventEngine()
+        custom = EventBus[str]()
+        engine.add("first", custom)
+
+        with self.assertRaisesRegex(ValueError, "only one channel"):
+            engine.add("second", custom)
+
+        close_started = threading.Event()
+        close_release = threading.Event()
+        original_close = custom.close
+
+        def blocked_close() -> None:
+            close_started.set()
+            if not close_release.wait(1.0):
+                raise TimeoutError("test close was not released")
+            original_close()
+
+        with patch.object(custom, "close", side_effect=blocked_close):
+            with ThreadPoolExecutor(max_workers=1) as executor:
+                removing = executor.submit(engine.remove, "first")
+                self.assertTrue(close_started.wait(1.0))
+                with self.assertRaisesRegex(ValueError, "only one channel"):
+                    engine.add("second", custom)
+                close_release.set()
+                self.assertTrue(removing.result(timeout=1.0))
 
     def test_engine_can_create_new_channels_after_stop(self) -> None:
         engine = EventEngine()
@@ -212,3 +241,28 @@ class AsyncEventEngineTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(TypeError):
                 engine.add("invalid", EventBus())  # type: ignore[arg-type]
         self.assertFalse(engine.running)
+
+    async def test_async_bus_cannot_be_registered_under_multiple_channels(self) -> None:
+        engine = AsyncEventEngine()
+        custom = AsyncEventBus[int]()
+        engine.add("first", custom)
+
+        with self.assertRaisesRegex(ValueError, "only one channel"):
+            engine.add("second", custom)
+
+        close_started = asyncio.Event()
+        close_release = asyncio.Event()
+        original_close = custom.close
+
+        async def blocked_close() -> None:
+            close_started.set()
+            await close_release.wait()
+            await original_close()
+
+        with patch.object(custom, "close", new=blocked_close):
+            removing = asyncio.create_task(engine.remove("first"))
+            await asyncio.wait_for(close_started.wait(), 1.0)
+            with self.assertRaisesRegex(ValueError, "only one channel"):
+                engine.add("second", custom)
+            close_release.set()
+            self.assertTrue(await asyncio.wait_for(removing, 1.0))

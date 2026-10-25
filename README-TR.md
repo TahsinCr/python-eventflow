@@ -513,7 +513,8 @@ Bu nedenle `" Orders "` ve `"orders"` aynı kanala gider.
 `engine.channel(name)` kanalı döndürür veya oluşturur.
 `engine.add(name, bus)` özel ayarlı bus kaydeder. `remove(name)` bir kanalı
 kapatıp kaldırır; `stop()` tüm kanalları kapatır. Engine ayrıca `running` ve
-sıralanmış `channel_names` özelliklerini sunar.
+sıralanmış `channel_names` özelliklerini sunar. Aynı bus örneği aynı anda yalnızca
+tek kanal adına kaydedilebilir.
 `stop()` sırasında iki engine de bütün kanalları kapatmayı dener. Bazı kanallar
 kapatılamazsa hatalar birlikte yükseltilir ve engine bu kanalların sahipliğini
 korur; sonraki `stop()` çağrısı temizliği yeniden deneyebilir. Başarılı bir

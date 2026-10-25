@@ -22,6 +22,8 @@ All notable changes to this project are documented in this file.
   coroutine objects as truthy matches.
 - Remove cancellation-sensitive awaits from periodic task cleanup so a
   repeated cancellation cannot leave a finished schedule registered.
+- Prevent registering one bus instance under multiple engine channel names,
+  including while a removed channel is still closing.
 - Wake synchronous `wait_for()` calls when `clear()` removes their subscriptions.
 - Run Pyright against the Python version selected by each CI matrix job.
 - Keep cancelled periodic publishers under bus ownership until their threads

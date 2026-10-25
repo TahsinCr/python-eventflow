@@ -502,6 +502,7 @@ Channel names are stripped and lowercased, so `" Orders "` and `"orders"`
 refer to the same channel. `engine.channel(name)` returns a channel, creating
 it when necessary. Use `engine.add(name, bus)` to register a bus with custom
 settings. `remove(name)` closes one channel; `stop()` closes every channel.
+An engine can own a bus instance under only one channel name at a time.
 The engine exposes `running` and a sorted `channel_names` tuple.
 During `stop()`, both engines attempt every channel. If some closes fail, the
 failures are raised together and the engine retains those channels so a later

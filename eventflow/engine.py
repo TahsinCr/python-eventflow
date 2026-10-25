@@ -96,6 +96,10 @@ class EventEngine:
         with self._lock:
             if name in self._channels:
                 raise ValueError(f"Event channel already exists: {name}")
+            if any(channel is bus for channel in self._channels.values()) or any(
+                channel is bus for channel in self._pending_close.values()
+            ):
+                raise ValueError("An EventBus instance can belong to only one channel")
             self._channels[name] = bus
             self._running = True
         return bus
@@ -287,6 +291,12 @@ class AsyncEventEngine:
         with self._lock:
             if name in self._channels:
                 raise ValueError(f"Async event channel already exists: {name}")
+            if any(channel is bus for channel in self._channels.values()) or any(
+                channel is bus for channel in self._pending_close.values()
+            ):
+                raise ValueError(
+                    "An AsyncEventBus instance can belong to only one channel"
+                )
             self._channels[name] = bus
             self._running = True
         return bus
