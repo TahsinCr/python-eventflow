@@ -14,9 +14,11 @@ All notable changes to this project are documented in this file.
 
 - Clarify that bus shutdown does not wait for callbacks already running in
   active publish calls.
+- Pin GitHub Actions to the full commit SHAs used by the verified workflow run.
 
 ### Fixed
 
+- Run Pyright against the Python version selected by each CI matrix job.
 - Keep cancelled periodic publishers under bus ownership until their threads
   or tasks have actually finished.
 - Clean up replay subscriptions when replay filtering or setup raises, and make
