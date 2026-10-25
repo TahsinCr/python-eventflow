@@ -1023,6 +1023,49 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
             await schedule.cancel()
             await bus.close()
 
+    async def test_cancel_before_periodic_task_starts_releases_capacity(self) -> None:
+        bus = AsyncEventBus[str](max_schedules=1)
+        try:
+            schedule = await bus.publish_every("first", 60.0, immediately=False)
+            task = bus._schedules[schedule.id][1]
+
+            await schedule.cancel()
+            await asyncio.gather(task, return_exceptions=True)
+            await asyncio.sleep(0)
+
+            self.assertTrue(task.done())
+            self.assertNotIn(schedule.id, bus._schedules)
+            replacement = await bus.publish_every(
+                "second", 60.0, immediately=False
+            )
+            await replacement.cancel()
+        finally:
+            await bus.close()
+
+    async def test_subscription_cancel_can_retry_after_lock_wait_is_cancelled(self) -> None:
+        bus = AsyncEventBus[int]()
+
+        async def handler(_event: int) -> None:
+            pass
+
+        subscription = await bus.subscribe(handler)
+        await bus._lock.acquire()
+        try:
+            cancelling = asyncio.create_task(subscription.cancel())
+            await asyncio.sleep(0)
+            cancelling.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await cancelling
+        finally:
+            bus._lock.release()
+
+        try:
+            await subscription.cancel()
+            self.assertFalse(subscription.active)
+            self.assertEqual(bus.subscriber_count, 0)
+        finally:
+            await bus.close()
+
     async def test_cancelled_periodic_task_stays_owned_until_it_exits(self) -> None:
         bus = AsyncEventBus[int](max_schedules=1)
         entered = asyncio.Event()

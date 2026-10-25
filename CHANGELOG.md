@@ -34,6 +34,8 @@ All notable changes to this project are documented in this file.
   coroutine objects as truthy matches.
 - Remove cancellation-sensitive awaits from periodic task cleanup so a
   repeated cancellation cannot leave a finished schedule registered.
+- Remove async periodic schedule records when their task completes, including
+  tasks cancelled before their coroutine starts.
 - Prevent registering one bus instance under multiple engine channel names,
   including while a removed channel is still closing.
 - Release synchronous periodic schedule capacity when its worker thread cannot
