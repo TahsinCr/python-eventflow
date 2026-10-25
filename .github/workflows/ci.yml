@@ -36,8 +36,56 @@ jobs:
       - name: Run unit tests
         run: python -m unittest discover -s tests -v
 
+      - name: Measure package line coverage
+        if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10'
+        run: |
+          python -m pip install "coverage>=7.6,<8"
+          python -m coverage run --source=eventflow -m unittest discover -s tests
+          python -m coverage report --include="eventflow/*" --fail-under=88
+
       - name: Check formatting and lint rules
         run: ruff check .
 
       - name: Check public package types
         run: pyright --pythonversion "${{ matrix.python-version }}"
+
+  package:
+    name: Build and verify distributions
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.10"
+
+      - name: Install distribution tools
+        run: python -m pip install build twine
+
+      - name: Build wheel and source distribution
+        run: python -m build
+
+      - name: Check distribution metadata
+        run: python -m twine check dist/*
+
+      - name: Build a wheel from the source distribution
+        run: python -m build --wheel --outdir "${{ runner.temp }}/from-sdist" dist/*.tar.gz
+
+      - name: Install the source-built wheel
+        run: python -m pip install "${{ runner.temp }}/from-sdist/"*.whl
+
+      - name: Verify installed package metadata and typing marker
+        working-directory: ${{ runner.temp }}
+        run: |
+          python - <<'PY'
+          from importlib.metadata import version
+          from pathlib import Path
+
+          import eventflow
+
+          assert version("eventflow") == eventflow.__version__
+          assert (Path(eventflow.__file__).parent / "py.typed").is_file()
+          PY

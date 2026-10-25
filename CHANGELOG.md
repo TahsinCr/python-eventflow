@@ -9,6 +9,8 @@ All notable changes to this project are documented in this file.
 - Ship the PEP 561 `py.typed` marker and run tests, Ruff, and Pyright across
   supported Python versions and Linux, Windows, and macOS in GitHub Actions.
 - Expose typed filter and replay options on the engine subscription methods.
+- Check package line coverage and build, inspect, rebuild, and install wheel and
+  source distributions in CI.
 
 ### Changed
 
