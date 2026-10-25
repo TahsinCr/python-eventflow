@@ -126,13 +126,15 @@ class BaseEventBus(Generic[T], ABC):
         event_type: EventType | None = None,
         predicate: Callable[[T], bool] | None = None,
     ) -> T | None:
-        if self._history is None:
-            return None
         normalized_filter = coerce_event_filter(
             event_filter,
             event_type=event_type,
             predicate=predicate,
         )
+        if self._history is None:
+            return None
+        if event_filter is None and event_type is None and predicate is None:
+            return self._history.latest()
         return self._history.latest(normalized_filter)
 
     def query(
@@ -144,13 +146,15 @@ class BaseEventBus(Generic[T], ABC):
         limit: int | None = None,
     ) -> tuple[T, ...]:
         _validate_query_limit(limit)
-        if self._history is None:
-            return ()
         normalized_filter = coerce_event_filter(
             event_filter,
             event_type=event_type,
             predicate=predicate,
         )
+        if self._history is None:
+            return ()
+        if event_filter is None and event_type is None and predicate is None:
+            return self._history.query(limit=limit)
         return self._history.query(normalized_filter, limit=limit)
 
     @staticmethod

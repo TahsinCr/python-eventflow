@@ -246,6 +246,28 @@ class EventBusTests(unittest.TestCase):
             maxlen=10_000,
         )
         self.assertEqual(history.query(limit=2), (9_998, 9_999))
+        bus = EventBus[int](history=history)
+        self.assertEqual(bus.latest(), 9_999)
+        self.assertEqual(bus.query(limit=2), (9_998, 9_999))
+
+        async_bus = AsyncEventBus[int](history=history)
+        self.assertEqual(async_bus.latest(), 9_999)
+        self.assertEqual(async_bus.query(limit=2), (9_998, 9_999))
+
+    def test_history_filter_conflicts_are_validated_without_history(self) -> None:
+        buses = (EventBus[int](), AsyncEventBus[int]())
+        for bus in buses:
+            with self.subTest(bus=type(bus).__name__):
+                with self.assertRaisesRegex(ValueError, "Use event_filter"):
+                    bus.latest(
+                        event_filter=EventFilter[int](),
+                        predicate=lambda _value: True,
+                    )
+                with self.assertRaisesRegex(ValueError, "Use event_filter"):
+                    bus.query(
+                        event_filter=EventFilter[int](),
+                        predicate=lambda _value: True,
+                    )
 
     def test_history_predicates_can_mutate_history_without_changing_snapshot(self) -> None:
         for operation in ("latest", "limited", "all"):
