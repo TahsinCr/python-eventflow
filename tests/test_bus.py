@@ -1054,6 +1054,38 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
         await bus.close()
         self.assertTrue(finished.is_set())
 
+    async def test_periodic_cleanup_survives_repeated_cancellation(self) -> None:
+        bus = AsyncEventBus[int](max_schedules=1)
+        entered = asyncio.Event()
+        cancellation_received = asyncio.Event()
+
+        async def block(_value: int) -> None:
+            entered.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancellation_received.set()
+                raise
+
+        await bus.subscribe(block)
+        schedule = await bus.publish_every(1, 0.001)
+        await asyncio.wait_for(entered.wait(), 1.0)
+        schedule_task = bus._schedules[schedule.id][1]
+
+        await bus._lock.acquire()
+        try:
+            await schedule.cancel()
+            await asyncio.wait_for(cancellation_received.wait(), 1.0)
+            schedule_task.cancel()
+        finally:
+            bus._lock.release()
+
+        await asyncio.gather(schedule_task, return_exceptions=True)
+        self.assertNotIn(schedule.id, bus._schedules)
+        replacement = await bus.publish_every(2, 60.0, immediately=False)
+        await replacement.cancel()
+        await bus.close()
+
     async def test_concurrent_callback_cancellation_is_a_delivery_failure(self) -> None:
         bus = AsyncEventBus[int](delivery_mode=DeliveryMode.CONCURRENT)
         received: list[int] = []
