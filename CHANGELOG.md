@@ -37,8 +37,8 @@ All notable changes to this project are documented in this file.
   coroutine objects as truthy matches.
 - Remove cancellation-sensitive awaits from periodic task cleanup so a
   repeated cancellation cannot leave a finished schedule registered.
-- Remove async periodic schedule records when cancellation happens before task
-  startup and when a running task exits.
+- Keep async periodic schedules registered until task cancellation completes,
+  including when cancellation arrives before the coroutine starts.
 - Let repeated async subscription cancellation retry removal after a lock-wait
   cancellation, and preserve `wait_for()` cleanup during repeated cancellation.
 - Preserve unfiltered history fast paths through bus queries and validate

@@ -415,9 +415,14 @@ class AsyncEventBus(BaseEventBus[T]):
                     task.cancel()
                     if not started:
                         # A task cancelled before its first step skips run's finally block.
-                        self._schedules.pop(schedule_id, None)
+                        await asyncio.gather(task, return_exceptions=True)
+                        cleanup()
 
             subscription = AsyncSubscription(schedule_id, cancel)
+
+            def cleanup(_task: asyncio.Task[None] | None = None) -> None:
+                subscription._deactivate()
+                self._schedules.pop(schedule_id, None)
 
             async def run() -> None:
                 nonlocal started
@@ -439,11 +444,11 @@ class AsyncEventBus(BaseEventBus[T]):
                             break
                         await asyncio.sleep(interval)
                 finally:
-                    subscription._deactivate()
-                    self._schedules.pop(schedule_id, None)
+                    cleanup()
 
             task = asyncio.create_task(run(), name=f"AsyncEventBusPeriodic-{schedule_id}")
             self._schedules[schedule_id] = (subscription, task)
+            task.add_done_callback(cleanup)
         return subscription
 
     async def wait_for(

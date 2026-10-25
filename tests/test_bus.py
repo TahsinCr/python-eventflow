@@ -1206,14 +1206,13 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
 
             await schedule.cancel()
             self.assertNotIn(schedule.id, bus._schedules)
-            await asyncio.gather(task, return_exceptions=True)
-
             self.assertTrue(task.done())
             replacement = await bus.publish_every(
                 "second", 60.0, immediately=False
             )
-            await replacement.cancel()
+            replacement_task = bus._schedules[replacement.id][1]
             await bus.close()
+            self.assertTrue(replacement_task.done())
             self.assertEqual(bus._schedules, {})
         finally:
             await bus.close()
