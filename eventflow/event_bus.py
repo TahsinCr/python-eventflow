@@ -175,7 +175,13 @@ class EventBus(BaseEventBus[T]):
             history = self._history
             subscription_id = self._next_id
             self._next_id += 1
-            replay_snapshot = history.query() if replay and history is not None else ()
+            if replay and history is not None:
+                if event_filter is None and event_type is None and predicate is None:
+                    replay_snapshot = history.query(limit=replay)
+                else:
+                    replay_snapshot = history.query()
+            else:
+                replay_snapshot = ()
 
             def cancel() -> None:
                 with self._lock:

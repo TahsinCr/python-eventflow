@@ -39,6 +39,21 @@ class _FailingQueryHistory(MemoryEventHistory[int]):
         raise RuntimeError("history query failed")
 
 
+class _RecordingQueryHistory(MemoryEventHistory[int]):
+    def __init__(self) -> None:
+        super().__init__(capacity=10)
+        self.limits: list[int | None] = []
+
+    def query(
+        self,
+        event_filter: EventFilter[int] | None = None,
+        *,
+        limit: int | None = None,
+    ) -> tuple[int, ...]:
+        self.limits.append(limit)
+        return super().query(event_filter, limit=limit)
+
+
 class EventBusTests(unittest.TestCase):
     def test_parametrized_event_contracts_construct(self) -> None:
         event_filter = EventFilter[int](predicate=lambda value: value > 0)
@@ -150,6 +165,22 @@ class EventBusTests(unittest.TestCase):
         replayed: list[int] = []
         bus.subscribe(replayed.append, replay=2)
         self.assertEqual(replayed, [3, 4])
+
+    def test_unfiltered_replay_limits_the_history_query(self) -> None:
+        history = _RecordingQueryHistory()
+        for value in range(5):
+            history.append(value)
+        bus = EventBus[int](history=history)
+        replayed: list[int] = []
+
+        bus.subscribe(replayed.append, replay=2)
+        self.assertEqual(replayed, [3, 4])
+        self.assertEqual(history.limits, [2])
+
+        bus.subscribe(replayed.append, predicate=lambda value: value % 2 == 0, replay=1)
+        self.assertEqual(replayed[-1:], [4])
+        self.assertEqual(history.limits, [2, None])
+        bus.close()
 
     def test_replay_setup_failures_do_not_leak_subscriptions(self) -> None:
         bus = EventBus[int](history=2)
@@ -669,6 +700,29 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(bus.closed)
         with self.assertRaises(EventBusClosedError):
             await bus.publish(5)
+
+    async def test_async_unfiltered_replay_limits_the_history_query(self) -> None:
+        history = _RecordingQueryHistory()
+        for value in range(5):
+            history.append(value)
+        bus = AsyncEventBus[int](history=history)
+        replayed: list[int] = []
+
+        async def receive(value: int) -> None:
+            replayed.append(value)
+
+        await bus.subscribe(receive, replay=2)
+        self.assertEqual(replayed, [3, 4])
+        self.assertEqual(history.limits, [2])
+
+        await bus.subscribe(
+            receive,
+            predicate=lambda value: value % 2 == 0,
+            replay=1,
+        )
+        self.assertEqual(replayed[-1:], [4])
+        self.assertEqual(history.limits, [2, None])
+        await bus.close()
 
     async def test_async_live_publish_waits_behind_subscription_replay(self) -> None:
         bus = AsyncEventBus[int](history=4)

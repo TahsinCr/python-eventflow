@@ -165,7 +165,13 @@ class AsyncEventBus(BaseEventBus[T]):
         async with self._lock:
             self._ensure_open()
             history = self._history
-            replay_snapshot = history.query() if replay and history is not None else ()
+            if replay and history is not None:
+                if event_filter is None and event_type is None and predicate is None:
+                    replay_snapshot = history.query(limit=replay)
+                else:
+                    replay_snapshot = history.query()
+            else:
+                replay_snapshot = ()
             subscription, subscriber = self._subscribe_locked(
                 callback,
                 normalized_filter,

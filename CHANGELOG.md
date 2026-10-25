@@ -14,6 +14,8 @@ All notable changes to this project are documented in this file.
 
 - Clarify that bus shutdown does not wait for callbacks already running in
   active publish calls.
+- Request only the requested replay window from history for unfiltered
+  subscriptions, avoiding full-history copies with the built-in memory history.
 - Pin GitHub Actions to the full commit SHAs used by the verified workflow run.
 
 ### Fixed
