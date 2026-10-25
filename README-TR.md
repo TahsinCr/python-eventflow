@@ -331,6 +331,9 @@ raporlanır.
 `query()`, `clear()` ve `__len__()` metotlarını uygulayın. Bus üzerindeki
 `clear()` aktif abonelikleri kaldırır, geçmişi silmez. Kayıtlı geçmişi
 silmek için yapılandırılmış history nesnesinde `clear()` çağırın.
+Yayın sırasını korumak için EventFlow, özel history nesnesinin `append()`
+metodunu bus'ın yayın kilidi tutulurken çağırır. Bu metot hızlı ve bloklamayan
+olmalı; aynı bus üzerinden yeniden yayın yapmamalıdır.
 
 <a id="wait-for-event"></a>
 ### Event bekleme

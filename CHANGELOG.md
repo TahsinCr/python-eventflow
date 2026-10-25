@@ -16,6 +16,8 @@ All notable changes to this project are documented in this file.
   active publish calls.
 - Request only the requested replay window from history for unfiltered
   subscriptions, avoiding full-history copies with the built-in memory history.
+- Document that custom history `append()` implementations run under the
+  publication lock and must remain fast and non-reentrant.
 - Pin GitHub Actions to the full commit SHAs used by the verified workflow run.
 
 ### Fixed

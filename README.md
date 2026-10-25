@@ -323,6 +323,9 @@ To provide a custom history store, implement `EventHistory`:
 `append()`, `latest()`, `query()`, `clear()`, and `__len__()`. Bus
 `clear()` removes active subscriptions; it does not erase the history. To
 delete retained events, call `clear()` on the configured history object.
+EventFlow calls a custom history's `append()` while holding the bus publication
+lock to preserve event order. Keep that method fast and non-blocking, and do
+not publish recursively through the same bus from it.
 
 <a id="wait-for-event"></a>
 ### Waiting for an event
