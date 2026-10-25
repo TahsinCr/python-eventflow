@@ -726,6 +726,10 @@ The project supports Python 3.10 and newer and uses setuptools as its build
 backend. The compatibility dependencies are installed only on Python 3.10.
 Development setup and checks are described under
 [Install](https://github.com/TahsinCr/python-eventflow/blob/main/README.md#install).
+Run `python -m benchmarks.benchmark_replay` from the repository root to compare
+full history reads with bounded sync and async replay setup. The standard
+library benchmark defaults to 100,000 retained events and can be adjusted with
+`--events`, `--replay`, `--iterations`, and `--samples`.
 
 Copyright © 2026 TahsinCr. EventFlow is licensed under the MIT License.
 See [LICENSE](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE) and
