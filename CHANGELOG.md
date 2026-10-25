@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [v1.1] - 2026-10-25
+
 ### Added
 
 - Ship the PEP 561 `py.typed` marker and run tests, Ruff, and Pyright across

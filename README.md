@@ -86,7 +86,7 @@ The installed package exposes its version through `eventflow.__version__`:
 ~~~python
 from eventflow import __version__
 
-print(__version__)  # 1.0
+print(__version__)  # 1.1
 ~~~
 
 <a id="first-event"></a>

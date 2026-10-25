@@ -89,7 +89,7 @@ Kurulu paketin sürüm numarasına `eventflow.__version__` üzerinden erişebili
 ~~~python
 from eventflow import __version__
 
-print(__version__)  # 1.0
+print(__version__)  # 1.1
 ~~~
 
 <a id="first-event"></a>

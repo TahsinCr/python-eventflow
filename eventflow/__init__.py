@@ -1,6 +1,6 @@
 """Synchronous and asyncio-native in-process event delivery."""
 
-__version__ = "1.0"
+__version__ = "1.1"
 
 from .actions import (
     AsyncEventBusActions,
