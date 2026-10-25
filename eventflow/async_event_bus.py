@@ -484,9 +484,11 @@ class AsyncEventBus(BaseEventBus[T]):
             timed_out = True
             value = None
         finally:
-            await subscription.cancel()
-            async with self._lock:
-                self._waiters.discard(result)
+            try:
+                await asyncio.shield(subscription.cancel())
+            finally:
+                async with self._lock:
+                    self._waiters.discard(result)
         if timed_out and self._actions.on_timeout is not None:
             await self._actions.on_timeout(
                 EventTimeoutContext(normalized_filter, timeout)

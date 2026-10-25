@@ -1048,6 +1048,39 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
         await publishing
         self.assertEqual(await waiting, 7)
 
+    async def test_async_wait_for_cleanup_survives_repeated_cancellation(self) -> None:
+        bus = AsyncEventBus[int]()
+        waiting = asyncio.create_task(bus.wait_for())
+        await asyncio.sleep(0)
+        self.assertEqual(bus.subscriber_count, 1)
+
+        subscriber = next(iter(bus._subscribers.values()))
+        original_cancel = subscriber.subscription._cancel
+        cancel_started = asyncio.Event()
+        cancel_finished = asyncio.Event()
+
+        async def observed_cancel() -> None:
+            cancel_started.set()
+            await original_cancel()
+            cancel_finished.set()
+
+        subscriber.subscription._cancel = observed_cancel
+        await bus._lock.acquire()
+        try:
+            waiting.cancel()
+            await asyncio.wait_for(cancel_started.wait(), 1.0)
+            waiting.cancel()
+        finally:
+            bus._lock.release()
+
+        with self.assertRaises(asyncio.CancelledError):
+            await waiting
+        await asyncio.wait_for(cancel_finished.wait(), 1.0)
+        await asyncio.sleep(0)
+        self.assertEqual(bus.subscriber_count, 0)
+        self.assertEqual(bus._waiters, set())
+        await bus.close()
+
     async def test_async_error_and_timeout_actions(self) -> None:
         errors: list[tuple[int, str]] = []
         timeouts: list[float | None] = []
@@ -1208,6 +1241,26 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(bus.subscriber_count, 0)
         finally:
             await bus.close()
+
+    async def test_concurrent_subscription_cancellation_removes_once(self) -> None:
+        bus = AsyncEventBus[int]()
+
+        async def handler(_event: int) -> None:
+            pass
+
+        subscription = await bus.subscribe(handler)
+        await bus._lock.acquire()
+        try:
+            first = asyncio.create_task(subscription.cancel())
+            second = asyncio.create_task(subscription.cancel())
+            await asyncio.sleep(0)
+            self.assertFalse(subscription.active)
+        finally:
+            bus._lock.release()
+        await asyncio.gather(first, second)
+
+        self.assertEqual(bus.subscriber_count, 0)
+        await bus.close()
 
     async def test_cancelled_periodic_task_stays_owned_until_it_exits(self) -> None:
         bus = AsyncEventBus[int](max_schedules=1)
