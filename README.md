@@ -814,6 +814,8 @@ and supports `async with`. Both accept duck-typed handles with the corresponding
 Python 3.10-compatible `ExceptionGroup`, and retain failed handles for retry.
 Handle implementations should make repeated cancellation safe. A handle's own
 async cancellation is propagated after the other handles have been attempted.
+Other handle-owned `BaseException` interrupts also retain their type after all
+handles are attempted; additional failures are chained as an exception group.
 Closed scopes reject additions. Async cleanup is shared by concurrent close
 callers and finishes before caller cancellation is re-raised.
 

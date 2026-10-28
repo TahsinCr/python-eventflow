@@ -17,7 +17,7 @@ async def finish_cleanup(operation: Awaitable[T]) -> T:
             await asyncio.shield(task)
         except asyncio.CancelledError as exc:
             if task.cancelled():
-                raise
+                break
             cancellation = exc
         except BaseException:
             # Retrieve the cleanup result below, preserving caller cancellation.

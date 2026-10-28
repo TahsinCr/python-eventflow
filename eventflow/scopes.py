@@ -9,7 +9,7 @@ from typing import Protocol, TypeVar
 
 from ._callbacks import is_async_callable, synchronous_result
 from ._lifecycle import finish_cleanup
-from .compatibility import ExceptionGroup
+from .compatibility import BaseExceptionGroup, ExceptionGroup
 
 __all__ = ["CancelHandle", "AsyncCancelHandle", "SubscriptionScope", "AsyncSubscriptionScope"]
 
@@ -28,6 +28,19 @@ class AsyncCancelHandle(Protocol):
 
 H = TypeVar("H", bound=CancelHandle)
 A = TypeVar("A", bound=AsyncCancelHandle)
+
+
+def _raise_cleanup_errors(errors: list[BaseException]) -> None:
+    if not errors:
+        return
+    for index, error in enumerate(errors):
+        if not isinstance(error, Exception):
+            remaining = errors[:index] + errors[index + 1 :]
+            if remaining:
+                raise error from BaseExceptionGroup("Subscription scope cleanup failed", remaining)
+            raise error
+    ordinary = [error for error in errors if isinstance(error, Exception)]
+    raise ExceptionGroup("Subscription scope cleanup failed", ordinary)
 
 
 class SubscriptionScope:
@@ -68,21 +81,16 @@ class SubscriptionScope:
                 self._closed = True
                 pending, self._handles = list(reversed(self._handles)), []
             failed: list[CancelHandle] = []
-            errors: list[Exception] = []
-            for index, handle in enumerate(pending):
+            errors: list[BaseException] = []
+            for handle in pending:
                 try:
                     synchronous_result(handle.cancel())
-                except Exception as error:
+                except BaseException as error:
                     failed.append(handle)
                     errors.append(error)
-                except BaseException:
-                    with self._lock:
-                        self._handles = list(reversed(failed + pending[index:]))
-                    raise
             with self._lock:
                 self._handles = list(reversed(failed))
-            if errors:
-                raise ExceptionGroup("Subscription scope cleanup failed", errors)
+            _raise_cleanup_errors(errors)
 
     def __enter__(self) -> SubscriptionScope:
         return self
@@ -102,7 +110,7 @@ class AsyncSubscriptionScope:
         self._handles: list[AsyncCancelHandle] = []
         self._closed = False
         self._loop: asyncio.AbstractEventLoop | None = None
-        self._cleanup: asyncio.Task[None] | None = None
+        self._cleanup: asyncio.Task[list[BaseException]] | None = None
 
     def _bind_loop(self) -> None:
         loop = asyncio.get_running_loop()
@@ -128,30 +136,18 @@ class AsyncSubscriptionScope:
             self._handles.append(handle)
         return handle
 
-    async def _cancel_handles(self) -> None:
+    async def _cancel_handles(self) -> list[BaseException]:
         pending, self._handles = list(reversed(self._handles)), []
         failed: list[AsyncCancelHandle] = []
-        errors: list[Exception] = []
-        cancellation: asyncio.CancelledError | None = None
-        for index, handle in enumerate(pending):
+        errors: list[BaseException] = []
+        for handle in pending:
             try:
                 synchronous_result(await handle.cancel())
-            except asyncio.CancelledError as error:
-                failed.append(handle)
-                cancellation = error
-            except Exception as error:
+            except BaseException as error:
                 failed.append(handle)
                 errors.append(error)
-            except BaseException:
-                self._handles = list(reversed(failed + pending[index:]))
-                raise
         self._handles = list(reversed(failed))
-        if cancellation is not None:
-            if errors:
-                raise cancellation from ExceptionGroup("Subscription scope cleanup failed", errors)
-            raise cancellation
-        if errors:
-            raise ExceptionGroup("Subscription scope cleanup failed", errors)
+        return errors
 
     async def aclose(self) -> None:
         """Finish all cancellations; caller cancellation propagates after cleanup."""
@@ -161,7 +157,17 @@ class AsyncSubscriptionScope:
             self._cleanup = asyncio.create_task(
                 self._cancel_handles(), name="EventFlowScopeCleanup"
             )
-        await finish_cleanup(self._cleanup)
+        try:
+            errors = await finish_cleanup(self._cleanup)
+        except asyncio.CancelledError as cancellation:
+            if self._cleanup.done() and not self._cleanup.cancelled():
+                errors = self._cleanup.result()
+                if errors:
+                    raise cancellation from BaseExceptionGroup(
+                        "Subscription scope cleanup failed", errors
+                    )
+            raise
+        _raise_cleanup_errors(errors)
 
     async def __aenter__(self) -> AsyncSubscriptionScope:
         self._bind_loop()

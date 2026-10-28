@@ -831,7 +831,9 @@ handle'lar kabul edilir. Her handle denenir; hatalar mevcut Python 3.10 uyumlu
 `ExceptionGroup` ile toplanır ve başarısız handle'lar tekrar denemek üzere
 korunur. Handle uygulaması tekrarlı iptali güvenli kılmalıdır. Handle'ın kendi
 async iptali diğer handle'lar denendikten sonra yayılır. Kapanmış scope yeni
-handle kabul etmez. Eşzamanlı async kapanış çağrıları aynı cleanup task'ını
+handle kabul etmez. Handle'ın diğer `BaseException` kesintileri de bütün handle'lar
+denendikten sonra aynı türle yayılır; ek hatalar exception group olarak zincirlenir.
+Eşzamanlı async kapanış çağrıları aynı cleanup task'ını
 bekler; çağıran task'ın iptali temizlik tamamlandıktan sonra yeniden yükselir.
 
 Scope kayıtları iptal eder; bus'ın kendisini sahiplenmez ve başlamış callback'i

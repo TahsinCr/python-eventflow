@@ -5,10 +5,10 @@ from __future__ import annotations
 import sys
 
 if sys.version_info >= (3, 11):
-    from builtins import ExceptionGroup
+    from builtins import BaseExceptionGroup, ExceptionGroup
     from enum import StrEnum
 else:  # pragma: no cover - exercised by the Python 3.10 environment
     from backports.strenum import StrEnum
-    from exceptiongroup import ExceptionGroup
+    from exceptiongroup import BaseExceptionGroup, ExceptionGroup
 
-__all__ = ["ExceptionGroup", "StrEnum"]
+__all__ = ["BaseExceptionGroup", "ExceptionGroup", "StrEnum"]

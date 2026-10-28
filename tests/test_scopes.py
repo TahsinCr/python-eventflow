@@ -22,6 +22,26 @@ class AsyncHandle(Handle):
 
 
 class ScopeTests(unittest.TestCase):
+    def test_base_exception_still_attempts_remaining_handles_and_keeps_failures(self):
+        class Abort(BaseException):
+            pass
+
+        calls = []
+
+        class Interrupt:
+            def cancel(self):
+                calls.append("interrupt")
+                raise Abort("interrupt")
+
+        scope = SubscriptionScope()
+        scope.add(Handle(calls, "good"))
+        scope.add(Handle(calls, "bad", True))
+        scope.add(Interrupt())
+        with self.assertRaises(Abort) as caught:
+            scope.close()
+        self.assertEqual(calls, ["interrupt", "bad", "good"])
+        self.assertIsInstance(caught.exception.__cause__, ExceptionGroup)
+
     def test_old_handles_nested_scopes_and_idempotence(self):
         seen = []
         with EventBus[int]() as bus, SubscriptionScope() as outer:
@@ -76,6 +96,23 @@ class ScopeTests(unittest.TestCase):
 
 
 class AsyncScopeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_handle_cancellation_retains_other_cleanup_errors_as_cause(self):
+        calls = []
+        scope = AsyncSubscriptionScope()
+        scope.add(AsyncHandle(calls, "good"))
+        scope.add(AsyncHandle(calls, "bad", True))
+
+        class Cancelled:
+            async def cancel(self):
+                calls.append("cancelled")
+                raise asyncio.CancelledError
+
+        scope.add(Cancelled())
+        with self.assertRaises(asyncio.CancelledError) as caught:
+            await scope.aclose()
+        self.assertEqual(calls, ["cancelled", "bad", "good"])
+        self.assertIsInstance(caught.exception.__cause__, ExceptionGroup)
+
     async def test_old_async_handles_and_failures(self):
         calls = []
         async with AsyncEventBus[int]() as bus, AsyncSubscriptionScope() as scope:
