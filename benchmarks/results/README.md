@@ -81,3 +81,22 @@ python -m benchmarks.benchmark_pipeline --iterations 5000 --output pipeline.json
 python -m benchmarks.benchmark_stream --iterations 100 --items 1000 --output stream.json
 python -m benchmarks.benchmark_replay --events 100000 --replay 25 --iterations 100 --samples 7
 ```
+
+## Whole-process peak RSS
+
+Linux `resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss` was read in a fresh parent process after each child benchmark. Values below cover the entire interpreter/benchmark process; they cannot be attributed only to a buffer or pipeline. Raw commands are in `process_peak_rss.json`. Publish uses 500 operations in both source trees; pipeline uses 1,000, stream uses 20 consumptions of 1,000 items.
+
+| Process | Peak RSS KiB |
+| --- | ---: |
+| baseline_publish | 22208 |
+| extended_publish | 21884 |
+| pipeline | 22396 |
+| stream | 21852 |
+
+Traced allocation peaks and process RSS are different measurements. Reproduce each run from the corresponding checkout in a fresh parent process:
+
+```python
+import resource, subprocess, sys
+subprocess.run([sys.executable, "-m", "benchmarks.benchmark_publish", "--iterations", "500"], check=True, stdout=subprocess.DEVNULL)
+print(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)  # KiB on Linux
+```

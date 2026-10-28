@@ -1,0 +1,52 @@
+{
+  "baseline_publish": {
+    "platform": "Linux-7.2.11-arch1-1-x86_64-with-glibc2.44",
+    "command": [
+      "/home/tahsincr/.pyenv/versions/3.10.18/bin/python",
+      "-m",
+      "benchmarks.benchmark_publish",
+      "--iterations",
+      "500"
+    ],
+    "peak_rss_kib": 22208,
+    "scope": "whole child benchmark process"
+  },
+  "extended_publish": {
+    "platform": "Linux-7.2.11-arch1-1-x86_64-with-glibc2.44",
+    "command": [
+      "/home/tahsincr/.pyenv/versions/3.10.18/bin/python",
+      "-m",
+      "benchmarks.benchmark_publish",
+      "--iterations",
+      "500"
+    ],
+    "peak_rss_kib": 21884,
+    "scope": "whole child benchmark process"
+  },
+  "pipeline": {
+    "platform": "Linux-7.2.11-arch1-1-x86_64-with-glibc2.44",
+    "command": [
+      "/home/tahsincr/.pyenv/versions/3.10.18/bin/python",
+      "-m",
+      "benchmarks.benchmark_pipeline",
+      "--iterations",
+      "1000"
+    ],
+    "peak_rss_kib": 22396,
+    "scope": "whole child benchmark process"
+  },
+  "stream": {
+    "platform": "Linux-7.2.11-arch1-1-x86_64-with-glibc2.44",
+    "command": [
+      "/home/tahsincr/.pyenv/versions/3.10.18/bin/python",
+      "-m",
+      "benchmarks.benchmark_stream",
+      "--iterations",
+      "20",
+      "--items",
+      "1000"
+    ],
+    "peak_rss_kib": 21852,
+    "scope": "whole child benchmark process"
+  }
+}
