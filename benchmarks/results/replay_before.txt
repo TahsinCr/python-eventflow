@@ -1,0 +1,11 @@
+Baseline: source commit 14fe966, Python 3.10.18, 2026-10-28
+events=100000, replay=25, iterations=100, samples=7
+Full history query: median 0.4185 ms/op
+Bounded history query: median 0.0011 ms/op
+MemoryEventHistory.latest: median 0.0004 ms/op
+EventBus.latest: median 0.0013 ms/op
+EventBus.query(limit=replay): median 0.0021 ms/op
+AsyncEventBus.latest: median 0.0013 ms/op
+AsyncEventBus.query(limit=replay): median 0.0022 ms/op
+EventBus replay subscription: median 0.0354 ms/op
+AsyncEventBus replay subscription: median 0.0199 ms/op

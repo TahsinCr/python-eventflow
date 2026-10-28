@@ -1,0 +1,142 @@
+{
+  "__version__": {},
+  "AsyncEventBus": {
+    "__aenter__": "(self) -> \"'AsyncEventBus[T]'\"",
+    "__aexit__": "(self, *_args: 'object') -> 'None'",
+    "__init__": "(self, *, history: 'EventHistory[T] | int | None' = None, error_policy: 'ErrorPolicy' = <ErrorPolicy.ISOLATE: 'isolate'>, delivery_mode: 'DeliveryMode' = <DeliveryMode.SEQUENTIAL: 'sequential'>, replay_buffer_limit: 'int' = 1000, max_schedules: 'int' = 64, actions: 'AsyncEventBusActions[T] | None' = None, on_before: 'Callable[[T], Awaitable[None]] | None' = None, on_after: 'Callable[[T, PublishResult], Awaitable[None]] | None' = None, on_error: 'Callable[[EventErrorContext[T]], Awaitable[None]] | None' = None, on_timeout: 'Callable[[EventTimeoutContext[T]], Awaitable[None]] | None' = None) -> 'None'",
+    "clear": "(self) -> 'None'",
+    "close": "(self) -> 'None'",
+    "latest": "(self, *, event_filter: 'EventFilter[T] | None' = None, event_type: 'EventType | None' = None, predicate: 'Callable[[T], bool] | None' = None) -> 'T | None'",
+    "once": "(self, callback: 'Callable[[T], Awaitable[None]]', *, event_filter: 'EventFilter[T] | None' = None, event_type: 'EventType | None' = None, predicate: 'Callable[[T], bool] | None' = None, replay: 'int' = 0) -> 'AsyncSubscription'",
+    "publish": "(self, event: 'T') -> 'PublishResult'",
+    "publish_every": "(self, event: 'T', interval: 'float', *, times: 'int | None' = None, immediately: 'bool' = True) -> 'AsyncSubscription'",
+    "publish_threadsafe": "(self, event: 'T') -> 'Future[PublishResult]'",
+    "query": "(self, *, event_filter: 'EventFilter[T] | None' = None, event_type: 'EventType | None' = None, predicate: 'Callable[[T], bool] | None' = None, limit: 'int | None' = None) -> 'tuple[T, ...]'",
+    "subscribe": "(self, callback: 'Callable[[T], Awaitable[None]]', *, event_filter: 'EventFilter[T] | None' = None, event_type: 'EventType | None' = None, predicate: 'Callable[[T], bool] | None' = None, once: 'bool' = False, times: 'int | None' = None, replay: 'int' = 0) -> 'AsyncSubscription'",
+    "wait_for": "(self, *, event_filter: 'EventFilter[T] | None' = None, event_type: 'EventType | None' = None, predicate: 'Callable[[T], bool] | None' = None, timeout: 'float | None' = None) -> 'T | None'"
+  },
+  "AsyncEventBusActions": {
+    "__init__": "(self, on_error: 'Callable[[EventErrorContext[T]], Awaitable[None]] | None' = None, on_timeout: 'Callable[[EventTimeoutContext[T]], Awaitable[None]] | None' = None, on_before: 'Callable[[T], Awaitable[None]] | None' = None, on_after: 'Callable[[T, PublishResult], Awaitable[None]] | None' = None) -> None"
+  },
+  "AsyncEventEngine": {
+    "__aenter__": "(self) -> \"'AsyncEventEngine'\"",
+    "__aexit__": "(self, *_args: 'object') -> 'None'",
+    "__init__": "(self, *, history: 'int | None' = None, error_policy: 'ErrorPolicy' = <ErrorPolicy.ISOLATE: 'isolate'>, delivery_mode: 'DeliveryMode' = <DeliveryMode.SEQUENTIAL: 'sequential'>, actions: 'AsyncEventBusActions[Any] | None' = None, on_before: 'Callable[[Any], Awaitable[None]] | None' = None, on_after: 'Callable[[Any, PublishResult], Awaitable[None]] | None' = None, on_error: 'Callable[[EventErrorContext[Any]], Awaitable[None]] | None' = None, on_timeout: 'Callable[[EventTimeoutContext[Any]], Awaitable[None]] | None' = None) -> 'None'",
+    "add": "(self, name: 'str', bus: 'AsyncEventBus[Any]') -> 'AsyncEventBus[Any]'",
+    "channel": "(self, name: 'str') -> 'AsyncEventBus[Any]'",
+    "close": "(self) -> 'None'",
+    "once": "(self, channel: 'str', callback: 'Callable[[Any], Awaitable[None]]', *, event_filter: 'EventFilter[Any] | None' = None, event_type: 'EventType | None' = None, predicate: 'Callable[[Any], bool] | None' = None, replay: 'int' = 0) -> 'AsyncSubscription'",
+    "publish": "(self, channel: 'str', event: 'Any') -> 'PublishResult'",
+    "publish_every": "(self, channel: 'str', event: 'Any', interval: 'float', *, times: 'int | None' = None, immediately: 'bool' = True) -> 'AsyncSubscription'",
+    "remove": "(self, name: 'str') -> 'bool'",
+    "start": "(self) -> 'None'",
+    "stop": "(self) -> 'None'",
+    "subscribe": "(self, channel: 'str', callback: 'Callable[[Any], Awaitable[None]]', *, event_filter: 'EventFilter[Any] | None' = None, event_type: 'EventType | None' = None, predicate: 'Callable[[Any], bool] | None' = None, once: 'bool' = False, times: 'int | None' = None, replay: 'int' = 0) -> 'AsyncSubscription'",
+    "wait_for": "(self, channel: 'str', *, event_filter: 'EventFilter[Any] | None' = None, event_type: 'EventType | None' = None, predicate: 'Callable[[Any], bool] | None' = None, timeout: 'float | None' = None) -> 'Any | None'"
+  },
+  "AsyncSubscription": {
+    "__aenter__": "(self) -> \"'AsyncSubscription'\"",
+    "__aexit__": "(self, *_args: 'object') -> 'None'",
+    "__init__": "(self, subscription_id: 'int', cancel: 'Callable[[], Awaitable[None]]') -> 'None'",
+    "cancel": "(self) -> 'None'"
+  },
+  "BaseEventBus": {
+    "__init__": "(self, *, history: 'EventHistory[T] | int | None' = None, error_policy: 'ErrorPolicy' = <ErrorPolicy.ISOLATE: 'isolate'>) -> 'None'",
+    "latest": "(self, *, event_filter: 'EventFilter[T] | None' = None, event_type: 'EventType | None' = None, predicate: 'Callable[[T], bool] | None' = None) -> 'T | None'",
+    "query": "(self, *, event_filter: 'EventFilter[T] | None' = None, event_type: 'EventType | None' = None, predicate: 'Callable[[T], bool] | None' = None, limit: 'int | None' = None) -> 'tuple[T, ...]'"
+  },
+  "CallbackContext": {
+    "__init__": "(self, event: 'Any', result: 'Any' = None, error: 'BaseException | None' = None, elapsed: 'float' = 0.0) -> None"
+  },
+  "CallbackSubscription": {
+    "__call__": "(self, *args: 'Any', **kwargs: 'Any') -> 'Any'",
+    "__enter__": "(self) -> \"'Subscription'\"",
+    "__exit__": "(self, *_args: 'object') -> 'None'",
+    "__init__": "(self, identifier: 'int', cancel: 'Callable[[], None]', callback: 'Callable', *, asynchronous: 'bool' = False, once: 'bool' = False, max_calls: 'int | None' = None, frequency_hz: 'float | None' = None, timeout: 'float | None' = None, predicate: 'Callable | None' = None, enabled: 'bool' = True, on_before: 'Callable | None' = None, on_success: 'Callable | None' = None, on_error: 'Callable | None' = None, on_timeout: 'Callable | None' = None, on_after: 'Callable | None' = None) -> 'None'",
+    "cancel": "(self) -> 'None'",
+    "disable": "(self) -> 'None'",
+    "enable": "(self) -> 'None'",
+    "invoke": "(self, event: 'Any') -> 'Any'",
+    "invoke_async": "(self, event: 'Any') -> 'Any'",
+    "on_after": "(self, callback: 'Callable') -> 'Callable'",
+    "on_before": "(self, callback: 'Callable') -> 'Callable'",
+    "on_error": "(self, callback: 'Callable') -> 'Callable'",
+    "on_success": "(self, callback: 'Callable') -> 'Callable'",
+    "on_timeout": "(self, callback: 'Callable') -> 'Callable'"
+  },
+  "CallbackTimeoutError": {},
+  "DeliveryMode": {},
+  "ErrorPolicy": {},
+  "EventBus": {
+    "__enter__": "(self) -> \"'EventBus[T]'\"",
+    "__exit__": "(self, *_args: 'object') -> 'None'",
+    "__init__": "(self, *, history: 'EventHistory[T] | int | None' = None, error_policy: 'ErrorPolicy' = <ErrorPolicy.ISOLATE: 'isolate'>, executor: 'Executor | None' = None, replay_buffer_limit: 'int' = 1000, max_schedules: 'int' = 64, shutdown_timeout: 'float' = 5.0, actions: 'EventBusActions[T] | None' = None, on_before: 'Callable[[T], None] | None' = None, on_after: 'Callable[[T, PublishResult], None] | None' = None, on_error: 'Callable[[EventErrorContext[T]], None] | None' = None, on_timeout: 'Callable[[EventTimeoutContext[T]], None] | None' = None) -> 'None'",
+    "clear": "(self) -> 'None'",
+    "close": "(self) -> 'None'",
+    "latest": "(self, *, event_filter: 'EventFilter[T] | None' = None, event_type: 'EventType | None' = None, predicate: 'Callable[[T], bool] | None' = None) -> 'T | None'",
+    "once": "(self, callback: 'Callable[[T], None]', *, event_filter: 'EventFilter[T] | None' = None, event_type: 'EventType | None' = None, predicate: 'Callable[[T], bool] | None' = None, replay: 'int' = 0) -> 'Subscription'",
+    "publish": "(self, event: 'T') -> 'PublishResult'",
+    "publish_every": "(self, event: 'T', interval: 'float', *, times: 'int | None' = None, immediately: 'bool' = True) -> 'Subscription'",
+    "query": "(self, *, event_filter: 'EventFilter[T] | None' = None, event_type: 'EventType | None' = None, predicate: 'Callable[[T], bool] | None' = None, limit: 'int | None' = None) -> 'tuple[T, ...]'",
+    "subscribe": "(self, callback: 'Callable[[T], None]', *, event_filter: 'EventFilter[T] | None' = None, event_type: 'EventType | None' = None, predicate: 'Callable[[T], bool] | None' = None, once: 'bool' = False, times: 'int | None' = None, replay: 'int' = 0) -> 'Subscription'",
+    "wait_for": "(self, *, event_filter: 'EventFilter[T] | None' = None, event_type: 'EventType | None' = None, predicate: 'Callable[[T], bool] | None' = None, timeout: 'float | None' = None) -> 'T | None'"
+  },
+  "EventBusActions": {
+    "__init__": "(self, on_error: 'Callable[[EventErrorContext[T]], None] | None' = None, on_timeout: 'Callable[[EventTimeoutContext[T]], None] | None' = None, on_before: 'Callable[[T], None] | None' = None, on_after: 'Callable[[T, PublishResult], None] | None' = None) -> None"
+  },
+  "EventBusClosedError": {},
+  "EventBusError": {},
+  "EventBusStats": {
+    "__init__": "(self, published: 'int' = 0, delivered: 'int' = 0, failed: 'int' = 0) -> None"
+  },
+  "EventEngine": {
+    "__enter__": "(self) -> \"'EventEngine'\"",
+    "__exit__": "(self, *_args: 'object') -> 'None'",
+    "__init__": "(self, *, history: 'int | None' = None, error_policy: 'ErrorPolicy' = <ErrorPolicy.ISOLATE: 'isolate'>, executor: 'Executor | None' = None, actions: 'EventBusActions[Any] | None' = None, on_before: 'Callable[[Any], None] | None' = None, on_after: 'Callable[[Any, PublishResult], None] | None' = None, on_error: 'Callable[[EventErrorContext[Any]], None] | None' = None, on_timeout: 'Callable[[EventTimeoutContext[Any]], None] | None' = None) -> 'None'",
+    "add": "(self, name: 'str', bus: 'EventBus[Any]') -> 'EventBus[Any]'",
+    "channel": "(self, name: 'str') -> 'EventBus[Any]'",
+    "close": "(self) -> 'None'",
+    "once": "(self, channel: 'str', callback: 'Callable[[Any], None]', *, event_filter: 'EventFilter[Any] | None' = None, event_type: 'EventType | None' = None, predicate: 'Callable[[Any], bool] | None' = None, replay: 'int' = 0) -> 'Subscription'",
+    "publish": "(self, channel: 'str', event: 'Any') -> 'PublishResult'",
+    "publish_every": "(self, channel: 'str', event: 'Any', interval: 'float', *, times: 'int | None' = None, immediately: 'bool' = True) -> 'Subscription'",
+    "remove": "(self, name: 'str') -> 'bool'",
+    "start": "(self) -> 'None'",
+    "stop": "(self) -> 'None'",
+    "subscribe": "(self, channel: 'str', callback: 'Callable[[Any], None]', *, event_filter: 'EventFilter[Any] | None' = None, event_type: 'EventType | None' = None, predicate: 'Callable[[Any], bool] | None' = None, once: 'bool' = False, times: 'int | None' = None, replay: 'int' = 0) -> 'Subscription'",
+    "wait_for": "(self, channel: 'str', *, event_filter: 'EventFilter[Any] | None' = None, event_type: 'EventType | None' = None, predicate: 'Callable[[Any], bool] | None' = None, timeout: 'float | None' = None) -> 'Any | None'"
+  },
+  "EventFilter": {
+    "__init__": "(self, event_type: 'EventType | None' = None, predicate: 'Callable[[T], bool] | None' = None) -> None",
+    "matches": "(self, event: 'T') -> 'bool'"
+  },
+  "EventErrorContext": {
+    "__init__": "(self, event: 'T', error: 'Exception') -> None"
+  },
+  "EventHistory": {
+    "append": "(self, event: 'T') -> 'None'",
+    "clear": "(self) -> 'None'",
+    "latest": "(self, event_filter: 'EventFilter[T] | None' = None) -> 'T | None'",
+    "query": "(self, event_filter: 'EventFilter[T] | None' = None, *, limit: 'int | None' = None) -> 'tuple[T, ...]'"
+  },
+  "EventShutdownTimeoutError": {},
+  "EventTimeoutContext": {
+    "__init__": "(self, event_filter: 'EventFilter[T]', timeout: 'float | None') -> None"
+  },
+  "InvalidEventHandlerError": {},
+  "MemoryEventHistory": {
+    "__init__": "(self, capacity: 'int' = 1000) -> 'None'",
+    "append": "(self, event: 'T') -> 'None'",
+    "clear": "(self) -> 'None'",
+    "latest": "(self, event_filter: 'EventFilter[T] | None' = None) -> 'T | None'",
+    "query": "(self, event_filter: 'EventFilter[T] | None' = None, *, limit: 'int | None' = None) -> 'tuple[T, ...]'"
+  },
+  "PublishResult": {
+    "__init__": "(self, matched: 'int' = 0, delivered: 'int' = 0, failed: 'int' = 0, errors: 'tuple[Exception, ...]' = ()) -> None"
+  },
+  "Subscription": {
+    "__enter__": "(self) -> \"'Subscription'\"",
+    "__exit__": "(self, *_args: 'object') -> 'None'",
+    "__init__": "(self, subscription_id: 'int', cancel: 'Callable[[], None]') -> 'None'",
+    "cancel": "(self) -> 'None'"
+  }
+}
