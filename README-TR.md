@@ -9,6 +9,11 @@ EventFlow, aynı Python sürecindeki bileşenlerin sıradan Python nesneleri
 isteğe bağlı bellek içi geçmiş, isimlendirilmiş kanallar ve aboneliklerin açık
 yaşam döngüsü yönetimini sunar.
 
+İsteğe bağlı pipeline'lar değerleri isimli aşamalar ve middleware üzerinden
+dönüştürür. Async stream'ler lazy dönüşümleri sınırlı tamponlama ile birleştirir.
+Scope, event zarfı ve ölçüm bileşenleri, sıradan bus kullanımını değiştirmeden
+bu yapıların aynı uygulamada birlikte kullanılmasını sağlar.
+
 Kütüphane süreç içi teslimat içindir. Event'leri kalıcı olarak saklamaz,
 serileştirmez veya başka süreçlere taşımaz. Bu sorumluluklar uygulamaya ya da
 kullandığı mesajlaşma altyapısına aittir.
@@ -36,6 +41,11 @@ ihtiyaç yoktur.
 - [Async uygulamalar](#async-applications)
 - [Kanalları düzenleme](#channels)
 - [Callback politikaları](#callback-policies)
+- [Pipeline ve middleware](#pipelines)
+- [Async pipeline ve stream](#streams)
+- [Abonelik scope'ları](#scopes)
+- [Event context ve ölçümler](#event-context)
+- [Bileşenleri birlikte kullanma](#composition)
 - [Yaşam döngüsü ve başvuru](#reference)
   - [Varsayılanlar](#defaults)
   - [Bus metotları](#bus-api)
@@ -646,6 +656,265 @@ yakalayıp sürdüren callback veya tamamlanmayan bir hook, çağrıyı yapılan
 bütçeden uzun tutabilir. Python bir coroutine'i zorla durduramaz. Callback'in
 kendi `TimeoutError` hatası, `CallbackTimeoutError` ile aynı değildir.
 
+<!-- integrated execution documentation -->
+<a id="pipelines"></a>
+## Pipeline ve middleware
+
+`Pipeline[T]`, aynı `T` tipi üzerinde sıralı dönüşümler çalıştırır. Her stage,
+önceki stage'in sonucunu alır. Son değer `run()` çağrısından döner; otomatik
+olarak bus'a yayımlanmaz. Boş pipeline girdisini olduğu gibi döndürür.
+
+~~~python
+from dataclasses import dataclass, replace
+from eventflow import Pipeline
+
+@dataclass(frozen=True)
+class Request:
+    amount: int
+
+pipeline = Pipeline[Request]()
+
+@pipeline.stage("validate")
+def validate(request: Request) -> Request:
+    if request.amount < 0:
+        raise ValueError("amount negatif olamaz")
+    return request
+
+def double(request: Request) -> Request:
+    return replace(request, amount=request.amount * 2)
+
+pipeline.add("double", double, after="validate")
+
+@pipeline.middleware("audit")
+def audit(request, next_):
+    print("önce", request.amount)
+    result = next_(request)
+    print("sonra", result.amount)
+    return result
+
+print(pipeline.run(Request(4)))  # Request(amount=8)
+~~~
+
+`stage()` ve `middleware()` kayıt yapıp orijinal fonksiyonu döndürür. Fonksiyonun
+kimliği, adı ve doğrudan çağrılabilirliği korunur. Decorator ve `add()` aynı
+registry'yi kullanır; kayıt sırasında fonksiyona ek bir sarmalayıcı takılmaz.
+
+| İşlem | Davranış |
+| --- | --- |
+| `add(name, callback, *, before=None, after=None)` | İsteğe bağlı sıralama koşullarıyla stage ekler. |
+| `stage(name, *, before=None, after=None)` | `add` işleminin decorator karşılığıdır. |
+| `remove(name)` | Stage'i ve ona yapılan sıralama referanslarını kaldırır; callback'i döndürür. |
+| `replace(name, callback)` | Adı, sıralamayı ve etkinlik durumunu koruyarak callback'i değiştirir. |
+| `enable(name)` / `disable(name)` | Sonraki çalışmalara katılımı değiştirir. |
+| `stage_names` | Devre dışı olanlar dahil sıralı stage adlarını verir. |
+| `add_middleware(...)` / `middleware(...)` | Ayrı ad alanında around middleware kaydeder. |
+| `remove_middleware`, `replace_middleware`, `enable_middleware`, `disable_middleware` | Aynı registry işlemlerini middleware'e uygular. |
+| `middleware_names` | Devre dışı olanlar dahil dıştan içe middleware adlarını verir. |
+
+Adların başındaki/sonundaki boşluklar temizlenir; adlar büyük/küçük harfe
+duyarlıdır, boş olamaz ve kendi registry'sinde benzersizdir. `before` ve `after`
+mevcut adlara başvurur. Bilinmeyen referans `KeyError`; yinelenen ad, boş ad
+ve sıralama döngüsü `ValueError` üretir. Geçersiz değişiklik mevcut planı
+etkilemez. Eşit durumda kayıt sırası belirleyicidir. Devre dışı stage'lerin
+sıralama koşulları korunur; stage kaldırılırsa ona yapılan referanslar kaldırılır.
+
+Sıralama konfigürasyon değiştiğinde hazırlanır. Her `run()` sabit bir execution
+snapshot'ı alır; çalışma sırasında yapılan replace/disable sonraki çalışmalara
+uygulanır. Konfigürasyon thread-safe'dir, callback'ler registry kilidinin dışında
+çalışır. Snapshot payload'ı kopyalamaz ve callback'in kendi mutable durumunu
+eşzamanlı kullanıma karşı korumaz.
+
+Middleware tüm pipeline'ı sarar; ilk kayıt en dış katmandır. `next_(value)`
+bir kez çağrılabilir, sonucu dönüştürülebilir, `PipelineExecutionError` yakalanıp
+toparlanılabilir veya `next_` çağrılmadan sonuç döndürülerek kısa devre yapılabilir.
+Continuation yalnız ilgili middleware çağrısı sürerken ve aynı thread/async task
+içinde geçerlidir. İkinci çağrı, sonradan çağırma ve ayrı task'tan çağırma
+`RuntimeError` üretir. Mevcut bus action'ları ve callback hook'ları kendi
+sözleşmeleriyle çalışmaya devam eder.
+
+Stage hatası sonraki stage'leri durdurur ve `PipelineExecutionError` üretir.
+`name`, `phase`, `context` ve `__cause__` alanları hatanın kaynağını gösterir.
+Context, başarısız bileşene verilen değerdir. Senkron stage veya middleware'in
+awaitable döndürmesi reddedilir; coroutine sonucu kapatılır. Python'da senkron
+callback güvenli biçimde zorla sonlandırılamaz.
+
+<a id="streams"></a>
+## Async pipeline ve stream
+
+`AsyncPipeline[T]` aynı registry ve decorator arayüzüne sahiptir. Callback'leri
+awaitable döndürür; `await pipeline.run(value)` ilk kullanılan event loop'ta
+çalışır. Senkron callback'ler otomatik olarak thread'e gönderilmez. Eşzamanlı
+çalışmaların snapshot ve continuation durumları birbirinden bağımsızdır.
+`CancelledError` aktif stage'e iletilir; normal hataya çevrilmez ve iş yeniden
+başlatılmaz.
+Stage ve middleware sonucu çözülmüş bir değer olmalıdır. Dış await sonrasında
+yeniden awaitable döndürülmesi (örneğin `await next_` ifadesinde await'in
+unutulması) reddedilir ve dönen coroutine kapatılır.
+
+`AsyncStream[T]` bir `AsyncIterable[T]` kaynağını sahiplenir. Dönüşümler senkron
+ve awaitable callback kabul ettiğinden iki pipeline türünün `run` metotları
+doğrudan map fonksiyonu olabilir. Map, filter ve batch lazy çalışır; worker
+task başlatmaz.
+
+~~~python
+import asyncio
+from eventflow import AsyncPipeline, AsyncStream
+
+async def main() -> None:
+    pipeline = AsyncPipeline[int]()
+
+    @pipeline.stage("double")
+    async def double(value: int) -> int:
+        return value * 2
+
+    async def source():
+        for value in range(5):
+            yield value
+
+    stream = AsyncStream(source()).map(pipeline.run).filter(
+        lambda value: value % 4 == 0
+    ).buffer(2).batch(2)
+    async with stream:
+        async for batch in stream:
+            print(batch)  # (0, 4), ardından (8,)
+
+asyncio.run(main())
+~~~
+
+| İşlem | Sonuç ve kaynak sahipliği |
+| --- | --- |
+| `AsyncStream(source)` | Tek loop'ta bir kez tüketilen stream oluşturur. |
+| `map(callback)` | Her değeri sırayla dönüştürür; awaitable sonucu bekler. |
+| `filter(predicate)` | Senkron veya awaitable predicate'in kabul ettiği değerleri geçirir. |
+| `batch(size, *, partial=True)` | Tuple üretir; son eksik tuple isteğe bağlıdır. |
+| `buffer(capacity)` | Bir producer ve backpressure uygulayan sınırlı kuyruk ekler. |
+| `aclose()` / `async with stream` | Upstream zincirini kapatır ve sahip olunan temizliği bekler. |
+| `closed` | Yeni okumaların durdurulup durdurulmadığını gösterir. |
+
+Batch boyutu ve buffer kapasitesi pozitif tamsayı olmalıdır; bool, sıfır,
+kesir ve sonsuz değer reddedilir. Tampon dolduğunda producer bekler. Bellekte
+en fazla `capacity` kuyruk öğesi ve kuyruğa girmeyi bekleyen bir kaynak değeri
+bulunur. Sessiz veri kaybı uygulanmaz. Kaynak hatası, daha önce kuyruğa alınan
+değerlerin ardından tüketiciye iletilir; normal bitiş, hata ve iptal ayrıdır.
+
+Stream bir kez tüketilir. İkinci iterator edinimi ve eşzamanlı okuma reddedilir.
+Tüketici erken çıkabilecek veya hata verebilecekse **zincirin son stream'ini**
+`async with` ile yönetin. Python'ın `async for` protokolü, tüketici gövdesindeki
+`break` işlemini iterator'a bildirmez; `aclose()` bu açık sahiplik sınırını
+sağlar. Henüz başlatılmamış upstream zinciri de kapatılır. Başka bir task'tan
+kapatma, bekleyen okuyucuyu iptal edip kaynak temizliğini bekler. Kapatmayı
+çağıran task tekrar iptal edilse de sahip olunan temizlik tamamlanır ve iptal
+sonrasında yayılır. Kaynak ve kullanıcı temizliği kooperatif olmalıdır;
+dönmeyen kaynak kapanışı geciktirebilir.
+
+<a id="scopes"></a>
+## Abonelik scope'ları
+
+Scope'lar `subscribe` dönüş tipini değiştirmeden mevcut iptal handle'larını
+gruplar. `add(handle)` aynı handle'ı döndürür; aynı nesnenin tekrar eklenmesi
+yeni kayıt oluşturmaz. Bir scope farklı bus'lardan veya callback politikalarından
+gelen handle'ları birlikte yönetebilir.
+
+~~~python
+from eventflow import EventBus, SubscriptionScope
+
+with EventBus[int]() as bus, SubscriptionScope() as scope:
+    handle = scope.add(bus.subscribe(print))
+    bus.publish(42)
+assert not handle.active
+~~~
+
+`SubscriptionScope.close()` senkron handle'ları kayıt sırasının tersinde iptal
+eder. `AsyncSubscriptionScope.aclose()` async handle'ları aynı sırayla bekler
+ve `async with` destekler. İlgili sync/async `cancel()` metodunu sunan duck-typed
+handle'lar kabul edilir. Her handle denenir; hatalar mevcut Python 3.10 uyumlu
+`ExceptionGroup` ile toplanır ve başarısız handle'lar tekrar denemek üzere
+korunur. Handle uygulaması tekrarlı iptali güvenli kılmalıdır. Handle'ın kendi
+async iptali diğer handle'lar denendikten sonra yayılır. Kapanmış scope yeni
+handle kabul etmez. Eşzamanlı async kapanış çağrıları aynı cleanup task'ını
+bekler; çağıran task'ın iptali temizlik tamamlandıktan sonra yeniden yükselir.
+
+Scope kayıtları iptal eder; bus'ın kendisini sahiplenmez ve başlamış callback'i
+zorla durdurmaz. Bus/engine kaynaklarının da kapanması için mevcut context
+manager'larını kullanın. Async scope tek event loop'a aittir; kendisini bekleyecek
+reentrant kapanış açıkça reddedilir.
+
+<a id="event-context"></a>
+## Event context ve ölçümler
+
+`publish(event)` ham nesneleri kabul etmeye devam eder. İsteğe bağlı
+`EventEnvelope[T]`; `event`, üretilen `id`, `correlation_id`, `source`, timezone
+bilgili UTC `timestamp` ve `metadata` alanlarını sunan frozen bir veri sınıfıdır.
+Metadata kopyalanıp salt okunur mapping'e alınır; payload ve metadata içindeki
+nesneler kendi mutability özelliklerini korur. Payload dönüşümü için
+`dataclasses.replace` kullanılabilir.
+
+~~~python
+from dataclasses import replace
+from eventflow import EventEnvelope, Pipeline, PipelineStats, correlation_context
+
+stats = PipelineStats()
+pipeline = Pipeline[EventEnvelope[int]](observer=stats)
+pipeline.add("increment", lambda envelope: replace(envelope, event=envelope.event + 1))
+with correlation_context("request-42"):
+    event = EventEnvelope(1, source="example", metadata={"attempt": 1})
+    result = pipeline.run(event)
+print(result.event, result.correlation_id)  # 2 request-42
+print(stats.snapshot.runs.successful)     # 1
+~~~
+
+`correlation_context(id)` async fonksiyon içinde de kullanılabilen normal bir
+context manager'dır. `current_correlation_id()` etkin kimliği döndürür. Zarf
+önce açıkça verilen correlation ID'yi, ardından bağlı context'i, son olarak
+kendi ID'sini kullanır. Context asyncio task'ları arasında izoledir ve çıkışta
+eski değerine döner. Yeni thread'ler ve mevcut bus executor'ı context'i otomatik
+devralmaz; gerektiğinde uygulama tarafında `contextvars.copy_context` kullanın.
+
+İki pipeline türüne de `observer=PipelineStats()` veya senkron bir
+`PipelineObserver` callable verilebilir. Tamamlanan run, stage ve middleware
+için `PipelineObservation(kind, name, elapsed, status, correlation_id, error)`
+üretilir. Durumlar `success`, `error`, `cancelled`; süre birimi saniyedir.
+Run ve stage bildirimlerini aynı kimlikle izlemek için context'i çağıran kodda
+tüm run çevresinde bağlayın. Middleware içindeki context yalnız o middleware
+aktifken geçerlidir. Observer kapalıyken saat okuması ve observation nesnesi
+oluşturulmaz.
+
+`stats.snapshot`; immutable `runs`, `stages`, `middleware` özetleri döndürür.
+Her `ExecutionMetrics` içinde `calls`, `successful`, `failed`, `cancelled`,
+`total_seconds`, `max_seconds` bulunur. Kısa devre ile atlanan stage sayılmaz.
+Run ve middleware süreleri iç stage sürelerini içerdiğinden bu süreler
+toplanmamalıdır. `reset()` ölçümleri temizler. Collector payload veya traceback
+nesnesi tutmaz.
+
+Observer inline çalışır ve hızlı olmalıdır. Observer hatası, başarılı olacak
+çalışmayı `phase="observer"` ile durdurur. Mevcut bir pipeline hatası sırasında
+oluşan observer hataları orijinal `PipelineExecutionError.observer_errors`
+üzerinde korunur; asıl cause değiştirilmez. Mevcut `EventBusStats` alanları
+ve davranışı korunur.
+
+<a id="composition"></a>
+## Bileşenleri birlikte kullanma
+
+Bileşenler bağımsız kullanılabilir veya normal callable/iterator arayüzleriyle
+birleştirilebilir. Stage olarak `CallbackSubscription.invoke`, stream map
+fonksiyonu olarak `Pipeline.run` veya `AsyncPipeline.run`, scope handle'ı olarak
+iki bus türünün `subscribe()` sonucu kullanılabilir. Bus yayını otomatik olarak
+pipeline başlatmaz veya event'e zarf eklemez.
+
+Depo kökünden çalıştırılabilen iki tam örnek bulunur:
+
+~~~bash
+python -m examples.integrated
+python -m examples.bus_stream
+~~~
+
+[integrated.py](https://github.com/TahsinCr/python-eventflow/blob/main/examples/integrated.py);
+sync/async stage'leri, decorator'ları, callback politikalarını, korelasyonu,
+ölçümleri, bounded stream'i ve async bus'ı bir araya getirir.
+[bus_stream.py](https://github.com/TahsinCr/python-eventflow/blob/main/examples/bus_stream.py)
+ise sınırlı bir uygulama kuyruğunu bus aboneliği ve stream kaynağı olarak kullanır.
+Tek publisher task'ını sahiplenip çıkışta bekler; her event için yeni task açmaz.
+
 <a id="reference"></a>
 ## Yaşam döngüsü ve başvuru
 
@@ -764,6 +1033,14 @@ API'leri üzerinden `latest()`/`query()` çağrılarını, ayrıca sınırlı sy
 replay hazırlığını karşılaştırabilirsiniz. Standart kütüphane ile çalışan araç
 varsayılan olarak 100.000 event kullanır; `--events`, `--replay`,
 `--iterations` ve `--samples` seçenekleriyle ayarlanır.
+
+Ek ölçümler için `python -m benchmarks.benchmark_publish`,
+`python -m benchmarks.benchmark_pipeline` ve `python -m benchmarks.benchmark_stream`
+kullanılabilir. `--output results.json`; ortamı, throughput'u, p50/p95/p99
+gecikmesini ve zaman ölçümünden ayrı izlenen peak allocation bilgisini kaydeder.
+Stream oranları bir tam tüketim işlemindeki öğe sayısıyla hesaplanır. Tracemalloc
+değerleri process RSS değildir; yerel mikrobenchmark dağıtım performansı garantisi
+vermez. Baz çizgi, son ölçümler ve yöntem `benchmarks/results` altında tutulur.
 
 Copyright © 2026 TahsinCr. EventFlow, MIT Lisansı ile lisanslanmıştır.
 [LICENSE](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE) ve

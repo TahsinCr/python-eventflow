@@ -1,0 +1,132 @@
+{
+  "python": "3.10.18 (main, Aug 13 2026, 01:16:48) [GCC 16.1.1 20260728]",
+  "platform": "Linux-7.2.11-arch1-1-x86_64-with-glibc2.44",
+  "results": [
+    {
+      "case": "sync/0",
+      "iterations": 2000,
+      "ops_per_second": 353606.7892503536,
+      "p50_us": 2.828,
+      "p95_us": 6.691,
+      "p99_us": 7.872,
+      "peak_traced_bytes": 292
+    },
+    {
+      "case": "sync/1",
+      "iterations": 2000,
+      "ops_per_second": 226500.56625141564,
+      "p50_us": 4.415,
+      "p95_us": 4.626,
+      "p99_us": 6.297,
+      "peak_traced_bytes": 400
+    },
+    {
+      "case": "sync/10",
+      "iterations": 2000,
+      "ops_per_second": 59026.650532715525,
+      "p50_us": 16.941,
+      "p95_us": 19.612,
+      "p99_us": 31.767,
+      "peak_traced_bytes": 496
+    },
+    {
+      "case": "sync/100",
+      "iterations": 2000,
+      "ops_per_second": 6824.704063770035,
+      "p50_us": 146.524,
+      "p95_us": 167.194,
+      "p99_us": 213.668,
+      "peak_traced_bytes": 2072
+    },
+    {
+      "case": "sync/filter-type",
+      "iterations": 2000,
+      "ops_per_second": 58505.192335819804,
+      "p50_us": 17.092,
+      "p95_us": 17.718,
+      "p99_us": 25.953,
+      "peak_traced_bytes": 496
+    },
+    {
+      "case": "sync/filter-predicate",
+      "iterations": 2000,
+      "ops_per_second": 44861.15472612265,
+      "p50_us": 22.291,
+      "p95_us": 24.776,
+      "p99_us": 37.0,
+      "peak_traced_bytes": 496
+    },
+    {
+      "case": "async-sequential/0",
+      "iterations": 2000,
+      "ops_per_second": 321853.878339234,
+      "p50_us": 3.107,
+      "p95_us": 7.354,
+      "p99_us": 7.7,
+      "peak_traced_bytes": 1380
+    },
+    {
+      "case": "async-sequential/1",
+      "iterations": 2000,
+      "ops_per_second": 257036.37064644648,
+      "p50_us": 3.89,
+      "p95_us": 4.134,
+      "p99_us": 6.417,
+      "peak_traced_bytes": 600
+    },
+    {
+      "case": "async-sequential/10",
+      "iterations": 2000,
+      "ops_per_second": 99561.92751891677,
+      "p50_us": 10.044,
+      "p95_us": 10.347,
+      "p99_us": 13.139,
+      "peak_traced_bytes": 696
+    },
+    {
+      "case": "async-sequential/100",
+      "iterations": 2000,
+      "ops_per_second": 14121.999957634,
+      "p50_us": 70.81,
+      "p95_us": 80.849,
+      "p99_us": 129.261,
+      "peak_traced_bytes": 2272
+    },
+    {
+      "case": "async-concurrent/0",
+      "iterations": 2000,
+      "ops_per_second": 240038.4061449832,
+      "p50_us": 4.166,
+      "p95_us": 4.387,
+      "p99_us": 7.153,
+      "peak_traced_bytes": 692
+    },
+    {
+      "case": "async-concurrent/1",
+      "iterations": 2000,
+      "ops_per_second": 59537.98523457966,
+      "p50_us": 16.796,
+      "p95_us": 22.332,
+      "p99_us": 47.11,
+      "peak_traced_bytes": 2811
+    },
+    {
+      "case": "async-concurrent/10",
+      "iterations": 2000,
+      "ops_per_second": 15802.032141333375,
+      "p50_us": 63.283,
+      "p95_us": 67.777,
+      "p99_us": 91.136,
+      "peak_traced_bytes": 12859
+    },
+    {
+      "case": "async-concurrent/100",
+      "iterations": 2000,
+      "ops_per_second": 1957.914625132771,
+      "p50_us": 510.737,
+      "p95_us": 566.459,
+      "p99_us": 1002.75,
+      "peak_traced_bytes": 117884
+    }
+  ]
+}

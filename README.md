@@ -9,6 +9,11 @@ Python objects. It provides a synchronous event bus, an asyncio-native event
 bus, optional in-memory history, named channels, and explicit subscription
 lifecycle management.
 
+Optional pipelines transform values through named stages and around middleware.
+Async streams compose lazy transformations with bounded buffering. Scopes,
+event envelopes and opt-in measurements let these pieces work together without
+requiring a framework or changing ordinary bus publication.
+
 The library is for in-process delivery. It does not persist events, serialize
 them, or transport them between processes. Those responsibilities remain with
 the application or its messaging infrastructure.
@@ -36,6 +41,11 @@ to install or use this package.
 - [Async applications](#async-applications)
 - [Organizing channels](#channels)
 - [Callback policies](#callback-policies)
+- [Pipelines and middleware](#pipelines)
+- [Async pipelines and streams](#streams)
+- [Subscription scopes](#scopes)
+- [Event context and measurements](#event-context)
+- [Composing the components](#composition)
 - [Lifecycle and reference](#reference)
   - [Defaults](#defaults)
   - [Bus methods](#bus-api)
@@ -631,6 +641,261 @@ that suppresses cancellation, or a hook that does not return, can extend the
 invocation beyond its configured budget. Python cannot force-stop a coroutine.
 A callback's own `TimeoutError` is distinct from `CallbackTimeoutError`.
 
+<!-- integrated execution documentation -->
+<a id="pipelines"></a>
+## Pipelines and middleware
+
+Use `Pipeline[T]` for a sequence of transformations from `T` to `T`. Every stage
+receives the previous stage's result. The pipeline returns the final value and
+does not publish it automatically. An empty pipeline returns its input.
+
+~~~python
+from dataclasses import dataclass, replace
+from eventflow import Pipeline
+
+@dataclass(frozen=True)
+class Request:
+    amount: int
+
+pipeline = Pipeline[Request]()
+
+@pipeline.stage("validate")
+def validate(request: Request) -> Request:
+    if request.amount < 0:
+        raise ValueError("amount must be non-negative")
+    return request
+
+def double(request: Request) -> Request:
+    return replace(request, amount=request.amount * 2)
+
+pipeline.add("double", double, after="validate")
+
+@pipeline.middleware("audit")
+def audit(request, next_):
+    print("before", request.amount)
+    result = next_(request)
+    print("after", result.amount)
+    return result
+
+print(pipeline.run(Request(4)))  # Request(amount=8)
+~~~
+
+`stage()` and `middleware()` register and return the original function. Its
+identity, name and direct call behavior remain intact. Decorator registration
+and `add()` use the same registry; neither wraps the registered function.
+
+| Operation | Behavior |
+| --- | --- |
+| `add(name, callback, *, before=None, after=None)` | Add a stage with optional ordering constraints. |
+| `stage(name, *, before=None, after=None)` | Decorator equivalent of `add`. |
+| `remove(name)` | Remove the stage and references to it; return its callback. |
+| `replace(name, callback)` | Keep the name, ordering constraints and enabled state. |
+| `enable(name)` / `disable(name)` | Change inclusion in future runs. |
+| `stage_names` | Ordered names, including disabled stages. |
+| `add_middleware(...)` / `middleware(...)` | Register around middleware in its own namespace. |
+| `remove_middleware`, `replace_middleware`, `enable_middleware`, `disable_middleware` | Apply the corresponding registry operation to middleware. |
+| `middleware_names` | Names from outermost to innermost, including disabled middleware. |
+
+Names are stripped, case-sensitive, non-empty and unique within each registry.
+`before` and `after` must reference existing names. Unknown references raise
+`KeyError`; duplicate names, empty names and ordering cycles raise `ValueError`.
+Invalid mutations leave the existing plan intact. Registration order resolves
+ties. Disabled stages retain their ordering constraints. Removing a stage
+removes references to it from the remaining stages.
+
+Ordering is prepared when configuration changes. Each run takes one immutable
+execution snapshot; replacement or disabling during a run affects subsequent
+runs. Configuration is thread-safe and callbacks execute outside its lock.
+The snapshot does not copy payloads or make a callback's own mutable state safe
+for concurrent use.
+
+Middleware wraps the entire pipeline: the first registered middleware is the
+outermost. It may call `next_(value)` once, transform its return value, catch a
+`PipelineExecutionError` to recover, or return directly to short-circuit. A
+continuation is valid only inside its middleware call and on the same thread
+or async task. A second call, deferred call or detached-task call raises
+`RuntimeError`. Existing bus actions and callback hooks retain their own
+semantics; they are not executed as pipeline middleware.
+
+Stage failures stop later stages and raise `PipelineExecutionError`. Inspect
+`name`, `phase`, `context` and `__cause__` to locate the original failure.
+The context is the value passed into the failing component. A synchronous
+stage or middleware returning an awaitable is rejected, and returned coroutine
+objects are closed. Python cannot forcibly stop a synchronous callback.
+
+<a id="streams"></a>
+## Async pipelines and streams
+
+`AsyncPipeline[T]` has the same registry and decorators. Its callbacks return
+awaitables; `await pipeline.run(value)` executes on the first owning loop.
+Synchronous callbacks are never moved to threads. Concurrent runs use
+independent snapshots and continuations. `CancelledError` propagates into the
+active stage and is not converted into a delivery failure or retried.
+Stage and middleware results must be resolved values: returning another
+awaitable after the outer await (for example, forgetting `await next_`) is
+rejected and any returned coroutine is closed.
+
+`AsyncStream[T]` owns an `AsyncIterable[T]`. Its transformations accept ordinary
+or awaitable callbacks, making both pipeline `run` methods directly usable as
+map functions. Mapping, filtering and batching are lazy and start no workers.
+
+~~~python
+import asyncio
+from eventflow import AsyncPipeline, AsyncStream
+
+async def main() -> None:
+    pipeline = AsyncPipeline[int]()
+
+    @pipeline.stage("double")
+    async def double(value: int) -> int:
+        return value * 2
+
+    async def source():
+        for value in range(5):
+            yield value
+
+    stream = AsyncStream(source()).map(pipeline.run).filter(
+        lambda value: value % 4 == 0
+    ).buffer(2).batch(2)
+    async with stream:
+        async for batch in stream:
+            print(batch)  # (0, 4), then (8,)
+
+asyncio.run(main())
+~~~
+
+| Operation | Result and ownership |
+| --- | --- |
+| `AsyncStream(source)` | A single-use stream on one owning loop. |
+| `map(callback)` | Transform values sequentially; await awaitable results. |
+| `filter(predicate)` | Keep accepted values; synchronous or awaitable predicate. |
+| `batch(size, *, partial=True)` | Yield tuples; optionally include the final partial tuple. |
+| `buffer(capacity)` | Add one producer and a bounded queue with backpressure. |
+| `aclose()` / `async with stream` | Close the entire upstream chain and await owned cleanup. |
+| `closed` | Whether new reads have stopped. |
+
+Batch sizes and buffer capacities must be positive integers; booleans, zero,
+fractions and infinity are rejected. A full buffer blocks its producer. There
+is room for `capacity` queued values plus one source value currently waiting
+to enter the queue. Values are never dropped. Source failures reach the
+consumer after earlier queued values; normal completion remains distinct from
+failure and cancellation.
+
+A stream is consumed once. A second iterator acquisition and concurrent reads
+are rejected. Use `async with` on the **terminal stream** when a consumer may
+break early or raise. Python's `async for` protocol does not notify a source
+when arbitrary consumer code uses `break`; `aclose()` supplies that explicit
+ownership boundary. It also closes an unstarted upstream chain. Closing from
+another task cancels an outstanding reader, then waits for source cleanup.
+Cancellation of the caller is propagated after owned cleanup finishes, even
+if cancellation is repeated. Sources and user cleanup still need to cooperate
+with cancellation; a non-returning source can delay closure.
+
+<a id="scopes"></a>
+## Subscription scopes
+
+Scopes group existing cancellation handles without changing what `subscribe`
+returns. `add(handle)` returns the same handle and ignores repeated registration
+of the same object. Separate scopes may own unrelated buses or callback policies.
+
+~~~python
+from eventflow import EventBus, SubscriptionScope
+
+with EventBus[int]() as bus, SubscriptionScope() as scope:
+    handle = scope.add(bus.subscribe(print))
+    bus.publish(42)
+assert not handle.active
+~~~
+
+`SubscriptionScope.close()` cancels synchronous handles in reverse registration
+order. `AsyncSubscriptionScope.aclose()` awaits async handles in the same order
+and supports `async with`. Both accept duck-typed handles with the corresponding
+`cancel()` method. They attempt every handle, collect failures in the existing
+Python 3.10-compatible `ExceptionGroup`, and retain failed handles for retry.
+Handle implementations should make repeated cancellation safe. A handle's own
+async cancellation is propagated after the other handles have been attempted.
+Closed scopes reject additions. Async cleanup is shared by concurrent close
+callers and finishes before caller cancellation is re-raised.
+
+Scopes cancel registrations; they do not acquire ownership of the underlying
+bus or forcibly stop callbacks already running. Keep bus/engine context managers
+when those resources also need to close. The async scope itself belongs to one
+loop and rejects reentrant cleanup that would await itself.
+
+<a id="event-context"></a>
+## Event context and measurements
+
+`publish(event)` continues to accept raw objects. `EventEnvelope[T]` is an
+optional frozen container with `event`, generated `id`, `correlation_id`,
+`source`, timezone-aware UTC `timestamp` and `metadata`. Metadata is copied
+into a read-only mapping; payloads and nested metadata values retain their
+own mutability. Use `dataclasses.replace` to transform an envelope's payload.
+
+~~~python
+from dataclasses import replace
+from eventflow import EventEnvelope, Pipeline, PipelineStats, correlation_context
+
+stats = PipelineStats()
+pipeline = Pipeline[EventEnvelope[int]](observer=stats)
+pipeline.add("increment", lambda envelope: replace(envelope, event=envelope.event + 1))
+with correlation_context("request-42"):
+    event = EventEnvelope(1, source="example", metadata={"attempt": 1})
+    result = pipeline.run(event)
+print(result.event, result.correlation_id)  # 2 request-42
+print(stats.snapshot.runs.successful)     # 1
+~~~
+
+`correlation_context(id)` is a normal context manager, usable in async functions
+too. `current_correlation_id()` reads the current identifier. An envelope uses
+an explicit correlation ID, then the bound context, then its own ID. Context
+is isolated across asyncio tasks and reset on exit. New threads and the bus
+executor do not automatically inherit it; use `contextvars.copy_context` in
+application code when propagation is required.
+
+Pass `observer=PipelineStats()` or a synchronous `PipelineObserver` callable to
+either pipeline. Each completed run, stage and middleware produces a
+`PipelineObservation(kind, name, elapsed, status, correlation_id, error)`.
+Statuses are `success`, `error` and `cancelled`; elapsed times are seconds.
+Bind correlation around the caller's entire run for consistent run and stage
+notifications. Middleware-local context applies only while that middleware is
+active. With no observer, clocks and observation objects are omitted.
+
+`stats.snapshot` returns immutable `runs`, `stages` and `middleware` aggregates.
+Each `ExecutionMetrics` includes `calls`, `successful`, `failed`, `cancelled`,
+`total_seconds` and `max_seconds`. Counts describe actual execution, so a
+short-circuit does not count skipped stages. Run and middleware durations
+include nested stages; do not add them together. `reset()` clears aggregates.
+No payloads or traceback objects are retained by the collector.
+
+Observers execute inline and should remain fast. An observer failure aborts an
+otherwise successful run with `phase="observer"`. During an existing pipeline
+failure, observer errors are available as `observer_errors` on the original
+`PipelineExecutionError`, preserving its cause. Existing `EventBusStats` is
+unchanged.
+
+<a id="composition"></a>
+## Composing the components
+
+Use the components independently or connect their normal callable/iterator
+interfaces. A stage can be `CallbackSubscription.invoke`, a stream map can be
+`Pipeline.run` or `AsyncPipeline.run`, and a scope can own the handle returned
+by either bus. Bus publication does not implicitly invoke a pipeline or add
+an envelope.
+
+Two complete, network-free examples are executable from the repository root:
+
+~~~bash
+python -m examples.integrated
+python -m examples.bus_stream
+~~~
+
+[integrated.py](https://github.com/TahsinCr/python-eventflow/blob/main/examples/integrated.py)
+combines sync and async pipeline stages, decorators, callback policies,
+correlation, metrics, a buffered stream and an async bus.
+[bus_stream.py](https://github.com/TahsinCr/python-eventflow/blob/main/examples/bus_stream.py)
+uses a bounded application queue as a bus subscription and stream source.
+It owns one publisher task and joins it on exit; no task is created per event.
+
 <a id="reference"></a>
 ## Lifecycle and reference
 
@@ -748,6 +1013,14 @@ history `latest()`/`query()` calls through the history and bus APIs, along with
 bounded sync and async replay setup. The standard-library benchmark defaults
 to 100,000 retained events and can be adjusted with `--events`, `--replay`,
 `--iterations`, and `--samples`.
+
+Additional repeatable measurements use `python -m benchmarks.benchmark_publish`,
+`python -m benchmarks.benchmark_pipeline` and `python -m benchmarks.benchmark_stream`.
+Use `--output results.json` to retain the environment, throughput, p50/p95/p99
+latency and separately traced peak allocations. Stream rates count items per
+whole-stream operation. Traced allocation peaks are not process RSS and local
+microbenchmarks are not deployment guarantees. Recorded baseline/final results
+and methodology live under `benchmarks/results`.
 
 Copyright © 2026 TahsinCr. EventFlow is licensed under the MIT License.
 See [LICENSE](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE) and

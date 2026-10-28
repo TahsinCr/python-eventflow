@@ -42,12 +42,15 @@ jobs:
           python -m pip install "coverage>=7.6,<8"
           python -m coverage run --source=eventflow -m unittest discover -s tests
           python -m coverage report --include="eventflow/*" --fail-under=88
+          python -m coverage report --include="eventflow/pipeline/*" --fail-under=90
 
       - name: Check formatting and lint rules
         run: ruff check .
 
       - name: Check public package types
-        run: pyright --pythonversion "${{ matrix.python-version }}"
+        run: |
+          pyright --pythonversion "${{ matrix.python-version }}"
+          pyright examples benchmarks --pythonversion "${{ matrix.python-version }}"
 
   dependency-audit:
     name: Audit runtime dependencies
@@ -102,9 +105,24 @@ jobs:
           python - <<'PY'
           from importlib.metadata import version
           from pathlib import Path
+          import asyncio
 
           import eventflow
 
           assert version("eventflow") == eventflow.__version__
           assert (Path(eventflow.__file__).parent / "py.typed").is_file()
+          assert eventflow.Pipeline[int]().run(1) == 1
+          assert eventflow.EventEnvelope[int](1).event == 1
+
+          async def smoke():
+              pipeline = eventflow.AsyncPipeline[int]()
+              assert await pipeline.run(2) == 2
+              async def source():
+                  yield 3
+              stream = eventflow.AsyncStream(source()).map(pipeline.run).buffer(1)
+              async with stream:
+                  assert [value async for value in stream] == [3]
+              async with eventflow.AsyncSubscriptionScope():
+                  pass
+          asyncio.run(smoke())
           PY

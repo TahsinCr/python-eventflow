@@ -1,0 +1,39 @@
+{
+  "python": "3.10.18 (main, Aug 13 2026, 01:16:48) [GCC 16.1.1 20260728]",
+  "platform": "Linux-7.2.11-arch1-1-x86_64-with-glibc2.44",
+  "results": [
+    {
+      "case": "direct-generator",
+      "iterations": 100,
+      "ops_per_second": 12915.14106562829,
+      "p50_us": 77.424,
+      "p95_us": 85.159,
+      "p99_us": 103.012,
+      "peak_traced_bytes": 1352,
+      "items_per_operation": 1000,
+      "items_per_second": 12915141.06562829
+    },
+    {
+      "case": "unbuffered",
+      "iterations": 100,
+      "ops_per_second": 245.39732772126004,
+      "p50_us": 4074.789,
+      "p95_us": 4192.957,
+      "p99_us": 4567.78,
+      "peak_traced_bytes": 4449,
+      "items_per_operation": 1000,
+      "items_per_second": 245397.32772126005
+    },
+    {
+      "case": "buffer-16",
+      "iterations": 100,
+      "ops_per_second": 137.1857186648784,
+      "p50_us": 7289.113,
+      "p95_us": 7602.593,
+      "p99_us": 7817.513,
+      "peak_traced_bytes": 6588,
+      "items_per_operation": 1000,
+      "items_per_second": 137185.7186648784
+    }
+  ]
+}

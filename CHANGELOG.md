@@ -4,6 +4,34 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Add independent `Pipeline[T]` and `AsyncPipeline[T]` execution with named
+  stages, identity-preserving decorators, stable before/after ordering,
+  replacement, enable/disable controls, and immutable execution snapshots.
+- Add ordered pipeline middleware with around execution, explicit
+  short-circuit/recovery, and single-use, caller-owned continuations.
+- Add `PipelineExecutionError` with the failing component, input context,
+  original cause, and separately retained observer failures.
+- Add single-consumer `AsyncStream` with lazy sync/async map and filter,
+  tuple batching, bounded prefetch, backpressure, and cancellation-safe closure.
+- Add `SubscriptionScope` and `AsyncSubscriptionScope` for existing cancellation
+  handles, reverse-order cleanup, grouped failures, and retryable shutdown.
+- Add optional immutable `EventEnvelope`, scoped correlation identifiers,
+  `PipelineObservation`, and thread-safe aggregate `PipelineStats`.
+- Add v1.1 public signature/decorator regression contracts, executable README
+  checks, composed bus/pipeline/stream examples, and latency/allocation benchmarks.
+- Document shared contracts, snapshot ownership, middleware ordering, stream
+  backpressure, context propagation, and intentional architectural limits.
+
+### Changed
+
+- Load new execution components lazily through the package exports so ordinary
+  bus imports and publication do not initialize optional execution machinery.
+- Extend CI typing to the runnable examples and benchmarks, require at least
+  90% pipeline line coverage, and smoke-test new APIs from installed artifacts.
+  The existing 88% package coverage floor and Python/platform matrix remain.
+
 ## [v1.1] - 2026-10-25
 
 ### Added
