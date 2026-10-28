@@ -32,6 +32,13 @@ All notable changes to this project are documented in this file.
   90% pipeline line coverage, and smoke-test new APIs from installed artifacts.
   The existing 88% package coverage floor and Python/platform matrix remain.
 
+### Fixed
+
+- Continue scope cleanup after handle-owned cancellation or other BaseException
+  interrupts, retaining failed handles and preserving additional cleanup errors.
+- Keep synchronous `wait_for()` waiting for its claimed one-shot callback when
+  an unrelated condition notification arrives before the value is captured.
+
 ## [v1.1] - 2026-10-25
 
 ### Added

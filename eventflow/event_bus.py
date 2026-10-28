@@ -142,6 +142,7 @@ class EventBus(BaseEventBus[T]):
         self._closed = False
         self._lock = threading.RLock()
         self._condition = threading.Condition(self._lock)
+        self._clear_generation = 0
         self._schedules: dict[int, tuple[Subscription, threading.Thread]] = {}
 
     @property
@@ -495,16 +496,22 @@ class EventBus(BaseEventBus[T]):
                 received.append(event)
                 self._condition.notify_all()
 
-        subscription = self.subscribe(
-            capture,
-            event_filter=normalized_filter,
-            once=True,
-        )
+        with self._condition:
+            # One-shot claim deactivates before capture; only clear/close abort a wait.
+            clear_generation = self._clear_generation
+            subscription = self.subscribe(
+                capture,
+                event_filter=normalized_filter,
+                once=True,
+            )
         timed_out = False
         try:
             with self._condition:
                 ready = self._condition.wait_for(
-                    lambda: bool(received) or self._closed or not subscription.active,
+                    lambda: (
+                        bool(received) or self._closed
+                        or self._clear_generation != clear_generation
+                    ),
                     timeout=timeout,
                 )
                 timed_out = not ready
@@ -517,6 +524,7 @@ class EventBus(BaseEventBus[T]):
 
     def clear(self) -> None:
         with self._lock:
+            self._clear_generation += 1
             subscriptions = tuple(
                 subscriber.subscription for subscriber in self._subscribers.values()
             )

@@ -601,6 +601,51 @@ class EventBusTests(unittest.TestCase):
         self.assertEqual(result, [None])
         bus.close()
 
+    def test_wait_for_does_not_finish_before_claimed_callback_records_value(self) -> None:
+        bus = EventBus[int]()
+        registered, entered, checked, release = (threading.Event() for _ in range(4))
+        result: list[int | None] = []
+        original_subscribe = bus.subscribe
+        original_wait = bus._condition.wait_for
+
+        def subscribe(callback, **options):
+            def delayed(event):
+                entered.set()
+                self.assertTrue(release.wait(5))
+                callback(event)
+            handle = original_subscribe(delayed, **options)
+            registered.set()
+            return handle
+
+        def wait_for(predicate, timeout=None):
+            def observed():
+                value = predicate()
+                if entered.is_set():
+                    checked.set()
+                return value
+            return original_wait(observed, timeout)
+
+        waiter = threading.Thread(target=lambda: result.append(bus.wait_for(timeout=5)))
+        publisher = threading.Thread(target=lambda: bus.publish(7))
+        with patch.object(bus, "subscribe", side_effect=subscribe), \
+             patch.object(bus._condition, "wait_for", side_effect=wait_for):
+            waiter.start()
+            try:
+                self.assertTrue(registered.wait(5))
+                publisher.start()
+                self.assertTrue(entered.wait(5))
+                # A notification may arrive after once-claim, before capture.
+                with bus._condition:
+                    bus._condition.notify_all()
+                self.assertTrue(checked.wait(5))
+            finally:
+                release.set()
+                if publisher.ident is not None:
+                    publisher.join(5)
+                bus.close()
+                waiter.join(5)
+        self.assertEqual(result, [7])
+
     def test_wait_for_receives_matching_event_and_close_wakes_waiter(self) -> None:
         bus = EventBus[int]()
         result: list[int | None] = []
