@@ -794,9 +794,23 @@ class EventBusTests(unittest.TestCase):
     def test_close_wins_if_periodic_thread_setup_races_with_close(self) -> None:
         bus = EventBus[int]()
         real_thread = threading.Thread
+        close_finished = threading.Event()
+        close_errors: list[BaseException] = []
 
         def close_before_thread_start(*args, **kwargs):
-            bus.close()
+            def close_bus() -> None:
+                try:
+                    bus.close()
+                except BaseException as error:
+                    close_errors.append(error)
+                finally:
+                    close_finished.set()
+
+            closer = real_thread(target=close_bus)
+            closer.start()
+            self.assertTrue(close_finished.wait(1.0))
+            closer.join()
+            self.assertEqual(close_errors, [])
             return real_thread(*args, **kwargs)
 
         try:
