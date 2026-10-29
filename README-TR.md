@@ -74,6 +74,10 @@ paketi ise `eventflow` olarak kalır. Paket bu adla yayımlandıktan sonra
 `backports.strenum` ve `exceptiongroup` paketleri kurulur. Paket metadata'sı bu
 bağımlılıkları yalnızca Python 3.10 için etkinleştirir.
 
+Paket içindeki kaynak kodu tip anotasyonları içerir, ancak dağıtım PEP 561
+`py.typed` işaretçisini içermez. Bu nedenle kurulu paketin tip denetleyiciler
+tarafından keşfedileceği garanti edilmez.
+
 `eventflow` ve `python-eventflow` dağıtım adları PyPI'de başka projelere
 kayıtlıdır ([eventflow](https://pypi.org/project/eventflow/),
 [python-eventflow](https://pypi.org/project/python-eventflow/)). Bu kütüphaneyi

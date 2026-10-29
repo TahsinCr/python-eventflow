@@ -99,18 +99,16 @@ jobs:
       - name: Install the source-built wheel
         run: python -m pip install "${{ runner.temp }}/from-sdist/"*.whl
 
-      - name: Verify installed package metadata and typing marker
+      - name: Verify installed package metadata and runtime API
         working-directory: ${{ runner.temp }}
         run: |
           python - <<'PY'
           from importlib.metadata import version
-          from pathlib import Path
           import asyncio
 
           import eventflow
 
           assert version("eventflow-tahsincr") == eventflow.__version__
-          assert (Path(eventflow.__file__).parent / "py.typed").is_file()
           assert eventflow.Pipeline[int]().run(1) == 1
           assert eventflow.EventEnvelope[int](1).event == 1
 

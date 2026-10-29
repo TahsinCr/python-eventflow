@@ -47,6 +47,8 @@ All notable changes to this project are documented in this file.
   a new metrics snapshot for every observation.
 - Load new execution components lazily through the package exports so ordinary
   bus imports and publication do not initialize optional execution machinery.
+- Keep inline annotations but stop marking installed distributions as PEP 561
+  typed while the `py.typed` marker is absent.
 - Extend CI typing to the runnable examples and benchmarks, require at least
   90% pipeline line coverage, and smoke-test new APIs from installed artifacts.
   The existing 88% package coverage floor and Python/platform matrix remain.
