@@ -121,7 +121,11 @@ class AsyncStream(AsyncIterator[T], Generic[T]):
         async def filtered() -> AsyncIterator[T]:
             async for item in self:
                 accepted = predicate(item)
-                if await accepted if inspect.isawaitable(accepted) else accepted:
+                if inspect.isawaitable(accepted):
+                    accepted = await accepted
+                if type(accepted) is not bool:
+                    raise TypeError("Stream filter predicates must return bool")
+                if accepted:
                     yield item
 
         return AsyncStream(filtered(), _upstream=self)

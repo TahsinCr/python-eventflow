@@ -41,6 +41,8 @@ class EventFilter(Generic[T]):
             if inspect.iscoroutine(result):
                 result.close()
             raise TypeError("Event filter predicates must return a boolean synchronously")
+        if type(result) is not bool:
+            raise TypeError("Event filter predicates must return bool")
         return result
 
 
