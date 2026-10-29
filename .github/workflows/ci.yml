@@ -109,7 +109,7 @@ jobs:
 
           import eventflow
 
-          assert version("eventflow") == eventflow.__version__
+          assert version("eventflow-tahsincr") == eventflow.__version__
           assert (Path(eventflow.__file__).parent / "py.typed").is_file()
           assert eventflow.Pipeline[int]().run(1) == 1
           assert eventflow.EventEnvelope[int](1).event == 1
