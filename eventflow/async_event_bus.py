@@ -108,9 +108,7 @@ class AsyncEventBus(BaseEventBus[T]):
             self._actions.on_timeout,
         ):
             if action is not None and not self._is_async_handler(action):
-                raise InvalidEventHandlerError(
-                    "AsyncEventBus actions must be async"
-                )
+                raise InvalidEventHandlerError("AsyncEventBus actions must be async")
         self._delivery_mode = DeliveryMode(delivery_mode)
         self._max_concurrency = (
             None
@@ -120,13 +118,8 @@ class AsyncEventBus(BaseEventBus[T]):
                 name="Maximum concurrent deliveries",
             )
         )
-        if (
-            self._max_concurrency is not None
-            and self._delivery_mode is not DeliveryMode.CONCURRENT
-        ):
-            raise ValueError(
-                "max_concurrency requires DeliveryMode.CONCURRENT"
-            )
+        if self._max_concurrency is not None and self._delivery_mode is not DeliveryMode.CONCURRENT:
+            raise ValueError("max_concurrency requires DeliveryMode.CONCURRENT")
         self._replay_buffer_limit = replay_buffer_limit
         self._max_schedules = max_schedules
         self._subscribers: dict[int, _AsyncSubscriber[T]] = {}
@@ -174,9 +167,7 @@ class AsyncEventBus(BaseEventBus[T]):
     ) -> AsyncSubscription:
         self._bind_loop()
         if not callable(callback) or not self._is_async_handler(callback):
-            raise InvalidEventHandlerError(
-                "AsyncEventBus accepts async handlers only"
-            )
+            raise InvalidEventHandlerError("AsyncEventBus accepts async handlers only")
         replay = validate_nonnegative_count(replay, name="Replay count")
         delivery_limit = self._delivery_limit(once=once, times=times)
         normalized_filter = coerce_event_filter(
@@ -581,9 +572,7 @@ class AsyncEventBus(BaseEventBus[T]):
                 async with self._lock:
                     self._waiters.discard(result)
         if timed_out and self._actions.on_timeout is not None:
-            await self._actions.on_timeout(
-                EventTimeoutContext(normalized_filter, timeout)
-            )
+            await self._actions.on_timeout(EventTimeoutContext(normalized_filter, timeout))
         return value
 
     def publish_threadsafe(self, event: T) -> Future[PublishResult]:
@@ -635,9 +624,7 @@ class AsyncEventBus(BaseEventBus[T]):
                 task.cancel()
             await schedule.cancel()
         pending_tasks = tuple(
-            task
-            for _schedule, task in tuple(self._schedules.values())
-            if task is not current_task
+            task for _schedule, task in tuple(self._schedules.values()) if task is not current_task
         )
         if pending_tasks:
             await asyncio.gather(

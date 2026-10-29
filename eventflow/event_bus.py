@@ -129,9 +129,7 @@ class EventBus(BaseEventBus[T]):
             self._actions.on_timeout,
         ):
             if action is not None and self._is_async_handler(action):
-                raise InvalidEventHandlerError(
-                    "EventBus actions must be synchronous"
-                )
+                raise InvalidEventHandlerError("EventBus actions must be synchronous")
         self._executor = executor
         self._executor_context = threading.local()
         self._replay_buffer_limit = replay_buffer_limit
@@ -507,8 +505,7 @@ class EventBus(BaseEventBus[T]):
             with self._condition:
                 ready = self._condition.wait_for(
                     lambda: (
-                        bool(received) or self._closed
-                        or self._clear_generation != clear_generation
+                        bool(received) or self._closed or self._clear_generation != clear_generation
                     ),
                     timeout=timeout,
                 )
