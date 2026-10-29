@@ -15,6 +15,7 @@ class MiddlewareLimitTests(unittest.TestCase):
         for index in range(64):
             pipeline.add_middleware(str(index), identity)
 
+        pipeline.disable_middleware("0")
         self.assertEqual(pipeline.run(1), 1)
         with self.assertRaisesRegex(ValueError, "at most 64"):
             pipeline.add_middleware("overflow", identity)
@@ -32,6 +33,7 @@ class MiddlewareLimitTests(unittest.TestCase):
             for index in range(64):
                 pipeline.add_middleware(str(index), identity)
 
+            pipeline.disable_middleware("0")
             self.assertEqual(await pipeline.run(1), 1)
             with self.assertRaisesRegex(ValueError, "at most 64"):
                 pipeline.add_middleware("overflow", identity)

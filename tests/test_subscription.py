@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import threading
 import unittest
 
@@ -78,6 +79,35 @@ class AsyncSubscriptionTests(unittest.IsolatedAsyncioTestCase):
 
         self.assertTrue(subscription.active)
         await subscription.cancel()
+        await subscription.cancel()
+        self.assertFalse(subscription.active)
+        self.assertEqual(attempts, 2)
+
+    async def test_concurrent_cancel_does_not_duplicate_inflight_removal(self) -> None:
+        entered = asyncio.Event()
+        release = asyncio.Event()
+        attempts = 0
+
+        async def remove() -> None:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                entered.set()
+                await release.wait()
+                raise RuntimeError("removal failed")
+
+        subscription = AsyncSubscription(1, remove)
+        first = asyncio.create_task(subscription.cancel())
+        await entered.wait()
+        second = asyncio.create_task(subscription.cancel())
+
+        await second
+        release.set()
+        with self.assertRaisesRegex(RuntimeError, "removal failed"):
+            await first
+
+        self.assertTrue(subscription.active)
+        self.assertEqual(attempts, 1)
         await subscription.cancel()
         self.assertFalse(subscription.active)
         self.assertEqual(attempts, 2)

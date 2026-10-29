@@ -1,8 +1,11 @@
 import asyncio
+import copy
 import pickle
+import threading
 import unittest
-from dataclasses import FrozenInstanceError, asdict
+from dataclasses import FrozenInstanceError, asdict, replace
 from datetime import datetime
+from types import MappingProxyType
 
 from eventflow.context import EventEnvelope, correlation_context, current_correlation_id
 
@@ -32,6 +35,37 @@ class ContextTests(unittest.TestCase):
         self.assertEqual(restored, envelope)
         with self.assertRaises(TypeError):
             restored.metadata["other"] = "value"
+
+    def test_metadata_copy_replace_and_pickle_protocols_preserve_contract(self):
+        nested = {"items": [1]}
+        envelope = EventEnvelope[int](
+            1,
+            metadata=MappingProxyType({"nested": nested}),
+        )
+
+        copied = copy.deepcopy(envelope)
+        replaced = replace(envelope, source="test")
+        self.assertEqual(asdict(envelope)["metadata"], {"nested": {"items": [1]}})
+        self.assertEqual(copied.metadata["nested"], {"items": [1]})
+        self.assertIsNot(copied.metadata["nested"], nested)
+        self.assertEqual(replaced.metadata["nested"], {"items": [1]})
+
+        nested["items"].append(2)
+        self.assertEqual(envelope.metadata["nested"]["items"], [1, 2])
+        self.assertEqual(copied.metadata["nested"]["items"], [1])
+
+        for protocol in range(pickle.HIGHEST_PROTOCOL + 1):
+            with self.subTest(protocol=protocol):
+                restored = pickle.loads(pickle.dumps(envelope, protocol=protocol))
+                self.assertEqual(restored.metadata["nested"]["items"], [1, 2])
+                with self.assertRaises(TypeError):
+                    restored.metadata["other"] = "value"
+
+    def test_non_pickleable_metadata_is_rejected_by_pickle(self):
+        envelope = EventEnvelope[int](1, metadata={"lock": threading.Lock()})
+
+        with self.assertRaises(TypeError):
+            pickle.dumps(envelope)
 
     def test_nested_correlation_is_reset_after_exception(self):
         self.assertIsNone(current_correlation_id())
