@@ -3,12 +3,13 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
+from copy import deepcopy
 from contextlib import contextmanager
 from contextvars import ContextVar
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from types import MappingProxyType
-from typing import Generic, TypeVar
+from typing import Any, Generic, TypeVar
 from uuid import uuid4
 
 T = TypeVar("T")
@@ -19,6 +20,33 @@ __all__ = ["EventEnvelope", "correlation_context", "current_correlation_id"]
 def current_correlation_id() -> str | None:
     """Return the identifier in the current context, if one was bound."""
     return _correlation.get()
+
+
+class _ReadOnlyMetadata(Mapping[str, object]):
+    """Copied read-only metadata that supports deepcopy and pickle."""
+
+    __slots__ = ("_mapping",)
+
+    def __init__(self, values: Mapping[str, object]) -> None:
+        self._mapping = MappingProxyType(dict(values))
+
+    def __getitem__(self, key: str) -> object:
+        return self._mapping[key]
+
+    def __iter__(self) -> Iterator[str]:
+        return iter(self._mapping)
+
+    def __len__(self) -> int:
+        return len(self._mapping)
+
+    def __repr__(self) -> str:
+        return f"mappingproxy({dict(self._mapping)!r})"
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> dict[str, object]:
+        return deepcopy(dict(self._mapping), memo)
+
+    def __reduce__(self) -> tuple[type[_ReadOnlyMetadata], tuple[dict[str, object]]]:
+        return type(self), (dict(self._mapping),)
 
 
 @contextmanager
@@ -59,4 +87,4 @@ class EventEnvelope(Generic[T]):
         if not isinstance(self.timestamp, datetime) or self.timestamp.utcoffset() is None:
             raise ValueError("Envelope timestamp must be timezone-aware")
         object.__setattr__(self, "correlation_id", correlation)
-        object.__setattr__(self, "metadata", MappingProxyType(dict(self.metadata)))
+        object.__setattr__(self, "metadata", _ReadOnlyMetadata(self.metadata))

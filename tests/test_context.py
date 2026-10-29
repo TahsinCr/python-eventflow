@@ -1,6 +1,7 @@
 import asyncio
+import pickle
 import unittest
-from dataclasses import FrozenInstanceError
+from dataclasses import FrozenInstanceError, asdict
 from datetime import datetime
 
 from eventflow.context import EventEnvelope, correlation_context, current_correlation_id
@@ -22,6 +23,15 @@ class ContextTests(unittest.TestCase):
         for kwargs in ({"id": ""}, {"correlation_id": ""}, {"timestamp": datetime.now()}):
             with self.assertRaises(ValueError):
                 EventEnvelope(1, **kwargs)
+
+    def test_envelope_metadata_supports_asdict_and_pickle(self):
+        envelope = EventEnvelope[int](1, metadata={"request": "r-1"})
+
+        self.assertEqual(asdict(envelope)["metadata"], {"request": "r-1"})
+        restored = pickle.loads(pickle.dumps(envelope))
+        self.assertEqual(restored, envelope)
+        with self.assertRaises(TypeError):
+            restored.metadata["other"] = "value"
 
     def test_nested_correlation_is_reset_after_exception(self):
         self.assertIsNone(current_correlation_id())
