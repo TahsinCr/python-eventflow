@@ -80,6 +80,11 @@ kayıtlıdır ([eventflow](https://pypi.org/project/eventflow/),
 kurmak için `eventflow-tahsincr` adını kullanın; Python import yolu `eventflow`
 olarak kalır.
 
+Dağıtım, ortak `eventflow` import paketine dosyalar kurar. Aynı ortamda bu
+paketi sağlayan başka bir dağıtım bulunması dosyaların üzerine yazılmasına veya
+çakışmasına yol açabilir. İki dağıtımı birlikte kullanmanız gerekiyorsa ayrı
+sanal ortamlar kullanın.
+
 Düzenlenebilir geliştirme için isteğe bağlı araçları kurup depo kontrollerini
 proje kök dizininden çalıştırın:
 

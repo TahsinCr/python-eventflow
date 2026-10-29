@@ -83,6 +83,11 @@ to other projects on PyPI ([eventflow](https://pypi.org/project/eventflow/),
 `eventflow-tahsincr` to install this library; imports continue to use
 `eventflow`.
 
+Because the distribution installs files in the shared `eventflow` import
+package, installing another distribution that provides that package in the
+same environment can overwrite or conflict with these files. Use a separate
+virtual environment when both distributions are needed.
+
 For editable development, install the optional tools and run the repository
 checks from the project root:
 
