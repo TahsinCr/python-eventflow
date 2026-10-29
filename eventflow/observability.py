@@ -60,43 +60,68 @@ class PipelineStatsSnapshot:
     middleware: Mapping[str, ExecutionMetrics]
 
 
+@dataclass(slots=True)
+class _MetricTotals:
+    calls: int = 0
+    successful: int = 0
+    failed: int = 0
+    cancelled: int = 0
+    total_seconds: float = 0.0
+    max_seconds: float = 0.0
+
+    def record(self, observation: PipelineObservation) -> None:
+        self.calls += 1
+        self.successful += observation.status == "success"
+        self.failed += observation.status == "error"
+        self.cancelled += observation.status == "cancelled"
+        self.total_seconds += observation.elapsed
+        self.max_seconds = max(self.max_seconds, observation.elapsed)
+
+    def freeze(self) -> ExecutionMetrics:
+        return ExecutionMetrics(
+            self.calls,
+            self.successful,
+            self.failed,
+            self.cancelled,
+            self.total_seconds,
+            self.max_seconds,
+        )
+
+
 class PipelineStats:
     """Thread-safe observer collecting per-run, stage and middleware aggregates."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
-        self._metrics: dict[tuple[ObservationKind, str | None], ExecutionMetrics] = {}
+        self._metrics: dict[tuple[ObservationKind, str | None], _MetricTotals] = {}
 
     def __call__(self, observation: PipelineObservation) -> None:
         key = (observation.kind, observation.name)
         with self._lock:
-            old = self._metrics.get(key, ExecutionMetrics())
-            self._metrics[key] = ExecutionMetrics(
-                calls=old.calls + 1,
-                successful=old.successful + (observation.status == "success"),
-                failed=old.failed + (observation.status == "error"),
-                cancelled=old.cancelled + (observation.status == "cancelled"),
-                total_seconds=old.total_seconds + observation.elapsed,
-                max_seconds=max(old.max_seconds, observation.elapsed),
-            )
+            totals = self._metrics.get(key)
+            if totals is None:
+                totals = _MetricTotals()
+                self._metrics[key] = totals
+            totals.record(observation)
 
     @property
     def snapshot(self) -> PipelineStatsSnapshot:
         """Copy aggregate counters; the returned mappings cannot be changed."""
         with self._lock:
+            runs = self._metrics.get(("run", None))
             return PipelineStatsSnapshot(
-                self._metrics.get(("run", None), ExecutionMetrics()),
+                ExecutionMetrics() if runs is None else runs.freeze(),
                 MappingProxyType(
                     {
-                        name: value
-                        for (kind, name), value in self._metrics.items()
+                        name: totals.freeze()
+                        for (kind, name), totals in self._metrics.items()
                         if kind == "stage" and name is not None
                     }
                 ),
                 MappingProxyType(
                     {
-                        name: value
-                        for (kind, name), value in self._metrics.items()
+                        name: totals.freeze()
+                        for (kind, name), totals in self._metrics.items()
                         if kind == "middleware" and name is not None
                     }
                 ),
