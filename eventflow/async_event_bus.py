@@ -23,6 +23,7 @@ from .compatibility import ExceptionGroup
 from .errors import EventBusError, InvalidEventHandlerError
 from .filtering import EventFilter, EventType, coerce_event_filter
 from .history import EventHistory
+from ._lifecycle import finish_cleanup
 from .subscription import AsyncSubscription
 
 
@@ -323,18 +324,11 @@ class AsyncEventBus(BaseEventBus[T]):
                 if error is not None:
                     errors.append(error)
         else:
-            limit = self._max_concurrency or max(1, len(matched))
-            for offset in range(0, len(matched), limit):
-                batch = matched[offset : offset + limit]
-                outcomes = await asyncio.gather(
-                    *(self._deliver(subscriber, event) for subscriber in batch),
-                    return_exceptions=True,
-                )
+            if self._max_concurrency is not None and 1 < self._max_concurrency < len(matched):
+                outcomes = await self._deliver_window(matched, event, self._max_concurrency)
                 for outcome in outcomes:
                     if isinstance(outcome, asyncio.CancelledError):
-                        errors.append(
-                            EventBusError("An async event callback was cancelled")
-                        )
+                        errors.append(EventBusError("An async event callback was cancelled"))
                         continue
                     if isinstance(outcome, BaseException):
                         raise outcome
@@ -343,6 +337,27 @@ class AsyncEventBus(BaseEventBus[T]):
                         delivered += 1
                     if error is not None:
                         errors.append(error)
+            else:
+                limit = self._max_concurrency or max(1, len(matched))
+                for offset in range(0, len(matched), limit):
+                    batch = matched[offset : offset + limit]
+                    outcomes = await asyncio.gather(
+                        *(self._deliver(subscriber, event) for subscriber in batch),
+                        return_exceptions=True,
+                    )
+                    for outcome in outcomes:
+                        if isinstance(outcome, asyncio.CancelledError):
+                            errors.append(
+                                EventBusError("An async event callback was cancelled")
+                            )
+                            continue
+                        if isinstance(outcome, BaseException):
+                            raise outcome
+                        was_delivered, error = outcome
+                        if was_delivered:
+                            delivered += 1
+                        if error is not None:
+                            errors.append(error)
 
         errors.extend(await self._notify_errors(event, tuple(errors)))
         result = PublishResult(
@@ -368,6 +383,61 @@ class AsyncEventBus(BaseEventBus[T]):
         if errors and self._error_policy is ErrorPolicy.RAISE:
             raise ExceptionGroup("Async event delivery failed", errors)
         return result
+
+    async def _deliver_window(
+        self,
+        matched: list[_AsyncSubscriber[T]],
+        event: T,
+        limit: int,
+    ) -> list[tuple[bool, Exception | None] | BaseException]:
+        """Keep each publish's bounded callback slots occupied as work completes."""
+        outcomes: list[tuple[bool, Exception | None] | BaseException | None] = [None] * len(matched)
+        active: dict[asyncio.Task[tuple[bool, Exception | None]], int] = {}
+        next_index = 0
+        fatal_error: BaseException | None = None
+
+        def start_next() -> None:
+            nonlocal next_index
+            task = asyncio.create_task(self._deliver(matched[next_index], event))
+            active[task] = next_index
+            next_index += 1
+
+        for _ in range(min(limit, len(matched))):
+            start_next()
+
+        try:
+            while active:
+                done, _ = await asyncio.wait(tuple(active), return_when=asyncio.FIRST_COMPLETED)
+                for task in done:
+                    index = active.pop(task)
+                    try:
+                        outcome = task.result()
+                    except BaseException as exc:
+                        outcome = exc
+                    outcomes[index] = outcome
+                    if (
+                        isinstance(outcome, BaseException)
+                        and not isinstance(outcome, asyncio.CancelledError)
+                        and fatal_error is None
+                    ):
+                        fatal_error = outcome
+
+                if fatal_error is None:
+                    for _ in range(len(done)):
+                        if next_index >= len(matched):
+                            break
+                        start_next()
+        except BaseException:
+            pending = tuple(active)
+            for task in pending:
+                task.cancel()
+            if pending:
+                await finish_cleanup(asyncio.gather(*pending, return_exceptions=True))
+            raise
+
+        if fatal_error is not None:
+            raise fatal_error
+        return [outcome for outcome in outcomes if outcome is not None]
 
     async def _notify_errors(
         self,

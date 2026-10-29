@@ -504,8 +504,9 @@ a `concurrent.futures.Future` and schedules delivery on the owning loop.
 
 Concurrent delivery is unbounded by default to preserve the existing behavior.
 Set `max_concurrency=N` with `DeliveryMode.CONCURRENT` to cap callback fan-out
-for each publish. Subscribers are handled in batches of at most `N`; overlapping
-publish calls each have their own limit. This does not bound how many publish
+for each publish. When a callback finishes, its slot is reused immediately for
+the next subscriber instead of waiting for the rest of a fixed group. Overlapping
+publish calls each have their own limit; this does not bound how many publish
 calls the application creates. Choose a finite value when one event's fan-out
 could otherwise create too many tasks or use too many external resources.
 

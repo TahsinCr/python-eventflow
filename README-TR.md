@@ -478,11 +478,12 @@ handler task'ı başarısız teslimat olarak `PublishResult`'a eklenir. `publish
 
 Concurrent teslimat varsayılan olarak sınırsızdır ve mevcut davranışı korur.
 `DeliveryMode.CONCURRENT` ile verilen `max_concurrency=N`, her bir publish
-çağrısının callback fan-out'unu sınırlar. Aboneler en fazla `N` öğelik gruplar
-hâlinde çalıştırılır; çakışan publish çağrılarının her biri kendi sınırına
-sahiptir. Bu seçenek uygulamanın oluşturduğu publish çağrılarının toplamını
-sınırlamaz. Tek bir event'in fan-out'u çok sayıda task veya harici kaynak
-tüketebilecekse sonlu bir değer belirleyin.
+çağrısının callback fan-out'unu sınırlar. Bir callback tamamlandığında boşalan
+yuva, sabit grubun diğer callback'lerini beklemeden sıradaki aboneye verilir.
+Çakışan publish çağrılarının her biri kendi sınırına sahiptir; bu seçenek
+uygulamanın oluşturduğu publish çağrılarının toplamını sınırlamaz. Tek bir
+event'in fan-out'u çok sayıda task veya harici kaynak tüketebilecekse sonlu bir
+değer belirleyin.
 
 ~~~python
 import asyncio

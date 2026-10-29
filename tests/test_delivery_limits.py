@@ -67,26 +67,157 @@ class AsyncDeliveryLimitTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(result.delivered, 1)
         self.assertEqual(delivered, [2])
 
+    async def test_bounded_delivery_refills_freed_slots_before_slow_callbacks_finish(
+        self,
+    ) -> None:
+        reported = []
+        after = []
+        slow_started = asyncio.Event()
+        release_slow = asyncio.Event()
+        fast_finished = asyncio.Event()
+        replacement_started = asyncio.Event()
+        active = peak_active = 0
+
+        async def on_error(context) -> None:
+            reported.append(context.error)
+
+        async def on_after(_event, result) -> None:
+            after.append(result)
+
+        bus = AsyncEventBus[int](
+            delivery_mode=DeliveryMode.CONCURRENT,
+            max_concurrency=2,
+            on_error=on_error,
+            on_after=on_after,
+        )
+
+        async def slow_failure(_event: int) -> None:
+            nonlocal active, peak_active
+            active += 1
+            peak_active = max(peak_active, active)
+            slow_started.set()
+            try:
+                await release_slow.wait()
+                raise ValueError("slow callback")
+            finally:
+                active -= 1
+
+        async def fast_failure(_event: int) -> None:
+            nonlocal active, peak_active
+            active += 1
+            peak_active = max(peak_active, active)
+            try:
+                raise ValueError("fast callback")
+            finally:
+                active -= 1
+                fast_finished.set()
+
+        async def replacement(_event: int) -> None:
+            nonlocal active, peak_active
+            active += 1
+            peak_active = max(peak_active, active)
+            try:
+                replacement_started.set()
+            finally:
+                active -= 1
+
+        await bus.subscribe(slow_failure)
+        await bus.subscribe(fast_failure)
+        await bus.subscribe(replacement)
+        publishing = asyncio.create_task(bus.publish(1))
+        try:
+            await asyncio.wait_for(slow_started.wait(), timeout=1)
+            await asyncio.wait_for(fast_finished.wait(), timeout=1)
+            await asyncio.wait_for(replacement_started.wait(), timeout=1)
+        finally:
+            release_slow.set()
+            await publishing
+            await bus.close()
+
+        result = publishing.result()
+        self.assertEqual(peak_active, 2)
+        self.assertEqual([str(error) for error in reported], ["slow callback", "fast callback"])
+        self.assertEqual(
+            [str(error) for error in result.errors], ["slow callback", "fast callback"]
+        )
+        self.assertEqual((result.matched, result.delivered, result.failed), (3, 1, 2))
+        self.assertEqual(len(after), 1)
+        self.assertEqual(after[0], result)
+
+    async def test_bounded_callback_cancellation_is_reported_and_refills_slot(
+        self,
+    ) -> None:
+        cancelled = asyncio.Event()
+        slow_started = asyncio.Event()
+        release_slow = asyncio.Event()
+        replacement_started = asyncio.Event()
+        reported = []
+
+        async def on_error(context) -> None:
+            reported.append(context.error)
+
+        bus = AsyncEventBus[int](
+            delivery_mode=DeliveryMode.CONCURRENT,
+            max_concurrency=2,
+            on_error=on_error,
+        )
+
+        async def cancel_callback(_event: int) -> None:
+            cancelled.set()
+            raise asyncio.CancelledError
+
+        async def slow_callback(_event: int) -> None:
+            slow_started.set()
+            await release_slow.wait()
+
+        async def replacement(_event: int) -> None:
+            replacement_started.set()
+
+        await bus.subscribe(cancel_callback)
+        await bus.subscribe(slow_callback)
+        await bus.subscribe(replacement)
+        publishing = asyncio.create_task(bus.publish(1))
+        try:
+            await asyncio.wait_for(cancelled.wait(), timeout=1)
+            await asyncio.wait_for(slow_started.wait(), timeout=1)
+            await asyncio.wait_for(replacement_started.wait(), timeout=1)
+        finally:
+            release_slow.set()
+            await publishing
+            await bus.close()
+
+        result = publishing.result()
+        self.assertEqual((result.matched, result.delivered, result.failed), (3, 2, 1))
+        self.assertEqual(len(result.errors), 1)
+        self.assertIsInstance(result.errors[0], Exception)
+        self.assertEqual(reported, list(result.errors))
+
     async def test_cancelling_bounded_publish_finishes_active_callbacks(self) -> None:
         bus = AsyncEventBus[int](
             delivery_mode=DeliveryMode.CONCURRENT,
-            max_concurrency=1,
+            max_concurrency=2,
         )
         entered = asyncio.Event()
-        finished = asyncio.Event()
-        active = 0
+        cleaning = asyncio.Event()
+        release_cleanup = asyncio.Event()
+        active = entered_count = cleanup_count = 0
         calls: list[int] = []
 
         async def callback(event: int) -> None:
-            nonlocal active
+            nonlocal active, entered_count, cleanup_count
             calls.append(event)
             active += 1
-            entered.set()
+            entered_count += 1
+            if entered_count == 2:
+                entered.set()
             try:
                 await asyncio.Event().wait()
             finally:
+                cleanup_count += 1
+                if cleanup_count == 2:
+                    cleaning.set()
+                await release_cleanup.wait()
                 active -= 1
-                finished.set()
 
         for _ in range(3):
             await bus.subscribe(callback)
@@ -95,14 +226,17 @@ class AsyncDeliveryLimitTests(unittest.IsolatedAsyncioTestCase):
         publishing = asyncio.create_task(bus.publish(1))
         await asyncio.wait_for(entered.wait(), timeout=1)
         publishing.cancel()
+        await asyncio.wait_for(cleaning.wait(), timeout=1)
+        publishing.cancel()
+        release_cleanup.set()
         with self.assertRaises(asyncio.CancelledError):
             await publishing
         await bus.close()
         await asyncio.sleep(0)
 
-        self.assertTrue(finished.is_set())
+        self.assertTrue(cleaning.is_set())
         self.assertEqual(active, 0)
-        self.assertEqual(calls, [1])
+        self.assertEqual(calls, [1, 1])
         self.assertFalse(
             [task for task in asyncio.all_tasks() if task not in tasks_before and not task.done()]
         )
