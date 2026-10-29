@@ -77,9 +77,8 @@ Python 3.10 installs `backports.strenum` and `exceptiongroup` to supply features
 that are built into Python 3.11 and newer. Package metadata selects these
 dependencies only on Python 3.10.
 
-The package includes inline type annotations but does not include the PEP 561
-`py.typed` marker. Type-checker discovery for installed distributions is
-therefore not guaranteed.
+The distribution includes inline type annotations and a `py.typed` marker, so
+type checkers can discover EventFlow's types when the package is installed.
 
 The distribution names `eventflow` and `python-eventflow` are already registered
 to other projects on PyPI ([eventflow](https://pypi.org/project/eventflow/),
