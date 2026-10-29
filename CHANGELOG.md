@@ -21,6 +21,7 @@ All notable changes to this project are documented in this file.
   `PipelineObservation`, and thread-safe aggregate `PipelineStats`.
 - Add v1.1 public signature/decorator regression contracts, executable README
   checks, composed bus/pipeline/stream examples, and latency/allocation benchmarks.
+- Report branch coverage alongside line coverage in the CI test matrix.
 - Add an equivalent native async map/filter case to the stream benchmark so its
   API overhead can be compared separately from raw source iteration.
 - Add an opt-in per-publish async callback concurrency limit and expose it
