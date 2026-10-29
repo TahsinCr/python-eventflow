@@ -332,6 +332,10 @@ An unfiltered query with `limit` reads only the requested recent window. A
 filtered query evaluates the predicate outside the history lock on a stable
 snapshot. It searches newest to oldest when limited, but a rare match near the
 oldest entry can still require scanning the full snapshot.
+On `AsyncEventBus`, this filtered lookup runs synchronously on the owning event
+loop. A rare match in a large history can therefore delay unrelated tasks;
+bound the retained history and keep predicates inexpensive when replay latency
+matters.
 
 A new subscriber can receive recent events before it starts handling live
 ones. Pass `replay=N` to deliver up to the N newest retained events that match

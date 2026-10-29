@@ -337,6 +337,10 @@ Filtresiz `limit` sorgusu yalnız istenen yakın geçmiş penceresini okur. Filt
 sorgu predicate'i kilit dışında ve sabit bir snapshot üzerinde çalıştırır.
 Limitli aramada en yeniden eskiye ilerler; eşleşme çok seyrek olup en eski kayda
 yakınsa yine de snapshot'ın tamamını taraması gerekebilir.
+`AsyncEventBus` bu filtreli sorguyu sahibi olan event loop üzerinde senkron
+çalıştırır. Büyük bir geçmişte seyrek eşleşme, diğer task'ları geciktirebilir;
+replay gecikmesi önemliyse saklanan geçmişi sınırlı tutun ve predicate'leri hızlı
+çalıştırın.
 
 Sonradan katılan bir abonenin canlı teslimattan önce yakın geçmişi alması için
 `replay=N` kullanın:
