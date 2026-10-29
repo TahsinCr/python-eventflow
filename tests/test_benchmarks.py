@@ -8,7 +8,7 @@ import unittest
 from pathlib import Path
 
 
-class StreamBenchmarkTests(unittest.TestCase):
+class BenchmarkTests(unittest.TestCase):
     def test_stream_report_includes_equivalent_native_baseline(self) -> None:
         repository = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temporary_directory:
@@ -41,6 +41,30 @@ class StreamBenchmarkTests(unittest.TestCase):
         for result in by_case.values():
             self.assertEqual(result["items_per_operation"], 5)
             self.assertGreater(result["items_per_second"], 0)
+
+    def test_replay_benchmark_includes_sparse_filtered_history(self) -> None:
+        repository = Path(__file__).resolve().parents[1]
+        result = subprocess.run(
+            [
+                sys.executable,
+                "-m",
+                "benchmarks.benchmark_replay",
+                "--events",
+                "20",
+                "--replay",
+                "1",
+                "--iterations",
+                "1",
+                "--samples",
+                "1",
+            ],
+            cwd=repository,
+            check=True,
+            capture_output=True,
+            text=True,
+            timeout=10,
+        )
+        self.assertIn("Sparse filtered history query", result.stdout)
 
 
 if __name__ == "__main__":

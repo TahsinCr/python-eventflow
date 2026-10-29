@@ -13,7 +13,7 @@ from time import perf_counter
 if __package__ in {None, ""}:
     sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from eventflow import AsyncEventBus, EventBus, MemoryEventHistory
+from eventflow import AsyncEventBus, EventBus, EventFilter, MemoryEventHistory
 
 
 def _positive_integer(value: str) -> int:
@@ -72,6 +72,7 @@ def main() -> None:
 
     sync_bus = EventBus[int](history=history)
     async_bus = AsyncEventBus[int](history=history)
+    sparse_filter = EventFilter[int](predicate=lambda event: event == 0)
 
     def receive_sync(_event: int) -> None:
         pass
@@ -84,6 +85,9 @@ def main() -> None:
 
     def query_replay_window() -> object:
         return history.query(limit=args.replay)
+
+    def query_sparse_filtered_history() -> object:
+        return history.query(sparse_filter, limit=args.replay)
 
     def latest_history() -> object:
         return history.latest()
@@ -121,6 +125,12 @@ def main() -> None:
     _measure_sync(
         "Bounded history query",
         query_replay_window,
+        iterations=args.iterations,
+        samples=args.samples,
+    )
+    _measure_sync(
+        "Sparse filtered history query",
+        query_sparse_filtered_history,
         iterations=args.iterations,
         samples=args.samples,
     )
