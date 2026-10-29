@@ -55,9 +55,7 @@ class PublicContractTests(unittest.TestCase):
                             if parameter.name != "max_concurrency"
                         ]
                     )
-                self.assertEqual(
-                    str(actual), signature, f"{name}.{method}"
-                )
+                self.assertEqual(str(actual), signature, f"{name}.{method}")
 
     def test_async_delivery_limit_is_keyword_only_and_opt_in(self):
         for item in (AsyncEventBus, AsyncEventEngine):

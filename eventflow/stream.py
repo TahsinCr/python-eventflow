@@ -217,6 +217,8 @@ class AsyncStream(AsyncIterator[T], Generic[T]):
     async def aclose(self) -> None:
         """Stop reads and await producer/source cleanup, even during repeated cancellation."""
         self._bind_loop()
+        if self._reader is asyncio.current_task():
+            raise RuntimeError("Cannot close an AsyncStream from its active read task")
         if self._cleanup is None:
             self._closed = True
             reader = self._reader

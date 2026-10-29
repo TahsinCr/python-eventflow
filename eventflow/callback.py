@@ -12,8 +12,10 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
+from ._callbacks import synchronous_result
 from .compatibility import ExceptionGroup
 from .errors import CallbackTimeoutError
+from ._lifecycle import finish_cleanup
 from .subscription import Subscription
 
 
@@ -33,24 +35,42 @@ class CallbackSubscription(Subscription):
     Hooks receive CallbackContext and run outside the registration lock.
     """
 
-    def __init__(self, identifier: int, cancel: Callable[[], None], callback: Callable,
-                 *, asynchronous: bool = False, once: bool = False,
-                 max_calls: int | None = None, frequency_hz: float | None = None,
-                 timeout: float | None = None, predicate: Callable | None = None,
-                 enabled: bool = True, on_before: Callable | None = None,
-                 on_success: Callable | None = None, on_error: Callable | None = None,
-                 on_timeout: Callable | None = None, on_after: Callable | None = None) -> None:
+    def __init__(
+        self,
+        identifier: int,
+        cancel: Callable[[], None],
+        callback: Callable,
+        *,
+        asynchronous: bool = False,
+        once: bool = False,
+        max_calls: int | None = None,
+        frequency_hz: float | None = None,
+        timeout: float | None = None,
+        predicate: Callable | None = None,
+        enabled: bool = True,
+        on_before: Callable | None = None,
+        on_success: Callable | None = None,
+        on_error: Callable | None = None,
+        on_timeout: Callable | None = None,
+        on_after: Callable | None = None,
+    ) -> None:
         super().__init__(identifier, cancel)
         if once and max_calls is not None:
             raise ValueError("once and max_calls cannot be combined")
-        if max_calls is not None and (isinstance(max_calls, bool) or not isinstance(max_calls, int) or max_calls < 1):
+        if max_calls is not None and (
+            isinstance(max_calls, bool) or not isinstance(max_calls, int) or max_calls < 1
+        ):
             raise ValueError("max_calls must be a positive integer")
         for value in (frequency_hz, timeout):
-            if value is not None and (isinstance(value, bool) or not math.isfinite(value) or value <= 0):
+            if value is not None and (
+                isinstance(value, bool) or not math.isfinite(value) or value <= 0
+            ):
                 raise ValueError("frequency_hz and timeout must be positive and finite")
         if not isinstance(enabled, bool):
             raise TypeError("enabled must be a bool")
-        if predicate is not None and (not callable(predicate) or inspect.iscoroutinefunction(predicate)):
+        if predicate is not None and (
+            not callable(predicate) or inspect.iscoroutinefunction(predicate)
+        ):
             raise TypeError("predicate must be a synchronous callable")
         self.callback = callback
         self.asynchronous = asynchronous
@@ -63,8 +83,13 @@ class CallbackSubscription(Subscription):
         self._calls = 0
         self._policy_lock = threading.RLock()
         self._hooks: dict[str, list[Callable]] = {}
-        for name, hook in (("before", on_before), ("success", on_success), ("error", on_error),
-                           ("timeout", on_timeout), ("after", on_after)):
+        for name, hook in (
+            ("before", on_before),
+            ("success", on_success),
+            ("error", on_error),
+            ("timeout", on_timeout),
+            ("after", on_after),
+        ):
             if hook is not None:
                 self._hook(name, hook)
 
@@ -143,7 +168,7 @@ class CallbackSubscription(Subscription):
         errors = []
         for hook in self._snapshot(name):
             try:
-                hook(context)
+                synchronous_result(hook(context))
             except Exception as error:
                 errors.append(error)
         self._raise_errors(errors)
@@ -171,7 +196,9 @@ class CallbackSubscription(Subscription):
         except Exception as hook_error:
             raise ExceptionGroup("Callback and error hook failed", [error, hook_error]) from None
 
-    async def _report_failure_async(self, name: str, context: CallbackContext, error: Exception) -> None:
+    async def _report_failure_async(
+        self, name: str, context: CallbackContext, error: Exception
+    ) -> None:
         context.error = error
         try:
             await self._run_hooks_async(name, context)
@@ -199,7 +226,9 @@ class CallbackSubscription(Subscription):
                 raise CallbackTimeoutError("Callback exceeded its synchronous time budget")
             self._run_hooks("success", context)
         except Exception as error:
-            self._report_failure("timeout" if isinstance(error, CallbackTimeoutError) else "error", context, error)
+            self._report_failure(
+                "timeout" if isinstance(error, CallbackTimeoutError) else "error", context, error
+            )
             raise
         else:
             return context.result
@@ -241,10 +270,15 @@ class CallbackSubscription(Subscription):
                         operation.close()
                     raise CallbackTimeoutError("Callback exceeded its asynchronous time budget")
                 task = asyncio.ensure_future(operation)
-                done, _ = await asyncio.wait({task}, timeout=remaining)
+                try:
+                    done, _ = await asyncio.wait({task}, timeout=remaining)
+                except asyncio.CancelledError:
+                    task.cancel()
+                    await finish_cleanup(asyncio.gather(task, return_exceptions=True))
+                    raise
                 if task not in done:
                     task.cancel()
-                    await asyncio.gather(task, return_exceptions=True)
+                    await finish_cleanup(asyncio.gather(task, return_exceptions=True))
                     raise CallbackTimeoutError("Callback exceeded its asynchronous time budget")
                 context.result = await task
             context.elapsed = time.monotonic() - started
@@ -253,7 +287,9 @@ class CallbackSubscription(Subscription):
             context.error = error
             raise
         except Exception as error:
-            await self._report_failure_async("timeout" if isinstance(error, CallbackTimeoutError) else "error", context, error)
+            await self._report_failure_async(
+                "timeout" if isinstance(error, CallbackTimeoutError) else "error", context, error
+            )
             raise
         else:
             return context.result

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import threading
 from collections.abc import Awaitable
 from typing import Protocol, TypeVar
@@ -21,7 +22,7 @@ class CancelHandle(Protocol):
 
 
 class AsyncCancelHandle(Protocol):
-    """An awaitable, preferably idempotent cancellation handle."""
+    """A handle whose cancel method returns an awaitable, preferably idempotently."""
 
     def cancel(self) -> Awaitable[None]: ...
 
@@ -125,7 +126,11 @@ class AsyncSubscriptionScope:
         return self._closed
 
     def add(self, handle: A) -> A:
-        """Own an async handle and return it unchanged; may configure before first use."""
+        """Own an awaitable cancel handle and return it unchanged.
+
+        The cancel method is not called here because doing so would cancel the
+        handle. Its return value is validated when the scope closes.
+        """
         if not callable(getattr(handle, "cancel", None)):
             raise TypeError("AsyncSubscriptionScope requires an awaitable cancel handle")
         if self._loop is not None:
@@ -142,7 +147,10 @@ class AsyncSubscriptionScope:
         errors: list[BaseException] = []
         for handle in pending:
             try:
-                synchronous_result(await handle.cancel())
+                operation = handle.cancel()
+                if not inspect.isawaitable(operation):
+                    raise TypeError("Async cancel handle cancel() must return an awaitable")
+                synchronous_result(await operation)
             except BaseException as error:
                 failed.append(handle)
                 errors.append(error)

@@ -258,13 +258,8 @@ class AsyncEventEngine:
                 name="Maximum concurrent deliveries",
             )
         )
-        if (
-            self._max_concurrency is not None
-            and self._delivery_mode is not DeliveryMode.CONCURRENT
-        ):
-            raise ValueError(
-                "max_concurrency requires DeliveryMode.CONCURRENT"
-            )
+        if self._max_concurrency is not None and self._delivery_mode is not DeliveryMode.CONCURRENT:
+            raise ValueError("max_concurrency requires DeliveryMode.CONCURRENT")
         direct_actions = (on_before, on_after, on_error, on_timeout)
         if actions is not None and any(action is not None for action in direct_actions):
             raise ValueError("Use actions or direct on_* callbacks, not both")
@@ -320,9 +315,7 @@ class AsyncEventEngine:
             if any(channel is bus for channel in self._channels.values()) or any(
                 channel is bus for channel in self._pending_close.values()
             ):
-                raise ValueError(
-                    "An AsyncEventBus instance can belong to only one channel"
-                )
+                raise ValueError("An AsyncEventBus instance can belong to only one channel")
             self._channels[name] = bus
             self._running = True
         return bus

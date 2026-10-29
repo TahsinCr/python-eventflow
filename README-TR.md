@@ -447,6 +447,7 @@ from eventflow import AsyncEventBus
 
 async def main() -> None:
     async with AsyncEventBus[str]() as bus:
+
         async def report(message: str) -> None:
             print(message)
 
@@ -500,6 +501,7 @@ async def main() -> None:
         delivery_mode=DeliveryMode.CONCURRENT,
         max_concurrency=8,
     ) as bus:
+
         async def save_metric(value: int) -> None:
             print(f"Metrik kaydedildi: {value}")
 
@@ -528,6 +530,7 @@ from eventflow import AsyncEventBus
 
 async def main() -> None:
     async with AsyncEventBus[str]() as bus:
+
         async def report(message: str) -> None:
             print(message)
 
@@ -596,6 +599,7 @@ from eventflow import AsyncEventEngine
 
 async def main() -> None:
     async with AsyncEventEngine(history=50) as engine:
+
         async def update_order_view(event: str) -> None:
             print(f"Sipariş görünümü güncellendi: {event}")
 
@@ -698,11 +702,14 @@ olarak bus'a yayımlanmaz. Boş pipeline girdisini olduğu gibi döndürür.
 from dataclasses import dataclass, replace
 from eventflow import Pipeline
 
+
 @dataclass(frozen=True)
 class Request:
     amount: int
 
+
 pipeline = Pipeline[Request]()
+
 
 @pipeline.stage("validate")
 def validate(request: Request) -> Request:
@@ -710,10 +717,13 @@ def validate(request: Request) -> Request:
         raise ValueError("amount negatif olamaz")
     return request
 
+
 def double(request: Request) -> Request:
     return replace(request, amount=request.amount * 2)
 
+
 pipeline.add("double", double, after="validate")
+
 
 @pipeline.middleware("audit")
 def audit(request, next_):
@@ -721,6 +731,7 @@ def audit(request, next_):
     result = next_(request)
     print("sonra", result.amount)
     return result
+
 
 print(pipeline.run(Request(4)))  # Request(amount=8)
 ~~~
@@ -793,6 +804,7 @@ task başlatmaz.
 import asyncio
 from eventflow import AsyncPipeline, AsyncStream
 
+
 async def main() -> None:
     pipeline = AsyncPipeline[int]()
 
@@ -804,12 +816,17 @@ async def main() -> None:
         for value in range(5):
             yield value
 
-    stream = AsyncStream(source()).map(pipeline.run).filter(
-        lambda value: value % 4 == 0
-    ).buffer(2).batch(2)
+    stream = (
+        AsyncStream(source())
+        .map(pipeline.run)
+        .filter(lambda value: value % 4 == 0)
+        .buffer(2)
+        .batch(2)
+    )
     async with stream:
         async for batch in stream:
             print(batch)  # (0, 4), ardından (8,)
+
 
 asyncio.run(main())
 ~~~
@@ -842,6 +859,9 @@ kapatma, bekleyen okuyucuyu iptal edip kaynak temizliğini bekler. Kapatmayı
 çağıran task tekrar iptal edilse de sahip olunan temizlik tamamlanır ve iptal
 sonrasında yayılır. Kaynak ve kullanıcı temizliği kooperatif olmalıdır;
 dönmeyen kaynak kapanışı geciktirebilir.
+Etkin okuma task'ı, aynı terminal stream'in `aclose()` çağrısını bekleyemez;
+karşılıklı beklemeyi önlemek için bu yeniden giriş `RuntimeError` üretir.
+Okuma zincirinin hata temizliği stream'i ve upstream kaynakları kapatır.
 
 <a id="scopes"></a>
 ## Abonelik scope'ları
@@ -865,7 +885,9 @@ eder. `AsyncSubscriptionScope.aclose()` async handle'ları aynı sırayla bekler
 ve `async with` destekler. İlgili sync/async `cancel()` metodunu sunan duck-typed
 handle'lar kabul edilir. Her handle denenir; hatalar mevcut Python 3.10 uyumlu
 `ExceptionGroup` ile toplanır ve başarısız handle'lar tekrar denemek üzere
-korunur. Handle uygulaması tekrarlı iptali güvenli kılmalıdır. Handle'ın kendi
+korunur. Async handle'ın `cancel()` metodu awaitable döndürmelidir. `add()` bu
+sonucu iptal işlemini başlatmadan doğrulayamadığı için kontrol kapanış sırasında
+yapılır. Handle uygulaması tekrarlı iptali güvenli kılmalıdır. Handle'ın kendi
 async iptali diğer handle'lar denendikten sonra yayılır. Kapanmış scope yeni
 handle kabul etmez. Handle'ın diğer `BaseException` kesintileri de bütün handle'lar
 denendikten sonra aynı türle yayılır; ek hatalar exception group olarak zincirlenir.
@@ -899,7 +921,7 @@ with correlation_context("request-42"):
     event = EventEnvelope(1, source="example", metadata={"attempt": 1})
     result = pipeline.run(event)
 print(result.event, result.correlation_id)  # 2 request-42
-print(stats.snapshot.runs.successful)     # 1
+print(stats.snapshot.runs.successful)  # 1
 ~~~
 
 `correlation_context(id)` async fonksiyon içinde de kullanılabilen normal bir

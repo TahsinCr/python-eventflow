@@ -141,6 +141,33 @@ class AsyncScopeTests(unittest.IsolatedAsyncioTestCase):
         bad.fail = False
         await failed.aclose()
 
+    async def test_sync_cancel_method_returning_awaitable_is_supported(self):
+        calls = []
+
+        class FactoryHandle:
+            def cancel(self):
+                async def finish():
+                    calls.append("cancelled")
+
+                return finish()
+
+        scope = AsyncSubscriptionScope()
+        handle = FactoryHandle()
+        self.assertIs(scope.add(handle), handle)
+        await scope.aclose()
+        self.assertEqual(calls, ["cancelled"])
+
+    async def test_nonawaitable_async_cancel_result_has_clear_error(self):
+        class InvalidHandle:
+            def cancel(self):
+                return None
+
+        scope = AsyncSubscriptionScope()
+        scope.add(InvalidHandle())
+        with self.assertRaises(ExceptionGroup) as caught:
+            await scope.aclose()
+        self.assertRegex(str(caught.exception.exceptions[0]), "must return an awaitable")
+
     async def test_repeated_caller_cancellation_finishes_cleanup(self):
         entered, release, completed = asyncio.Event(), asyncio.Event(), asyncio.Event()
         calls = []

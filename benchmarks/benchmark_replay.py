@@ -170,6 +170,7 @@ def main() -> None:
         iterations=args.iterations,
         samples=args.samples,
     )
+
     async def run_async_benchmarks() -> None:
         await _measure_async(
             "AsyncEventBus replay subscription",

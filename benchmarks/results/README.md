@@ -104,6 +104,11 @@ Traced allocation peaks and process RSS are different measurements. Reproduce ea
 
 ```python
 import resource, subprocess, sys
-subprocess.run([sys.executable, "-m", "benchmarks.benchmark_publish", "--iterations", "500"], check=True, stdout=subprocess.DEVNULL)
+
+subprocess.run(
+    [sys.executable, "-m", "benchmarks.benchmark_publish", "--iterations", "500"],
+    check=True,
+    stdout=subprocess.DEVNULL,
+)
 print(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)  # KiB on Linux
 ```

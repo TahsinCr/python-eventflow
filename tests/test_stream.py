@@ -329,6 +329,39 @@ class StreamTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(closed.is_set())
         self.assert_no_stream_tasks()
 
+    async def test_active_reader_cannot_close_its_stream(self):
+        source_closed = asyncio.Event()
+        streams = {}
+
+        async def source():
+            try:
+                yield 1
+            finally:
+                source_closed.set()
+
+        async def close_from_mapper(value):
+            await streams["terminal"].aclose()
+            return value
+
+        stream = AsyncStream(source()).map(close_from_mapper)
+        streams["terminal"] = stream
+        reader = asyncio.create_task(stream.__anext__())
+        try:
+            done, _ = await asyncio.wait({reader}, timeout=1.0)
+            self.assertTrue(done, "closing the active stream reader deadlocked")
+            with self.assertRaisesRegex(RuntimeError, "active read"):
+                await reader
+        finally:
+            if stream._read_finished is not None:
+                stream._read_finished.set()
+            if not reader.done():
+                reader.cancel()
+            await asyncio.gather(reader, return_exceptions=True)
+
+        self.assertTrue(stream.closed)
+        self.assertTrue(source_closed.is_set())
+        self.assert_no_stream_tasks()
+
     def assert_no_stream_tasks(self):
         self.assertEqual(
             [

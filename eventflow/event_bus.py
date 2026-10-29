@@ -12,6 +12,7 @@ from concurrent.futures import Executor, Future
 from dataclasses import dataclass, field
 from typing import Generic, TypeVar
 
+from ._callbacks import synchronous_result
 from .actions import EventBusActions, EventErrorContext, EventTimeoutContext
 from .base import (
     BaseEventBus,
@@ -278,7 +279,7 @@ class EventBus(BaseEventBus[T]):
         errors: list[Exception] = []
         if self._actions.on_before is not None:
             try:
-                self._actions.on_before(event)
+                synchronous_result(self._actions.on_before(event))
             except Exception as exc:
                 errors.append(exc)
         for subscriber in subscribers:
@@ -342,7 +343,7 @@ class EventBus(BaseEventBus[T]):
         )
         if self._actions.on_after is not None:
             try:
-                self._actions.on_after(event, result)
+                synchronous_result(self._actions.on_after(event, result))
             except Exception as exc:
                 errors.append(exc)
                 errors.extend(self._notify_errors(event, (exc,)))
@@ -379,7 +380,7 @@ class EventBus(BaseEventBus[T]):
         action_errors: list[Exception] = []
         for error in errors:
             try:
-                action(EventErrorContext(event, error))
+                synchronous_result(action(EventErrorContext(event, error)))
             except Exception as exc:
                 action_errors.append(exc)
         return action_errors
@@ -460,6 +461,7 @@ class EventBus(BaseEventBus[T]):
             daemon=True,
         )
         with self._lock:
+            self._ensure_open()
             self._schedules[schedule_id] = (subscription, thread)
             try:
                 thread.start()
@@ -514,7 +516,9 @@ class EventBus(BaseEventBus[T]):
         finally:
             subscription.cancel()
         if timed_out and self._actions.on_timeout is not None:
-            self._actions.on_timeout(EventTimeoutContext(normalized_filter, timeout))
+            synchronous_result(
+                self._actions.on_timeout(EventTimeoutContext(normalized_filter, timeout))
+            )
         return value
 
     def clear(self) -> None:

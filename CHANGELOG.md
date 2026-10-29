@@ -55,6 +55,18 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Cancel and finish timed callback tasks when their invoking task is cancelled,
+  including when cancellation is repeated during callback cleanup.
+- Reject closing an `AsyncStream` from its active reader task with `RuntimeError`
+  instead of allowing a self-wait deadlock; the read error path still closes
+  the stream and its upstream sources.
+- Reject awaitable results from synchronous callback hooks and event-bus
+  actions, closing coroutine results before reporting the error.
+- Report a clear cleanup error when an async cancellation handle's `cancel()`
+  returns a non-awaitable; document that the scope validates this at close
+  because checking during `add()` would invoke cancellation.
+- Recheck bus state when registering a periodic publisher so a concurrent close
+  cannot be followed by a newly started worker thread.
 - Preserve `EventEnvelope` metadata immutability while supporting
   `dataclasses.asdict()` and pickle for serializable payloads.
 - Restore subscription activity when sync or async removal fails so cancellation

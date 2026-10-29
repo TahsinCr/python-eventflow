@@ -137,9 +137,7 @@ class EventBusTests(unittest.TestCase):
     def test_isolated_and_raising_error_policies(self) -> None:
         isolated = EventBus[int]()
         received: list[int] = []
-        isolated.subscribe(
-            lambda _event: (_ for _ in ()).throw(RuntimeError("broken"))
-        )
+        isolated.subscribe(lambda _event: (_ for _ in ()).throw(RuntimeError("broken")))
         isolated.subscribe(received.append)
 
         result = isolated.publish(3)
@@ -148,9 +146,7 @@ class EventBusTests(unittest.TestCase):
         self.assertEqual(isolated.stats.failed, 1)
 
         raising = EventBus[int](error_policy=ErrorPolicy.RAISE)
-        raising.subscribe(
-            lambda _event: (_ for _ in ()).throw(RuntimeError("broken"))
-        )
+        raising.subscribe(lambda _event: (_ for _ in ()).throw(RuntimeError("broken")))
         with self.assertRaises(ExceptionGroup):
             raising.publish(3)
 
@@ -337,9 +333,7 @@ class EventBusTests(unittest.TestCase):
                 release_replay.wait(1.0)
             received.append(value)
 
-        subscriber = threading.Thread(
-            target=lambda: bus.subscribe(handler, replay=1)
-        )
+        subscriber = threading.Thread(target=lambda: bus.subscribe(handler, replay=1))
         subscriber.start()
         self.assertTrue(replay_started.wait(1.0))
         bus.publish(2)
@@ -430,14 +424,10 @@ class EventBusTests(unittest.TestCase):
         errors: list[tuple[int, str]] = []
         timeouts: list[float | None] = []
         bus = EventBus[int](
-            on_error=lambda context: errors.append(
-                (context.event, str(context.error))
-            ),
+            on_error=lambda context: errors.append((context.event, str(context.error))),
             on_timeout=lambda context: timeouts.append(context.timeout),
         )
-        bus.subscribe(
-            lambda _event: (_ for _ in ()).throw(RuntimeError("broken"))
-        )
+        bus.subscribe(lambda _event: (_ for _ in ()).throw(RuntimeError("broken")))
 
         result = bus.publish(5)
         self.assertEqual(result.failed, 1)
@@ -449,9 +439,7 @@ class EventBusTests(unittest.TestCase):
         calls: list[str] = []
         bus = EventBus[int](
             on_before=lambda event: calls.append(f"before:{event}"),
-            on_after=lambda event, result: calls.append(
-                f"after:{event}:{result.delivered}"
-            ),
+            on_after=lambda event, result: calls.append(f"after:{event}:{result.delivered}"),
         )
         bus.once(lambda event: calls.append(f"handler:{event}"))
 
@@ -613,6 +601,7 @@ class EventBusTests(unittest.TestCase):
                 entered.set()
                 self.assertTrue(release.wait(5))
                 callback(event)
+
             handle = original_subscribe(delayed, **options)
             registered.set()
             return handle
@@ -623,12 +612,15 @@ class EventBusTests(unittest.TestCase):
                 if entered.is_set():
                     checked.set()
                 return value
+
             return original_wait(observed, timeout)
 
         waiter = threading.Thread(target=lambda: result.append(bus.wait_for(timeout=5)))
         publisher = threading.Thread(target=lambda: bus.publish(7))
-        with patch.object(bus, "subscribe", side_effect=subscribe), \
-             patch.object(bus._condition, "wait_for", side_effect=wait_for):
+        with (
+            patch.object(bus, "subscribe", side_effect=subscribe),
+            patch.object(bus._condition, "wait_for", side_effect=wait_for),
+        ):
             waiter.start()
             try:
                 self.assertTrue(registered.wait(5))
@@ -757,12 +749,8 @@ class EventBusTests(unittest.TestCase):
                     wrapper,  # type: ignore[arg-type]
                 )
                 executor_result = executor_bus.publish(3)
-                self.assertEqual(
-                    (executor_result.delivered, executor_result.failed), (0, 1)
-                )
-                self.assertIsInstance(
-                    executor_result.errors[0], InvalidEventHandlerError
-                )
+                self.assertEqual((executor_result.delivered, executor_result.failed), (0, 1))
+                self.assertIsInstance(executor_result.errors[0], InvalidEventHandlerError)
                 executor_subscription.cancel()
                 executor_bus.close()
 
@@ -772,9 +760,55 @@ class EventBusTests(unittest.TestCase):
             replay_bus.close()
             gc.collect()
 
-        self.assertFalse(
-            any(issubclass(item.category, RuntimeWarning) for item in observed)
-        )
+        self.assertFalse(any(issubclass(item.category, RuntimeWarning) for item in observed))
+
+    def test_sync_actions_reject_and_close_awaitables(self) -> None:
+        def async_result(*_args):
+            return asyncio.sleep(0)
+
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always", RuntimeWarning)
+
+            before = EventBus[int](on_before=async_result)
+            result = before.publish(1)
+            self.assertEqual(result.failed, 1)
+            self.assertIsInstance(result.errors[0], TypeError)
+
+            after = EventBus[int](on_after=async_result)
+            result = after.publish(1)
+            self.assertEqual(result.failed, 1)
+            self.assertIsInstance(result.errors[0], TypeError)
+
+            on_error = EventBus[int](on_error=async_result)
+            on_error.subscribe(lambda _event: 1 / 0)
+            result = on_error.publish(1)
+            self.assertEqual(result.failed, 2)
+            self.assertTrue(any(isinstance(error, TypeError) for error in result.errors))
+
+            on_timeout = EventBus[int](on_timeout=async_result)
+            with self.assertRaisesRegex(TypeError, "awaitable"):
+                on_timeout.wait_for(timeout=0.0)
+
+        self.assertEqual(captured, [])
+
+    def test_close_wins_if_periodic_thread_setup_races_with_close(self) -> None:
+        bus = EventBus[int]()
+        real_thread = threading.Thread
+
+        def close_before_thread_start(*args, **kwargs):
+            bus.close()
+            return real_thread(*args, **kwargs)
+
+        try:
+            with patch(
+                "eventflow.event_bus.threading.Thread",
+                side_effect=close_before_thread_start,
+            ):
+                with self.assertRaises(EventBusClosedError):
+                    bus.publish_every(1, 60.0, immediately=False)
+            self.assertEqual(bus._schedules, {})
+        finally:
+            bus.close()
 
 
 class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
@@ -860,9 +894,7 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
         await bus.subscribe(receive, replay=2)
         self.assertEqual(replayed, [1, 2])
 
-        waiting = asyncio.create_task(
-            bus.wait_for(predicate=lambda value: value == 4, timeout=1.0)
-        )
+        waiting = asyncio.create_task(bus.wait_for(predicate=lambda value: value == 4, timeout=1.0))
         await asyncio.sleep(0)
         await bus.publish(3)
         await bus.publish(4)
@@ -1252,9 +1284,7 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
             await schedule.cancel()
             self.assertNotIn(schedule.id, bus._schedules)
             self.assertTrue(task.done())
-            replacement = await bus.publish_every(
-                "second", 60.0, immediately=False
-            )
+            replacement = await bus.publish_every("second", 60.0, immediately=False)
             replacement_task = bus._schedules[replacement.id][1]
             await bus.close()
             self.assertTrue(replacement_task.done())

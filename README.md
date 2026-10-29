@@ -443,6 +443,7 @@ from eventflow import AsyncEventBus
 
 async def main() -> None:
     async with AsyncEventBus[str]() as bus:
+
         async def report(message: str) -> None:
             print(message)
 
@@ -485,6 +486,7 @@ async def main() -> None:
         delivery_mode=DeliveryMode.CONCURRENT,
         max_concurrency=8,
     ) as bus:
+
         async def save_metric(value: int) -> None:
             print(f"Saved metric: {value}")
 
@@ -521,6 +523,7 @@ from eventflow import AsyncEventBus
 
 async def main() -> None:
     async with AsyncEventBus[str]() as bus:
+
         async def report(message: str) -> None:
             print(message)
 
@@ -584,6 +587,7 @@ from eventflow import AsyncEventEngine
 
 async def main() -> None:
     async with AsyncEventEngine(history=50) as engine:
+
         async def update_order_view(event: str) -> None:
             print(f"Order view updated: {event}")
 
@@ -686,11 +690,14 @@ does not publish it automatically. An empty pipeline returns its input.
 from dataclasses import dataclass, replace
 from eventflow import Pipeline
 
+
 @dataclass(frozen=True)
 class Request:
     amount: int
 
+
 pipeline = Pipeline[Request]()
+
 
 @pipeline.stage("validate")
 def validate(request: Request) -> Request:
@@ -698,10 +705,13 @@ def validate(request: Request) -> Request:
         raise ValueError("amount must be non-negative")
     return request
 
+
 def double(request: Request) -> Request:
     return replace(request, amount=request.amount * 2)
 
+
 pipeline.add("double", double, after="validate")
+
 
 @pipeline.middleware("audit")
 def audit(request, next_):
@@ -709,6 +719,7 @@ def audit(request, next_):
     result = next_(request)
     print("after", result.amount)
     return result
+
 
 print(pipeline.run(Request(4)))  # Request(amount=8)
 ~~~
@@ -779,6 +790,7 @@ map functions. Mapping, filtering and batching are lazy and start no workers.
 import asyncio
 from eventflow import AsyncPipeline, AsyncStream
 
+
 async def main() -> None:
     pipeline = AsyncPipeline[int]()
 
@@ -790,12 +802,17 @@ async def main() -> None:
         for value in range(5):
             yield value
 
-    stream = AsyncStream(source()).map(pipeline.run).filter(
-        lambda value: value % 4 == 0
-    ).buffer(2).batch(2)
+    stream = (
+        AsyncStream(source())
+        .map(pipeline.run)
+        .filter(lambda value: value % 4 == 0)
+        .buffer(2)
+        .batch(2)
+    )
     async with stream:
         async for batch in stream:
             print(batch)  # (0, 4), then (8,)
+
 
 asyncio.run(main())
 ~~~
@@ -828,6 +845,9 @@ another task cancels an outstanding reader, then waits for source cleanup.
 Cancellation of the caller is propagated after owned cleanup finishes, even
 if cancellation is repeated. Sources and user cleanup still need to cooperate
 with cancellation; a non-returning source can delay closure.
+A callback running in the active read task cannot await that same terminal
+stream's `aclose()`; it raises `RuntimeError` to prevent a cleanup deadlock.
+The read's normal error path then closes the stream and its upstream chain.
 
 <a id="scopes"></a>
 ## Subscription scopes
@@ -850,6 +870,9 @@ order. `AsyncSubscriptionScope.aclose()` awaits async handles in the same order
 and supports `async with`. Both accept duck-typed handles with the corresponding
 `cancel()` method. They attempt every handle, collect failures in the existing
 Python 3.10-compatible `ExceptionGroup`, and retain failed handles for retry.
+An async handle's `cancel()` must return an awaitable. The scope checks this
+when closing because `add()` cannot validate the result without cancelling the
+handle.
 Handle implementations should make repeated cancellation safe. A handle's own
 async cancellation is propagated after the other handles have been attempted.
 Other handle-owned `BaseException` interrupts also retain their type after all
@@ -884,7 +907,7 @@ with correlation_context("request-42"):
     event = EventEnvelope(1, source="example", metadata={"attempt": 1})
     result = pipeline.run(event)
 print(result.event, result.correlation_id)  # 2 request-42
-print(stats.snapshot.runs.successful)     # 1
+print(stats.snapshot.runs.successful)  # 1
 ~~~
 
 `correlation_context(id)` is a normal context manager, usable in async functions
