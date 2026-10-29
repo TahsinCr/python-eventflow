@@ -21,6 +21,8 @@ All notable changes to this project are documented in this file.
   `PipelineObservation`, and thread-safe aggregate `PipelineStats`.
 - Add v1.1 public signature/decorator regression contracts, executable README
   checks, composed bus/pipeline/stream examples, and latency/allocation benchmarks.
+- Add an equivalent native async map/filter case to the stream benchmark so its
+  API overhead can be compared separately from raw source iteration.
 - Document shared contracts, snapshot ownership, middleware ordering, stream
   backpressure, context propagation, and intentional architectural limits.
 
@@ -34,6 +36,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserve a stream source failure when closing also fails, retain both errors
+  through exception chaining, and still attempt upstream cleanup.
+- Enforce single-task stream ownership between reads so concurrent transformed
+  consumption cannot steal items from the source.
 - Continue scope cleanup after handle-owned cancellation or other BaseException
   interrupts, retaining failed handles and preserving additional cleanup errors.
 - Keep synchronous `wait_for()` waiting for its claimed one-shot callback when

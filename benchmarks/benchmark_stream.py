@@ -2,6 +2,7 @@
 
 import argparse
 import asyncio
+from collections.abc import AsyncIterator
 from typing import cast
 
 from eventflow.stream import AsyncStream
@@ -19,9 +20,19 @@ def main() -> None:
         parser.error("iterations and items must be positive")
     results = []
 
-    async def source():
+    async def source() -> AsyncIterator[int]:
         for value in range(args.items):
             yield value
+
+    async def native_map_filter() -> AsyncIterator[int]:
+        async for value in source():
+            mapped = value + 1
+            if mapped > 0:
+                yield mapped
+
+    async def consume_native() -> None:
+        async for _ in native_map_filter():
+            pass
 
     async def consume(buffered: bool) -> None:
         stream = AsyncStream(source()).map(lambda value: value + 1).filter(lambda value: value > 0)
@@ -38,6 +49,7 @@ def main() -> None:
     async def asynchronous() -> None:
         operations = [
             ("direct-generator", direct),
+            ("native-map-filter", consume_native),
             ("unbuffered", lambda: consume(False)),
             ("buffer-16", lambda: consume(True)),
         ]

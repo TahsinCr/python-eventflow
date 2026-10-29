@@ -5,7 +5,7 @@ from __future__ import annotations
 import asyncio
 import inspect
 from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
-from typing import Any, Generic, TypeVar, cast
+from typing import Any, Generic, NoReturn, TypeVar, cast
 
 from ._lifecycle import finish_cleanup
 from .base import validate_positive_capacity
@@ -13,6 +13,14 @@ from .base import validate_positive_capacity
 T = TypeVar("T")
 U = TypeVar("U")
 __all__ = ["AsyncStream"]
+
+
+def _raise_with_cleanup(primary: BaseException, cleanup: BaseException) -> NoReturn:
+    if cleanup is primary:
+        raise primary
+    if isinstance(cleanup, Exception):
+        raise primary from cleanup
+    raise cleanup from primary
 
 
 class AsyncStream(AsyncIterator[T], Generic[T]):
@@ -34,6 +42,7 @@ class AsyncStream(AsyncIterator[T], Generic[T]):
         self._claimed = False
         self._closed = False
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._consumer: asyncio.Task[Any] | None = None
         self._reader: asyncio.Task[Any] | None = None
         self._read_finished: asyncio.Event | None = None
         self._cleanup: asyncio.Task[None] | None = None
@@ -65,16 +74,26 @@ class AsyncStream(AsyncIterator[T], Generic[T]):
             raise StopAsyncIteration
         if self._reader is not None:
             raise RuntimeError("Concurrent reads from one AsyncStream are not supported")
+        task = asyncio.current_task()
+        if self._consumer is None:
+            self._consumer = task
+        elif self._consumer is not task:
+            raise RuntimeError("AsyncStream must be consumed by one task")
         self._claimed = True
-        self._reader = asyncio.current_task()
+        self._reader = task
         try:
             if self._iterator is None:
                 self._iterator = self._source.__aiter__()
             return await self._iterator.__anext__()
-        except BaseException:
+        except BaseException as error:
             self._reader = None
             if not self._closed:
-                await self.aclose()
+                try:
+                    await self.aclose()
+                except BaseException as cleanup_error:
+                    if isinstance(error, StopAsyncIteration):
+                        raise cleanup_error
+                    _raise_with_cleanup(error, cleanup_error)
             raise
         finally:
             self._reader = None
@@ -173,14 +192,23 @@ class AsyncStream(AsyncIterator[T], Generic[T]):
             reader.cancel()
             if read_finished is not None:
                 await read_finished.wait()
+        source_error: BaseException | None = None
         try:
             source = self._iterator if self._iterator is not None else self._source
             close = getattr(source, "aclose", None)
             if close is not None:
                 await close()
-        finally:
-            if self._upstream is not None:
+        except BaseException as error:
+            source_error = error
+        if self._upstream is not None:
+            try:
                 await self._upstream.aclose()
+            except BaseException as cleanup_error:
+                if source_error is not None:
+                    _raise_with_cleanup(source_error, cleanup_error)
+                raise
+        if source_error is not None:
+            raise source_error
 
     async def aclose(self) -> None:
         """Stop reads and await producer/source cleanup, even during repeated cancellation."""

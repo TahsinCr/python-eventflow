@@ -12,16 +12,14 @@ async def finish_cleanup(operation: Awaitable[T]) -> T:
     if task is asyncio.current_task():
         raise RuntimeError("Cleanup cannot await itself")
     cancellation: asyncio.CancelledError | None = None
-    while not task.done():
-        try:
-            await asyncio.shield(task)
-        except asyncio.CancelledError as exc:
-            if task.cancelled():
-                break
-            cancellation = exc
-        except BaseException:
-            # Retrieve the cleanup result below, preserving caller cancellation.
-            break
+    if not task.done():
+        completed = asyncio.Event()
+        task.add_done_callback(lambda _task: completed.set())
+        while not task.done():
+            try:
+                await completed.wait()
+            except asyncio.CancelledError as exc:
+                cancellation = exc
     try:
         result = task.result()
     except BaseException as error:

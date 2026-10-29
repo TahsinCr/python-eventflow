@@ -62,6 +62,13 @@ Decorator and imperative registration use the same runtime plan; small independe
 
 ## Streams
 
+New benchmark runs include `native-map-filter`, which applies the same mapping and
+predicate as the EventFlow cases using a plain async generator. Compare this case
+with `unbuffered` to estimate stream API overhead. `direct-generator` remains a
+raw-source lower bound and has no mapping or filtering. The checked-in
+`stream.json` predates the equivalent baseline and should be read with that
+limitation in mind.
+
 | Case | p50 per 1,000 items (us) | Items/s | Peak traced bytes |
 | --- | ---: | ---: | ---: |
 | direct-generator | 77.424 | 12915141 | 1352 |

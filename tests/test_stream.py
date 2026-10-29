@@ -100,6 +100,91 @@ class StreamTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(seen, [1, 2])
         self.assert_no_stream_tasks()
 
+    async def test_source_error_is_preserved_when_close_fails(self):
+        source_error = ValueError("source failed")
+        cleanup_error = RuntimeError("source close failed")
+
+        class Source:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise source_error
+
+            async def aclose(self):
+                raise cleanup_error
+
+        stream = AsyncStream(Source())
+        with self.assertRaises(ValueError) as caught:
+            await stream.__anext__()
+        self.assertIs(caught.exception, source_error)
+        self.assertIs(caught.exception.__cause__, cleanup_error)
+
+    async def test_natural_exhaustion_reports_close_failure(self):
+        cleanup_error = RuntimeError("source close failed")
+
+        class Source:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise StopAsyncIteration
+
+            async def aclose(self):
+                raise cleanup_error
+
+        with self.assertRaises(RuntimeError) as caught:
+            await AsyncStream(Source()).__anext__()
+        self.assertIs(caught.exception, cleanup_error)
+
+    async def test_cleanup_cancellation_is_not_masked_by_source_error(self):
+        source_error = ValueError("source failed")
+        cleanup_error = asyncio.CancelledError("source close cancelled")
+
+        class Source:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise source_error
+
+            async def aclose(self):
+                raise cleanup_error
+
+        with self.assertRaises(asyncio.CancelledError) as caught:
+            await AsyncStream(Source()).__anext__()
+        self.assertIs(caught.exception.__cause__, source_error)
+
+    async def test_close_attempts_upstream_and_chains_both_failures(self):
+        source_error = ValueError("stream close failed")
+        upstream_error = OSError("upstream close failed")
+
+        class Source:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise StopAsyncIteration
+
+            async def aclose(self):
+                raise source_error
+
+        class Upstream:
+            def __aiter__(self):
+                return self
+
+            async def __anext__(self):
+                raise StopAsyncIteration
+
+            async def aclose(self):
+                raise upstream_error
+
+        stream = AsyncStream(Source(), _upstream=AsyncStream(Upstream()))
+        with self.assertRaises(ValueError) as caught:
+            await stream.aclose()
+        self.assertIs(caught.exception, source_error)
+        self.assertIs(caught.exception.__cause__, upstream_error)
+
     async def test_source_owned_cancellation_propagates(self):
         async def source():
             raise asyncio.CancelledError
@@ -206,6 +291,24 @@ class StreamTests(unittest.IsolatedAsyncioTestCase):
             await stream.__anext__()
         release.set()
         self.assertEqual(await reader, 1)
+        await stream.aclose()
+
+    async def test_one_task_owns_stream_even_between_source_reads(self):
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        async def mapper(value):
+            entered.set()
+            await release.wait()
+            return value
+
+        source = AsyncStream(numbers())
+        stream = source.map(mapper)
+        reader = asyncio.create_task(stream.__anext__())
+        await entered.wait()
+        with self.assertRaisesRegex(RuntimeError, "one task"):
+            await source.__anext__()
+        release.set()
+        self.assertEqual(await reader, 0)
         await stream.aclose()
 
     async def test_nested_buffers_close_without_producer_leaks(self):
