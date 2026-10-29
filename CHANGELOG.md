@@ -23,11 +23,20 @@ All notable changes to this project are documented in this file.
   checks, composed bus/pipeline/stream examples, and latency/allocation benchmarks.
 - Add an equivalent native async map/filter case to the stream benchmark so its
   API overhead can be compared separately from raw source iteration.
+- Add an opt-in per-publish async callback concurrency limit and expose it
+  through async engine-created channels.
+- Add sparse filtered-history measurements to the replay benchmark and a
+  CodeQL security-analysis workflow with weekly dependency update checks.
 - Document shared contracts, snapshot ownership, middleware ordering, stream
   backpressure, context propagation, and intentional architectural limits.
 
 ### Changed
 
+- Use the available `eventflow-tahsincr` PyPI distribution name while keeping
+  the `eventflow` Python import package.
+- Bound pipeline middleware registrations at 64 to fail before exhausting the
+  Python call stack, and update `PipelineStats` in place rather than allocating
+  a new metrics snapshot for every observation.
 - Load new execution components lazily through the package exports so ordinary
   bus imports and publication do not initialize optional execution machinery.
 - Extend CI typing to the runnable examples and benchmarks, require at least
@@ -36,6 +45,12 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserve `EventEnvelope` metadata immutability while supporting
+  `dataclasses.asdict()` and pickle for serializable payloads.
+- Restore subscription activity when sync or async removal fails so cancellation
+  scopes and callers can retry cleanup.
+- Reject non-boolean results from event and stream filter predicates instead of
+  treating truthy or falsey values as matches.
 - Preserve a stream source failure when closing also fails, retain both errors
   through exception chaining, and still attempt upstream cleanup.
 - Enforce single-task stream ownership between reads so concurrent transformed

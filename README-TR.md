@@ -45,6 +45,7 @@ ihtiyaç yoktur.
 - [Async pipeline ve stream](#streams)
 - [Abonelik scope'ları](#scopes)
 - [Event context ve ölçümler](#event-context)
+- [Güvenlik ve çalışma sınırları](#security-boundaries)
 - [Bileşenleri birlikte kullanma](#composition)
 - [Yaşam döngüsü ve başvuru](#reference)
   - [Varsayılanlar](#defaults)
@@ -59,24 +60,25 @@ ihtiyaç yoktur.
 <a id="install"></a>
 ### Kurulum
 
-Python 3.10 veya üzeri gerekir. Depo kök dizininde paketi etkin Python
+Python 3.10 ve üzeri gerekir. Checkout içindeki kaynak kodu etkin Python
 ortamına kurun:
 
 ~~~bash
 python -m pip install .
 ~~~
 
-Dağıtımın adı `eventflow`, import edilen paketin adı `eventflow` olur. Python
+İlk PyPI yayını için seçilen dağıtım adı `eventflow-tahsincr`, Python import
+paketi ise `eventflow` olarak kalır. Paket bu adla yayımlandıktan sonra
+`python -m pip install eventflow-tahsincr` komutuyla kurulabilir. Python
 3.10'da, Python 3.11 ve üzerindeki yerleşik özellikleri sağlayan
-`backports.strenum` ve `exceptiongroup` paketleri kurulur. Bu bağımlılıklar
-paket metadata'sında yalnızca Python 3.10 için etkinleştirilmiştir.
+`backports.strenum` ve `exceptiongroup` paketleri kurulur. Paket metadata'sı bu
+bağımlılıkları yalnızca Python 3.10 için etkinleştirir.
 
-`eventflow` adı şu anda PyPI'de başka bir projeye kayıtlıdır
-([PyPI kaydı](https://pypi.org/project/eventflow/)). Bu nedenle
-`python -m pip install eventflow` bu kütüphaneyi kurmaz. Şimdilik yukarıdaki
-kaynak koddan kurulum komutunu kullanın. Bu dağıtım adıyla yayımlama için adın
-yetkili biçimde devredilmesi veya kullanılabilir başka bir ad seçilmesi gerekir;
-Python import paketi her iki durumda da `eventflow` olarak kalabilir.
+`eventflow` ve `python-eventflow` dağıtım adları PyPI'de başka projelere
+kayıtlıdır ([eventflow](https://pypi.org/project/eventflow/),
+[python-eventflow](https://pypi.org/project/python-eventflow/)). Bu kütüphaneyi
+kurmak için `eventflow-tahsincr` adını kullanın; Python import yolu `eventflow`
+olarak kalır.
 
 Düzenlenebilir geliştirme için isteğe bağlı araçları kurup depo kontrollerini
 proje kök dizininden çalıştırın:
@@ -331,6 +333,11 @@ History sırası event'lerin kaydedilme sırasıdır; callback'lerin başlama ve
 tamamlanma sırası değildir. Async publish hook'ları kayıt sonrasında bekleyebilir
 ve ayrı yayın çağrıları örtüşebilir.
 
+Filtresiz `limit` sorgusu yalnız istenen yakın geçmiş penceresini okur. Filtreli
+sorgu predicate'i kilit dışında ve sabit bir snapshot üzerinde çalıştırır.
+Limitli aramada en yeniden eskiye ilerler; eşleşme çok seyrek olup en eski kayda
+yakınsa yine de snapshot'ın tamamını taraması gerekebilir.
+
 Sonradan katılan bir abonenin canlı teslimattan önce yakın geçmişi alması için
 `replay=N` kullanın:
 
@@ -460,6 +467,14 @@ handler'lara teslimatı durdurur. Concurrent kipte bağımsız olarak iptal edil
 handler task'ı başarısız teslimat olarak `PublishResult`'a eklenir. `publish()`
 çağıran task iptal edilirse her iki kipte de iptal çağırana yayılır.
 
+Concurrent teslimat varsayılan olarak sınırsızdır ve mevcut davranışı korur.
+`DeliveryMode.CONCURRENT` ile verilen `max_concurrency=N`, her bir publish
+çağrısının callback fan-out'unu sınırlar. Aboneler en fazla `N` öğelik gruplar
+hâlinde çalıştırılır; çakışan publish çağrılarının her biri kendi sınırına
+sahiptir. Bu seçenek uygulamanın oluşturduğu publish çağrılarının toplamını
+sınırlamaz. Tek bir event'in fan-out'u çok sayıda task veya harici kaynak
+tüketebilecekse sonlu bir değer belirleyin.
+
 ~~~python
 import asyncio
 
@@ -469,6 +484,7 @@ from eventflow import AsyncEventBus, DeliveryMode
 async def main() -> None:
     async with AsyncEventBus[int](
         delivery_mode=DeliveryMode.CONCURRENT,
+        max_concurrency=8,
     ) as bus:
         async def save_metric(value: int) -> None:
             print(f"Metrik kaydedildi: {value}")
@@ -578,8 +594,8 @@ asyncio.run(main())
 ~~~
 
 `EventEngine` history, hata politikası, executor ve hook ayarlarını oluşturduğu
-bus'lara aktarır. `AsyncEventEngine` history, hata politikası, teslimat kipi
-ve async hook'ları aktarır.
+bus'lara aktarır. `AsyncEventEngine` history, hata politikası, teslimat kipi,
+`max_concurrency` ve async hook'ları aktarır.
 
 <a id="callback-policies"></a>
 ## Callback politikaları
@@ -731,6 +747,9 @@ Continuation yalnız ilgili middleware çağrısı sürerken ve aynı thread/asy
 içinde geçerlidir. İkinci çağrı, sonradan çağırma ve ayrı task'tan çağırma
 `RuntimeError` üretir. Mevcut bus action'ları ve callback hook'ları kendi
 sözleşmeleriyle çalışmaya devam eder.
+Middleware iç içe continuation kullandığından her pipeline, devre dışı olanlar
+dahil en fazla 64 middleware kaydını kabul eder. Sınır kayıt sırasında
+doğrulanır ve çalışma anında Python çağrı yığınının aşılmasını önler.
 
 Stage hatası sonraki stage'leri durdurur ve `PipelineExecutionError` üretir.
 `name`, `phase`, `context` ve `__cause__` alanları hatanın kaynağını gösterir.
@@ -796,6 +815,9 @@ kesir ve sonsuz değer reddedilir. Tampon dolduğunda producer bekler. Bellekte
 en fazla `capacity` kuyruk öğesi ve kuyruğa girmeyi bekleyen bir kaynak değeri
 bulunur. Sessiz veri kaybı uygulanmaz. Kaynak hatası, daha önce kuyruğa alınan
 değerlerin ardından tüketiciye iletilir; normal bitiş, hata ve iptal ayrıdır.
+Kapasite baytları değil nesne sayısını ölçer; birkaç büyük payload da yüksek
+bellek kullanabilir. Boyutu değişken olaylarda payload boyutunu veya uygulama
+tarafındaki toplam bayt bütçesini ayrıca sınırlayın.
 
 Stream bir kez tüketilir. İkinci iterator edinimi ve eşzamanlı okuma reddedilir.
 Tüketici erken çıkabilecek veya hata verebilecekse **zincirin son stream'ini**
@@ -848,8 +870,9 @@ reentrant kapanış açıkça reddedilir.
 `EventEnvelope[T]`; `event`, üretilen `id`, `correlation_id`, `source`, timezone
 bilgili UTC `timestamp` ve `metadata` alanlarını sunan frozen bir veri sınıfıdır.
 Metadata kopyalanıp salt okunur mapping'e alınır; payload ve metadata içindeki
-nesneler kendi mutability özelliklerini korur. Payload dönüşümü için
-`dataclasses.replace` kullanılabilir.
+nesneler kendi mutability özelliklerini korur. Event ve metadata değerleri de
+uygunsa `dataclasses.asdict()` ve pickle ile dönüştürülebilir. Payload dönüşümü
+için `dataclasses.replace` kullanılabilir.
 
 ~~~python
 from dataclasses import replace
@@ -886,13 +909,32 @@ Her `ExecutionMetrics` içinde `calls`, `successful`, `failed`, `cancelled`,
 `total_seconds`, `max_seconds` bulunur. Kısa devre ile atlanan stage sayılmaz.
 Run ve middleware süreleri iç stage sürelerini içerdiğinden bu süreler
 toplanmamalıdır. `reset()` ölçümleri temizler. Collector payload veya traceback
-nesnesi tutmaz.
+nesnesi tutmaz. Metrik anahtarları stage ve middleware adlarıdır; sabit adlar
+collector belleğini sınırlı tutar. Dinamik adlar `reset()` çağrılana kadar
+saklanır; kullanıcı veya istek değerlerini sınırsız bileşen adı olarak
+kullanmayın.
 
-Observer inline çalışır ve hızlı olmalıdır. Observer hatası, başarılı olacak
-çalışmayı `phase="observer"` ile durdurur. Mevcut bir pipeline hatası sırasında
-oluşan observer hataları orijinal `PipelineExecutionError.observer_errors`
-üzerinde korunur; asıl cause değiştirilmez. Mevcut `EventBusStats` alanları
-ve davranışı korunur.
+Observer senkron çalışır ve `AsyncPipeline` içinde de inline çağrılır; event
+loop'un gecikmemesi için hızlı ve bloklamayan olmalıdır. Log veya telemetry I/O'su
+için kısa bir observation'ı uygulama tarafındaki sınırlı kuyruğa aktarın.
+Observer hatası, başarılı olacak çalışmayı `phase="observer"` ile durdurur.
+Mevcut bir pipeline hatası sırasında oluşan observer hataları orijinal
+`PipelineExecutionError.observer_errors` üzerinde korunur; asıl cause
+değiştirilmez. Mevcut `EventBusStats` alanları ve davranışı korunur.
+
+<a id="security-boundaries"></a>
+### Güvenlik ve çalışma sınırları
+
+EventFlow callback'leri, predicate'leri, middleware'i ve stream kaynaklarını
+uygulamayla aynı süreçte ve aynı izinlerle çalıştırır. Güvenilmeyen eklentileri
+sandbox etmez; böyle bir kodu ayrı işletim sistemi süreci veya container içinde,
+açık izinler ve kaynak sınırlarıyla çalıştırın. Async cancellation ve callback
+timeout'ları işbirliğine dayalıdır; cancellation'ı bastıran veya event loop'u
+bloklayan kod için kesin süre sınırı sağlamaz.
+
+`PipelineExecutionError.context` ve observer hataları hassas veri içeren
+uygulama nesnelerine referans verebilir. Bu nesneleri olduğu gibi loglamayın;
+structured logging katmanında alanları ayıklayın veya redakte edin.
 
 <a id="composition"></a>
 ## Bileşenleri birlikte kullanma
@@ -929,6 +971,7 @@ Tek publisher task'ını sahiplenip çıkışta bekler; her event için yeni tas
 | `error_policy` | `ErrorPolicy.ISOLATE` | `ErrorPolicy.ISOLATE` |
 | `executor` | `None` | Kullanılmaz |
 | `delivery_mode` | Kullanılmaz | `DeliveryMode.SEQUENTIAL` |
+| `max_concurrency` | Kullanılmaz | `None` (sınırsız) |
 | `replay_buffer_limit` | 1000 | 1000 |
 | `max_schedules` | 64 | 64 |
 | `shutdown_timeout` | 5 saniye | Kullanılmaz |

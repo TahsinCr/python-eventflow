@@ -45,6 +45,7 @@ to install or use this package.
 - [Async pipelines and streams](#streams)
 - [Subscription scopes](#scopes)
 - [Event context and measurements](#event-context)
+- [Security and operational boundaries](#security-and-operational-boundaries)
 - [Composing the components](#composition)
 - [Lifecycle and reference](#reference)
   - [Defaults](#defaults)
@@ -57,24 +58,30 @@ to install or use this package.
 
 ### Install
 
-Python 3.10 or newer is required. From the repository root, install the
-distribution into the active Python environment:
+Python 3.10 or newer is required. From a checkout, install the source into the
+active environment:
 
 ~~~bash
 python -m pip install .
 ~~~
 
-The distribution name is `eventflow`; its import package is `eventflow`. Python
-3.10 installs `backports.strenum` and `exceptiongroup` to supply features that
-are built into Python 3.11 and newer. These dependencies are selected by the
-package metadata only on Python 3.10.
+The reserved distribution name for the first PyPI release is
+`eventflow-tahsincr`, while the Python import package remains `eventflow`. After
+publication, install the distribution with:
 
-The `eventflow` name is currently registered on PyPI to another project
-([PyPI listing](https://pypi.org/project/eventflow/)). Consequently,
-`python -m pip install eventflow` does not install this library. For now, use
-the source installation above. Publishing this project under that distribution
-name requires an authorized transfer or the selection of an available name;
-the Python import package can remain `eventflow` either way.
+~~~bash
+python -m pip install eventflow-tahsincr
+~~~
+
+Python 3.10 installs `backports.strenum` and `exceptiongroup` to supply features
+that are built into Python 3.11 and newer. Package metadata selects these
+dependencies only on Python 3.10.
+
+The distribution names `eventflow` and `python-eventflow` are already registered
+to other projects on PyPI ([eventflow](https://pypi.org/project/eventflow/),
+[python-eventflow](https://pypi.org/project/python-eventflow/)). Use
+`eventflow-tahsincr` to install this library; imports continue to use
+`eventflow`.
 
 For editable development, install the optional tools and run the repository
 checks from the project root:
@@ -321,6 +328,11 @@ History order reflects when events were recorded, not when callbacks start or
 finish. Async publish hooks can yield after recording, and separate publish
 calls may overlap.
 
+An unfiltered query with `limit` reads only the requested recent window. A
+filtered query evaluates the predicate outside the history lock on a stable
+snapshot. It searches newest to oldest when limited, but a rare match near the
+oldest entry can still require scanning the full snapshot.
+
 A new subscriber can receive recent events before it starts handling live
 ones. Pass `replay=N` to deliver up to the N newest retained events that match
 the subscription filter:
@@ -459,6 +471,7 @@ from eventflow import AsyncEventBus, DeliveryMode
 async def main() -> None:
     async with AsyncEventBus[int](
         delivery_mode=DeliveryMode.CONCURRENT,
+        max_concurrency=8,
     ) as bus:
         async def save_metric(value: int) -> None:
             print(f"Saved metric: {value}")
@@ -479,6 +492,13 @@ Bus operations such as `subscribe()`, `publish()`, `wait_for()`,
 `publish_every()`, `clear()`, and `close()` are awaited. The
 `publish_threadsafe(event)` entry point is for a different thread: it returns
 a `concurrent.futures.Future` and schedules delivery on the owning loop.
+
+Concurrent delivery is unbounded by default to preserve the existing behavior.
+Set `max_concurrency=N` with `DeliveryMode.CONCURRENT` to cap callback fan-out
+for each publish. Subscribers are handled in batches of at most `N`; overlapping
+publish calls each have their own limit. This does not bound how many publish
+calls the application creates. Choose a finite value when one event's fan-out
+could otherwise create too many tasks or use too many external resources.
 
 ~~~python
 import asyncio
@@ -564,7 +584,7 @@ asyncio.run(main())
 
 Engine defaults are passed to the buses the engine creates. `EventEngine`
 carries history, error policy, executor, and hooks. `AsyncEventEngine` carries
-history, error policy, delivery mode, and async hooks.
+history, error policy, delivery mode, `max_concurrency`, and async hooks.
 
 ## Callback policies
 
@@ -716,6 +736,9 @@ continuation is valid only inside its middleware call and on the same thread
 or async task. A second call, deferred call or detached-task call raises
 `RuntimeError`. Existing bus actions and callback hooks retain their own
 semantics; they are not executed as pipeline middleware.
+Because middleware uses nested continuations, each pipeline accepts at most 64
+registered middleware entries, including disabled entries. The limit is checked
+when adding middleware and avoids reaching Python's recursion limit during a run.
 
 Stage failures stop later stages and raise `PipelineExecutionError`. Inspect
 `name`, `phase`, `context` and `__cause__` to locate the original failure.
@@ -779,7 +802,9 @@ fractions and infinity are rejected. A full buffer blocks its producer. There
 is room for `capacity` queued values plus one source value currently waiting
 to enter the queue. Values are never dropped. Source failures reach the
 consumer after earlier queued values; normal completion remains distinct from
-failure and cancellation.
+failure and cancellation. Capacity counts objects, not bytes; a small number of
+large payloads can still use substantial memory. Apply payload-size limits or
+an application-owned byte budget when events have highly variable sizes.
 
 A stream is consumed once. A second iterator acquisition and concurrent reads
 are rejected. Use `async with` on the **terminal stream** when a consumer may
@@ -831,7 +856,9 @@ loop and rejects reentrant cleanup that would await itself.
 optional frozen container with `event`, generated `id`, `correlation_id`,
 `source`, timezone-aware UTC `timestamp` and `metadata`. Metadata is copied
 into a read-only mapping; payloads and nested metadata values retain their
-own mutability. Use `dataclasses.replace` to transform an envelope's payload.
+own mutability. `dataclasses.asdict()` and pickle work when the event and
+metadata values themselves support those operations. Use `dataclasses.replace`
+to transform an envelope's payload.
 
 ~~~python
 from dataclasses import replace
@@ -867,13 +894,31 @@ Each `ExecutionMetrics` includes `calls`, `successful`, `failed`, `cancelled`,
 `total_seconds` and `max_seconds`. Counts describe actual execution, so a
 short-circuit does not count skipped stages. Run and middleware durations
 include nested stages; do not add them together. `reset()` clears aggregates.
-No payloads or traceback objects are retained by the collector.
+No payloads or traceback objects are retained by the collector. Metric keys are
+stage and middleware names; stable names keep the collector small. Dynamically
+generated names remain in the snapshot until `reset()` is called, so avoid
+unbounded user or request values as component names.
 
-Observers execute inline and should remain fast. An observer failure aborts an
-otherwise successful run with `phase="observer"`. During an existing pipeline
-failure, observer errors are available as `observer_errors` on the original
-`PipelineExecutionError`, preserving its cause. Existing `EventBusStats` is
-unchanged.
+Observers are synchronous and execute inline, including in `AsyncPipeline`;
+they must be fast and non-blocking to avoid delaying the event loop. For logging
+or telemetry I/O, enqueue a compact observation into an application-owned
+bounded queue. An observer failure aborts an otherwise successful run with
+`phase="observer"`. During an existing pipeline failure, observer errors are
+available as `observer_errors` on the original `PipelineExecutionError`,
+preserving its cause. Existing `EventBusStats` is unchanged.
+
+### Security and operational boundaries
+
+EventFlow invokes callbacks, predicates, middleware and stream sources in the
+application process with that process's permissions. It does not sandbox
+untrusted plugins; isolate such code with an operating-system process or
+container boundary and explicit permissions and resource limits. Async
+cancellation and callback timeouts are cooperative and do not provide a hard
+deadline for code that suppresses cancellation or blocks the event loop.
+
+`PipelineExecutionError.context` and observer errors may reference application
+objects, including sensitive data. Avoid logging these objects wholesale;
+redact fields in the application's structured logging layer.
 
 <a id="composition"></a>
 ## Composing the components
@@ -909,6 +954,7 @@ It owns one publisher task and joins it on exit; no task is created per event.
 | `error_policy` | `ErrorPolicy.ISOLATE` | `ErrorPolicy.ISOLATE` |
 | `executor` | `None` | Not used |
 | `delivery_mode` | Not used | `DeliveryMode.SEQUENTIAL` |
+| `max_concurrency` | Not used | `None` (unbounded) |
 | `replay_buffer_limit` | 1000 | 1000 |
 | `max_schedules` | 64 | 64 |
 | `shutdown_timeout` | 5 seconds | Not used |
