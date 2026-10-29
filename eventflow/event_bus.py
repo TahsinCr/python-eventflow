@@ -428,8 +428,6 @@ class EventBus(BaseEventBus[T]):
             schedule_id = self._next_id
             self._next_id += 1
 
-            thread: threading.Thread | None = None
-
             def cancel() -> None:
                 stopped.set()
 
