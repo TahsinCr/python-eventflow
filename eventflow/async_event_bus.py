@@ -8,7 +8,7 @@ from collections import deque
 from collections.abc import Awaitable, Callable
 from concurrent.futures import Future
 from dataclasses import dataclass, field as dataclass_field
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, cast
 
 from .actions import AsyncEventBusActions, EventErrorContext, EventTimeoutContext
 from .base import (
@@ -326,17 +326,7 @@ class AsyncEventBus(BaseEventBus[T]):
         else:
             if self._max_concurrency is not None and 1 < self._max_concurrency < len(matched):
                 outcomes = await self._deliver_window(matched, event, self._max_concurrency)
-                for outcome in outcomes:
-                    if isinstance(outcome, asyncio.CancelledError):
-                        errors.append(EventBusError("An async event callback was cancelled"))
-                        continue
-                    if isinstance(outcome, BaseException):
-                        raise outcome
-                    was_delivered, error = outcome
-                    if was_delivered:
-                        delivered += 1
-                    if error is not None:
-                        errors.append(error)
+                delivered += self._collect_concurrent_outcomes(outcomes, errors)
             else:
                 limit = self._max_concurrency or max(1, len(matched))
                 for offset in range(0, len(matched), limit):
@@ -345,19 +335,7 @@ class AsyncEventBus(BaseEventBus[T]):
                         *(self._deliver(subscriber, event) for subscriber in batch),
                         return_exceptions=True,
                     )
-                    for outcome in outcomes:
-                        if isinstance(outcome, asyncio.CancelledError):
-                            errors.append(
-                                EventBusError("An async event callback was cancelled")
-                            )
-                            continue
-                        if isinstance(outcome, BaseException):
-                            raise outcome
-                        was_delivered, error = outcome
-                        if was_delivered:
-                            delivered += 1
-                        if error is not None:
-                            errors.append(error)
+                    delivered += self._collect_concurrent_outcomes(outcomes, errors)
 
         errors.extend(await self._notify_errors(event, tuple(errors)))
         result = PublishResult(
@@ -383,6 +361,25 @@ class AsyncEventBus(BaseEventBus[T]):
         if errors and self._error_policy is ErrorPolicy.RAISE:
             raise ExceptionGroup("Async event delivery failed", errors)
         return result
+
+    @staticmethod
+    def _collect_concurrent_outcomes(
+        outcomes: list[tuple[bool, Exception | None] | BaseException],
+        errors: list[Exception],
+    ) -> int:
+        delivered = 0
+        for outcome in outcomes:
+            if isinstance(outcome, asyncio.CancelledError):
+                errors.append(EventBusError("An async event callback was cancelled"))
+            elif isinstance(outcome, BaseException):
+                raise outcome
+            else:
+                was_delivered, error = outcome
+                if was_delivered:
+                    delivered += 1
+                if error is not None:
+                    errors.append(error)
+        return delivered
 
     async def _deliver_window(
         self,
@@ -437,7 +434,7 @@ class AsyncEventBus(BaseEventBus[T]):
 
         if fatal_error is not None:
             raise fatal_error
-        return [outcome for outcome in outcomes if outcome is not None]
+        return cast(list[tuple[bool, Exception | None] | BaseException], outcomes)
 
     async def _notify_errors(
         self,

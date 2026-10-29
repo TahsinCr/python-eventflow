@@ -35,6 +35,7 @@ All notable changes to this project are documented in this file.
 
 - Refill bounded async delivery slots as callbacks finish instead of waiting
   for every callback in a fixed batch.
+- Avoid an extra full result-list copy when bounded async delivery completes.
 - Clarify that another distribution installing the shared `eventflow` import
   package in the same environment can overwrite or conflict with package files.
 - Document that sparse filtered replay scans history synchronously on the async
