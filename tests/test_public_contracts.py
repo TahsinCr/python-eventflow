@@ -10,7 +10,13 @@ import unittest
 from pathlib import Path
 
 import eventflow
-from eventflow import AsyncEventBus, CallbackSubscription, EventBus, Subscription
+from eventflow import (
+    AsyncEventBus,
+    AsyncEventEngine,
+    CallbackSubscription,
+    EventBus,
+    Subscription,
+)
 
 
 class PublicContractTests(unittest.TestCase):
@@ -37,9 +43,27 @@ class PublicContractTests(unittest.TestCase):
             self.assertIn(name, eventflow.__all__)
             item = getattr(eventflow, name)
             for method, signature in methods.items():
+                actual = inspect.signature(getattr(item, method))
+                if (name, method) in {
+                    ("AsyncEventBus", "__init__"),
+                    ("AsyncEventEngine", "__init__"),
+                }:
+                    actual = actual.replace(
+                        parameters=[
+                            parameter
+                            for parameter in actual.parameters.values()
+                            if parameter.name != "max_concurrency"
+                        ]
+                    )
                 self.assertEqual(
-                    str(inspect.signature(getattr(item, method))), signature, f"{name}.{method}"
+                    str(actual), signature, f"{name}.{method}"
                 )
+
+    def test_async_delivery_limit_is_keyword_only_and_opt_in(self):
+        for item in (AsyncEventBus, AsyncEventEngine):
+            parameter = inspect.signature(item).parameters["max_concurrency"]
+            self.assertEqual(parameter.kind, inspect.Parameter.KEYWORD_ONLY)
+            self.assertIsNone(parameter.default)
 
     def test_callback_decorators_keep_original_function_and_policy(self):
         calls = []

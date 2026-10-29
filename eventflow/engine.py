@@ -14,6 +14,7 @@ from .actions import (
     EventTimeoutContext,
 )
 from .async_event_bus import AsyncEventBus
+from .base import validate_positive_capacity
 from .compatibility import ExceptionGroup
 from .contracts import DeliveryMode, ErrorPolicy, PublishResult
 from .event_bus import EventBus
@@ -239,6 +240,7 @@ class AsyncEventEngine:
         history: int | None = None,
         error_policy: ErrorPolicy = ErrorPolicy.ISOLATE,
         delivery_mode: DeliveryMode = DeliveryMode.SEQUENTIAL,
+        max_concurrency: int | None = None,
         actions: AsyncEventBusActions[Any] | None = None,
         on_before: Callable[[Any], Awaitable[None]] | None = None,
         on_after: Callable[[Any, PublishResult], Awaitable[None]] | None = None,
@@ -248,6 +250,21 @@ class AsyncEventEngine:
         self._history = history
         self._error_policy = ErrorPolicy(error_policy)
         self._delivery_mode = DeliveryMode(delivery_mode)
+        self._max_concurrency = (
+            None
+            if max_concurrency is None
+            else validate_positive_capacity(
+                max_concurrency,
+                name="Maximum concurrent deliveries",
+            )
+        )
+        if (
+            self._max_concurrency is not None
+            and self._delivery_mode is not DeliveryMode.CONCURRENT
+        ):
+            raise ValueError(
+                "max_concurrency requires DeliveryMode.CONCURRENT"
+            )
         direct_actions = (on_before, on_after, on_error, on_timeout)
         if actions is not None and any(action is not None for action in direct_actions):
             raise ValueError("Use actions or direct on_* callbacks, not both")
@@ -281,6 +298,7 @@ class AsyncEventEngine:
                     history=self._history,
                     error_policy=self._error_policy,
                     delivery_mode=self._delivery_mode,
+                    max_concurrency=self._max_concurrency,
                     actions=self._actions,
                 )
                 self._channels[name] = bus

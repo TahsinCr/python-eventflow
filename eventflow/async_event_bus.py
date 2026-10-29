@@ -76,6 +76,7 @@ class AsyncEventBus(BaseEventBus[T]):
         history: EventHistory[T] | int | None = None,
         error_policy: ErrorPolicy = ErrorPolicy.ISOLATE,
         delivery_mode: DeliveryMode = DeliveryMode.SEQUENTIAL,
+        max_concurrency: int | None = None,
         replay_buffer_limit: int = 1_000,
         max_schedules: int = 64,
         actions: AsyncEventBusActions[T] | None = None,
@@ -110,6 +111,21 @@ class AsyncEventBus(BaseEventBus[T]):
                     "AsyncEventBus actions must be async"
                 )
         self._delivery_mode = DeliveryMode(delivery_mode)
+        self._max_concurrency = (
+            None
+            if max_concurrency is None
+            else validate_positive_capacity(
+                max_concurrency,
+                name="Maximum concurrent deliveries",
+            )
+        )
+        if (
+            self._max_concurrency is not None
+            and self._delivery_mode is not DeliveryMode.CONCURRENT
+        ):
+            raise ValueError(
+                "max_concurrency requires DeliveryMode.CONCURRENT"
+            )
         self._replay_buffer_limit = replay_buffer_limit
         self._max_schedules = max_schedules
         self._subscribers: dict[int, _AsyncSubscriber[T]] = {}
@@ -307,23 +323,26 @@ class AsyncEventBus(BaseEventBus[T]):
                 if error is not None:
                     errors.append(error)
         else:
-            outcomes = await asyncio.gather(
-                *(self._deliver(subscriber, event) for subscriber in matched),
-                return_exceptions=True,
-            )
-            for outcome in outcomes:
-                if isinstance(outcome, asyncio.CancelledError):
-                    errors.append(
-                        EventBusError("An async event callback was cancelled")
-                    )
-                    continue
-                if isinstance(outcome, BaseException):
-                    raise outcome
-                was_delivered, error = outcome
-                if was_delivered:
-                    delivered += 1
-                if error is not None:
-                    errors.append(error)
+            limit = self._max_concurrency or max(1, len(matched))
+            for offset in range(0, len(matched), limit):
+                batch = matched[offset : offset + limit]
+                outcomes = await asyncio.gather(
+                    *(self._deliver(subscriber, event) for subscriber in batch),
+                    return_exceptions=True,
+                )
+                for outcome in outcomes:
+                    if isinstance(outcome, asyncio.CancelledError):
+                        errors.append(
+                            EventBusError("An async event callback was cancelled")
+                        )
+                        continue
+                    if isinstance(outcome, BaseException):
+                        raise outcome
+                    was_delivered, error = outcome
+                    if was_delivered:
+                        delivered += 1
+                    if error is not None:
+                        errors.append(error)
 
         errors.extend(await self._notify_errors(event, tuple(errors)))
         result = PublishResult(
