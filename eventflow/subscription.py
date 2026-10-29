@@ -35,7 +35,12 @@ class Subscription:
     def _consume(self) -> bool:
         if not self._deactivate():
             return False
-        self._cancel()
+        try:
+            self._cancel()
+        except BaseException:
+            with self._lock:
+                self._active = True
+            raise
         return True
 
     def __enter__(self) -> "Subscription":
@@ -74,7 +79,13 @@ class AsyncSubscription:
 
     async def _consume(self) -> bool:
         deactivated = self._deactivate()
-        await self._cancel()
+        if not deactivated:
+            return False
+        try:
+            await self._cancel()
+        except BaseException:
+            self._active = True
+            raise
         return deactivated
 
     async def __aenter__(self) -> "AsyncSubscription":

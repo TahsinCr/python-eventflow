@@ -1048,7 +1048,7 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(asyncio.CancelledError):
             await closing
         self.assertEqual(bus.subscriber_count, 1)
-        self.assertFalse(subscription.active)
+        self.assertTrue(subscription.active)
 
         subscription._cancel = original_cancel
         await bus.close()
