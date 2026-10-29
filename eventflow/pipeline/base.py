@@ -16,6 +16,7 @@ from .registry import _Registry
 
 C = TypeVar("C")
 M = TypeVar("M")
+_MAX_MIDDLEWARE_COUNT = 64
 
 
 class _PipelineBase(Generic[C, M]):
@@ -103,6 +104,10 @@ class _PipelineBase(Generic[C, M]):
         """Register around middleware in a separate, ordered registry."""
         self._validate(callback)
         with self._lock:
+            if len(self._middleware.ordered) >= _MAX_MIDDLEWARE_COUNT:
+                raise ValueError(
+                    f"Pipeline supports at most {_MAX_MIDDLEWARE_COUNT} middleware entries"
+                )
             self._middleware.add(name, callback, before, after)
             self._compile()
 
