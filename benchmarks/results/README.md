@@ -77,6 +77,45 @@ raw-source lower bound and has no mapping or filtering.
 
 The raw generator has no transformation or ownership machinery. The unbuffered case includes map/filter and owned closure. Buffering additionally runs one producer, a bounded queue and backpressure; it is a resource/decoupling choice, not a speedup for a trivial CPU-only source.
 
+## Runtime load and resource checks
+
+`runtime_load.json`, `callback_errors.json` and `pipeline_diagnostics.json` were
+measured on Python 3.10.18/Linux on 2026-11-02. Runtime contention rates use the
+median of five batches, with 200 publishes per publisher in each batch. The
+memory soak sends 100,000 distinct 4 KiB payloads per case and compares traced
+memory after the first half with memory at completion. Schedule registration
+uses a 3,600-second interval so the measurement observes registered threads or
+tasks without including periodic event delivery. Callback and middleware files
+contain 500 and 1,000 timed publish/run operations per case, respectively.
+
+| Scenario | Workload | Measured result |
+| --- | --- | ---: |
+| Sync contention | 1 publisher | 65,052 publishes/s |
+| Sync contention | 4 publishers | 64,650 publishes/s |
+| Sync contention | 16 publishers | 58,032 publishes/s |
+| Async contention | 4 publishers, 4 subscribers, max concurrency 1 | 18,390 publishes/s |
+| Async contention | 4 publishers, 4 subscribers, max concurrency 4 | 26,783 publishes/s |
+| Async contention | 4 publishers, 4 subscribers, unlimited concurrency | 26,854 publishes/s |
+| Memory soak, no history | Sync and async, 100,000 events with one handler | -48 B late traced growth; 9,123 B peak |
+| Memory soak, capacity 128 | Sync and async, 100,000 events with one handler | -20 B late traced growth; about 526 KiB peak |
+| Periodic registration | 50 sync schedules | 3.117 ms median; 50 worker threads; 0 remained after close |
+| Periodic registration | 50 async schedules | 0.323 ms median; 50 tasks; 0 remained after cancellation |
+
+`callback_errors.json` measures 0%, 10% and 100% failing callbacks in sync,
+async sequential and async concurrent modes. For example, sync p50 was 17.350,
+17.851 and 19.862 us at those error rates. `pipeline_diagnostics.json` now
+measures 1, 5 and 20 pass-through middleware layers: sync p50 was 2.929 to
+23.280 us, and async p50 was 4.449 to 47.653 us. Per-case percentiles,
+throughput and traced peaks are retained in the JSON files.
+
+These measurements show bounded memory settling after the history reaches its
+configured capacity and schedule cleanup returning tracked resources to zero
+for these workloads. Error-rate p95 can vary substantially between runs; use
+the raw distributions and repeat the benchmark on the target environment before
+making capacity decisions. The soak is a 100,000-event local run, not a
+production-scale or long-duration guarantee; traced allocations exclude native
+allocations and process RSS.
+
 Replay uses the unchanged benchmark; see `replay_before.txt` and `replay_after.txt`. JSON files retain complete distributions and environment details.
 
 ## Reproduce
@@ -86,6 +125,7 @@ python -m benchmarks.benchmark_publish --iterations 2000 --output publish.json
 python -m benchmarks.benchmark_compare --baseline /path/to/v1.1-checkout --iterations 250 --samples 9 --output comparison.json
 python -m benchmarks.benchmark_pipeline --iterations 5000 --output pipeline.json
 python -m benchmarks.benchmark_stream --iterations 100 --items 1000 --output stream.json
+python -m benchmarks.benchmark_runtime --iterations 200 --samples 5 --soak-operations 100000 --output runtime.json
 python -m benchmarks.benchmark_replay --events 100000 --replay 25 --iterations 100 --samples 7
 ```
 

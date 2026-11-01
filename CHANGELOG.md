@@ -24,6 +24,8 @@ All notable changes to this project are documented in this file.
 - Report branch coverage alongside line coverage in the CI test matrix.
 - Add an equivalent native async map/filter case to the stream benchmark so its
   API overhead can be compared separately from raw source iteration.
+- Add repeatable publisher-contention, `max_concurrency`, callback-error,
+  middleware, periodic-schedule resource, and 100,000-event memory-soak benchmarks.
 - Add an opt-in per-publish async callback concurrency limit and expose it
   through async engine-created channels.
 - Add sparse filtered-history measurements to the replay benchmark and a

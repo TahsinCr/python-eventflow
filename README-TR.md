@@ -1140,12 +1140,20 @@ varsayılan olarak 100.000 event kullanır; `--events`, `--replay`,
 `--iterations` ve `--samples` seçenekleriyle ayarlanır.
 
 Ek ölçümler için `python -m benchmarks.benchmark_publish`,
-`python -m benchmarks.benchmark_pipeline` ve `python -m benchmarks.benchmark_stream`
-kullanılabilir. `--output results.json`; ortamı, throughput'u, p50/p95/p99
-gecikmesini ve zaman ölçümünden ayrı izlenen peak allocation bilgisini kaydeder.
-Stream oranları bir tam tüketim işlemindeki öğe sayısıyla hesaplanır. Tracemalloc
-değerleri process RSS değildir; yerel mikrobenchmark dağıtım performansı garantisi
-vermez. Baz çizgi, son ölçümler ve yöntem `benchmarks/results` altında tutulur.
+`python -m benchmarks.benchmark_pipeline`, `python -m benchmarks.benchmark_stream`
+ve `python -m benchmarks.benchmark_runtime` kullanılabilir. Runtime benchmark'ı
+sync/async publisher rekabetini, async `max_concurrency` değerlerini, callback
+hata oranlarını, periyodik schedule kaynaklarını ve ayarlanabilir sayıda event
+üzerinden izlenen belleği karşılaştırır. Varsayılan olarak beş ölçüm örneği,
+her örnekte publisher başına 500 yayın ve 100.000 soak eventi kullanır; iş yükü
+`--iterations`, `--publisher-counts`, `--schedule-counts`, `--samples` ve
+`--soak-operations` seçenekleriyle ayarlanır.
+`--output results.json` ortamı, throughput'u, p50/p95/p99 gecikmeyi ve zaman
+ölçümünden ayrı izlenen peak allocation değerini kaydeder. Stream oranları tam
+tüketilen bir stream'deki öğe sayısına göredir. Runtime bellek ölçümleri
+`tracemalloc` kullanır, process RSS değildir ve history belleğini de içerir.
+Yerel mikrobenchmark dağıtım performansı garantisi vermez. Ölçüm sonuçları ve
+yöntem `benchmarks/results` altında tutulur.
 
 Copyright © 2026 TahsinCr. EventFlow, MIT Lisansı ile lisanslanmıştır.
 [LICENSE](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE) ve

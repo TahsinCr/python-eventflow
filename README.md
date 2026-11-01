@@ -1115,12 +1115,19 @@ to 100,000 retained events and can be adjusted with `--events`, `--replay`,
 `--iterations`, and `--samples`.
 
 Additional repeatable measurements use `python -m benchmarks.benchmark_publish`,
-`python -m benchmarks.benchmark_pipeline` and `python -m benchmarks.benchmark_stream`.
+`python -m benchmarks.benchmark_pipeline`, `python -m benchmarks.benchmark_stream`
+and `python -m benchmarks.benchmark_runtime`. The runtime-load benchmark compares
+sync and async publisher contention, async `max_concurrency` values, callback
+error rates, periodic schedule resources, and traced memory over a configurable
+event soak. It defaults to five samples, 500 publishes per publisher in each
+sample, and 100,000 soak events; use `--iterations`, `--publisher-counts`,
+`--schedule-counts`, `--samples` or `--soak-operations` to adjust the workload.
 Use `--output results.json` to retain the environment, throughput, p50/p95/p99
 latency and separately traced peak allocations. Stream rates count items per
-whole-stream operation. Traced allocation peaks are not process RSS and local
-microbenchmarks are not deployment guarantees. Recorded baseline/final results
-and methodology live under `benchmarks/results`.
+whole-stream operation. Runtime memory samples use `tracemalloc`, not process
+RSS, and include event history when configured. Local microbenchmarks are not
+deployment guarantees. Recorded results and methodology live under
+`benchmarks/results`.
 
 Copyright © 2026 TahsinCr. EventFlow is licensed under the MIT License.
 See [LICENSE](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE) and

@@ -1,0 +1,195 @@
+{
+  "python": "3.10.18 (main, Aug 13 2026, 01:16:48) [GCC 16.1.1 20260728]",
+  "platform": "Linux-7.2.11-arch1-1-x86_64-with-glibc2.44",
+  "results": [
+    {
+      "case": "sync/1/add",
+      "iterations": 1000,
+      "ops_per_second": 467836.2573099415,
+      "p50_us": 2.137,
+      "p95_us": 2.317,
+      "p99_us": 2.469,
+      "peak_traced_bytes": 1372
+    },
+    {
+      "case": "sync/1/decorator",
+      "iterations": 1000,
+      "ops_per_second": 547945.205479452,
+      "p50_us": 1.825,
+      "p95_us": 1.962,
+      "p99_us": 2.031,
+      "peak_traced_bytes": 192
+    },
+    {
+      "case": "sync/1/metrics",
+      "iterations": 1000,
+      "ops_per_second": 132766.8613913967,
+      "p50_us": 7.531,
+      "p95_us": 17.575,
+      "p99_us": 24.701,
+      "peak_traced_bytes": 432
+    },
+    {
+      "case": "sync/1/middleware",
+      "iterations": 1000,
+      "ops_per_second": 341413.4516899966,
+      "p50_us": 2.929,
+      "p95_us": 3.207,
+      "p99_us": 3.401,
+      "peak_traced_bytes": 670
+    },
+    {
+      "case": "sync/5/add",
+      "iterations": 1000,
+      "ops_per_second": 224643.37863641468,
+      "p50_us": 4.451,
+      "p95_us": 5.115,
+      "p99_us": 6.132,
+      "peak_traced_bytes": 192
+    },
+    {
+      "case": "sync/5/decorator",
+      "iterations": 1000,
+      "ops_per_second": 235349.49399858792,
+      "p50_us": 4.249,
+      "p95_us": 4.477,
+      "p99_us": 5.471,
+      "peak_traced_bytes": 192
+    },
+    {
+      "case": "sync/5/metrics",
+      "iterations": 1000,
+      "ops_per_second": 61220.11693042333,
+      "p50_us": 16.334,
+      "p95_us": 24.677,
+      "p99_us": 38.954,
+      "peak_traced_bytes": 656
+    },
+    {
+      "case": "sync/5/middleware",
+      "iterations": 1000,
+      "ops_per_second": 145825.73824279985,
+      "p50_us": 6.857,
+      "p95_us": 7.178,
+      "p99_us": 9.008,
+      "peak_traced_bytes": 1640
+    },
+    {
+      "case": "sync/20/add",
+      "iterations": 1000,
+      "ops_per_second": 66628.9102841723,
+      "p50_us": 15.008,
+      "p95_us": 16.372,
+      "p99_us": 21.895,
+      "peak_traced_bytes": 192
+    },
+    {
+      "case": "sync/20/decorator",
+      "iterations": 1000,
+      "ops_per_second": 65843.62139917696,
+      "p50_us": 15.187,
+      "p95_us": 22.104,
+      "p99_us": 29.297,
+      "peak_traced_bytes": 192
+    },
+    {
+      "case": "sync/20/metrics",
+      "iterations": 1000,
+      "ops_per_second": 17354.33207514426,
+      "p50_us": 57.621,
+      "p95_us": 77.522,
+      "p99_us": 104.076,
+      "peak_traced_bytes": 1496
+    },
+    {
+      "case": "sync/20/middleware",
+      "iterations": 1000,
+      "ops_per_second": 42952.55889869639,
+      "p50_us": 23.28,
+      "p95_us": 37.394,
+      "p99_us": 48.138,
+      "peak_traced_bytes": 6080
+    },
+    {
+      "case": "async/1/add",
+      "iterations": 1000,
+      "ops_per_second": 505050.50505050505,
+      "p50_us": 1.98,
+      "p95_us": 2.464,
+      "p99_us": 2.633,
+      "peak_traced_bytes": 1391
+    },
+    {
+      "case": "async/1/decorator",
+      "iterations": 1000,
+      "ops_per_second": 528541.2262156449,
+      "p50_us": 1.892,
+      "p95_us": 2.245,
+      "p99_us": 3.186,
+      "peak_traced_bytes": 608
+    },
+    {
+      "case": "async/1/middleware",
+      "iterations": 1000,
+      "ops_per_second": 224769.6111485727,
+      "p50_us": 4.449,
+      "p95_us": 4.646,
+      "p99_us": 5.619,
+      "peak_traced_bytes": 2261
+    },
+    {
+      "case": "async/5/add",
+      "iterations": 1000,
+      "ops_per_second": 172384.07171177384,
+      "p50_us": 5.801,
+      "p95_us": 6.173,
+      "p99_us": 7.765,
+      "peak_traced_bytes": 608
+    },
+    {
+      "case": "async/5/decorator",
+      "iterations": 1000,
+      "ops_per_second": 173430.4543877905,
+      "p50_us": 5.766,
+      "p95_us": 7.268,
+      "p99_us": 7.745,
+      "peak_traced_bytes": 608
+    },
+    {
+      "case": "async/5/middleware",
+      "iterations": 1000,
+      "ops_per_second": 73578.10315650063,
+      "p50_us": 13.591,
+      "p95_us": 16.965,
+      "p99_us": 38.81,
+      "peak_traced_bytes": 4568
+    },
+    {
+      "case": "async/20/add",
+      "iterations": 1000,
+      "ops_per_second": 49684.50340338848,
+      "p50_us": 20.127,
+      "p95_us": 31.065,
+      "p99_us": 45.875,
+      "peak_traced_bytes": 608
+    },
+    {
+      "case": "async/20/decorator",
+      "iterations": 1000,
+      "ops_per_second": 50180.65034122842,
+      "p50_us": 19.928,
+      "p95_us": 32.836,
+      "p99_us": 42.746,
+      "peak_traced_bytes": 608
+    },
+    {
+      "case": "async/20/middleware",
+      "iterations": 1000,
+      "ops_per_second": 20983.936796382368,
+      "p50_us": 47.653,
+      "p95_us": 58.539,
+      "p99_us": 85.395,
+      "peak_traced_bytes": 16448
+    }
+  ]
+}
