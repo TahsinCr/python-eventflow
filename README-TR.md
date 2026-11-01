@@ -1,10 +1,10 @@
-[English](https://github.com/TahsinCr/python-eventflow/blob/main/README.md) | **Türkçe**
-
-# EventFlow
-
 [![Sürüm: v1.1][version-shield]](CHANGELOG.md)
 [![Python 3.10+][python-shield]](https://www.python.org/downloads/)
 [![MIT Lisansı][license-shield]](LICENSE)
+
+[English](https://github.com/TahsinCr/python-eventflow/blob/main/README.md) | **Türkçe**
+
+# EventFlow
 
 [Depo](https://github.com/TahsinCr/python-eventflow) · [Son sürüm](https://github.com/TahsinCr/python-eventflow/releases/latest) · [MIT Lisansı](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE)
 
