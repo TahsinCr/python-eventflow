@@ -4,6 +4,7 @@ import unittest
 from eventflow import AsyncEventBus, EventBus
 from eventflow.scopes import AsyncSubscriptionScope, SubscriptionScope
 from eventflow.compatibility import ExceptionGroup
+from eventflow.subscription import AsyncSubscription
 
 
 class Handle:
@@ -216,3 +217,34 @@ class AsyncScopeTests(unittest.IsolatedAsyncioTestCase):
         recursive.add(Reentrant())
         with self.assertRaises(ExceptionGroup):
             await asyncio.wait_for(recursive.aclose(), 1)
+
+    async def test_scope_waits_for_external_subscription_cancellation_and_retains_failure(self):
+        entered = asyncio.Event()
+        attempts = 0
+
+        async def remove():
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                entered.set()
+                await asyncio.Event().wait()
+
+        handle = AsyncSubscription(1, remove)
+        scope = AsyncSubscriptionScope()
+        scope.add(handle)
+        external = asyncio.create_task(handle.cancel())
+        await entered.wait()
+        closing = asyncio.create_task(scope.aclose())
+        await asyncio.sleep(0)
+        self.assertFalse(closing.done())
+
+        external.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await external
+        with self.assertRaises(asyncio.CancelledError):
+            await closing
+        self.assertTrue(handle.active)
+
+        await scope.aclose()
+        self.assertFalse(handle.active)
+        self.assertEqual(attempts, 2)

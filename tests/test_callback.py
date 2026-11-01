@@ -157,6 +157,54 @@ class AsyncCallbackTests(unittest.IsolatedAsyncioTestCase):
             await sub.invoke_async(1)
         self.assertEqual(hooks, ["timeout", "after"])
 
+    async def test_timeout_cancels_task_returned_by_sync_async_callback(self):
+        cleaned = asyncio.Event()
+        work_task = []
+
+        async def work():
+            try:
+                await asyncio.Event().wait()
+            finally:
+                cleaned.set()
+
+        def callback(_event):
+            return work_task[0]
+
+        async def consume_budget(_context):
+            work_task.append(asyncio.create_task(work()))
+            await asyncio.sleep(0)
+            await asyncio.sleep(0.02)
+
+        sub = CallbackSubscription(
+            1,
+            lambda: None,
+            callback,
+            asynchronous=True,
+            timeout=0.005,
+            on_before=consume_budget,
+        )
+        with self.assertRaises(CallbackTimeoutError):
+            await sub.invoke_async(1)
+        self.assertTrue(cleaned.is_set())
+
+    async def test_callback_predicates_require_boolean_results(self):
+        sync = CallbackSubscription(1, lambda: None, lambda event: event, predicate=lambda _: 1)
+        with self.assertRaisesRegex(TypeError, "must return bool"):
+            sync.invoke(1)
+
+        async def callback(event):
+            return event
+
+        asynchronous = CallbackSubscription(
+            2,
+            lambda: None,
+            callback,
+            asynchronous=True,
+            predicate=lambda _: "yes",
+        )
+        with self.assertRaisesRegex(TypeError, "must return bool"):
+            await asynchronous.invoke_async(1)
+
     async def test_user_timeout_error_uses_error_hook(self):
         hooks = []
 

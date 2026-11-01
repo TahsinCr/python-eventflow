@@ -101,10 +101,13 @@ class AsyncSubscriptionTests(unittest.IsolatedAsyncioTestCase):
         await entered.wait()
         second = asyncio.create_task(subscription.cancel())
 
-        await second
+        await asyncio.sleep(0)
+        self.assertFalse(second.done())
         release.set()
         with self.assertRaisesRegex(RuntimeError, "removal failed"):
             await first
+        with self.assertRaisesRegex(RuntimeError, "removal failed"):
+            await second
 
         self.assertTrue(subscription.active)
         self.assertEqual(attempts, 1)

@@ -4,9 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import inspect
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Coroutine
 from time import perf_counter
-from typing import Generic, Literal, TypeVar
+from typing import Any, Generic, Literal, TypeVar
 
 from .._callbacks import synchronous_result
 from ..observability import PipelineObserver
@@ -74,20 +74,38 @@ class AsyncPipeline(_PipelineBase[Stage[T], Middleware[T]], Generic[T]):
             used = False
             active = True
             owner = asyncio.current_task()
+            continuation: Coroutine[Any, Any, T] | None = None
 
-            async def next_(value: T) -> T:
-                nonlocal used
-                if used or not active or asyncio.current_task() is not owner:
-                    raise RuntimeError(
-                        "Middleware continuation is single-use and owned by its call"
-                    )
-                used = True
-                return await following(value)
+            def next_(value: T) -> Coroutine[Any, Any, T]:
+                nonlocal continuation
+
+                if (
+                    continuation is not None
+                    and inspect.getcoroutinestate(continuation) is inspect.CORO_CREATED
+                ):
+                    continuation.close()
+
+                async def continue_pipeline() -> T:
+                    nonlocal used
+                    if used or not active or asyncio.current_task() is not owner:
+                        raise RuntimeError(
+                            "Middleware continuation is single-use and owned by its call"
+                        )
+                    used = True
+                    return await following(value)
+
+                continuation = continue_pipeline()
+                return continuation
 
             try:
                 return await self._invoke(entry.name, "middleware", entry.callback, context, next_)
             finally:
                 active = False
+                if (
+                    continuation is not None
+                    and inspect.getcoroutinestate(continuation) is inspect.CORO_CREATED
+                ):
+                    continuation.close()
 
         return execute
 

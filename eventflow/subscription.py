@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import asyncio
 import threading
 from collections.abc import Awaitable, Callable
 
@@ -59,6 +60,8 @@ class AsyncSubscription:
         self._id = subscription_id
         self._cancel = cancel
         self._active = True
+        self._cancel_completion: asyncio.Future[BaseException | None] | None = None
+        self._cancel_owner: asyncio.Task | None = None
 
     @property
     def id(self) -> int:
@@ -78,15 +81,33 @@ class AsyncSubscription:
         await self._consume()
 
     async def _consume(self) -> bool:
-        deactivated = self._deactivate()
-        if not deactivated:
+        completion = self._cancel_completion
+        if not self._active:
+            if completion is None:
+                return False
+            if self._cancel_owner is asyncio.current_task():
+                return False
+            error = await asyncio.shield(completion)
+            if error is not None:
+                raise error
             return False
+
+        self._active = False
+        completion = asyncio.get_running_loop().create_future()
+        self._cancel_completion = completion
+        self._cancel_owner = asyncio.current_task()
         try:
             await self._cancel()
-        except BaseException:
+        except BaseException as error:
             self._active = True
+            self._cancel_completion = None
+            self._cancel_owner = None
+            completion.set_result(error)
             raise
-        return deactivated
+        self._cancel_completion = None
+        self._cancel_owner = None
+        completion.set_result(None)
+        return True
 
     async def __aenter__(self) -> "AsyncSubscription":
         return self

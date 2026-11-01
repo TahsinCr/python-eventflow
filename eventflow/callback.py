@@ -19,6 +19,11 @@ from ._lifecycle import finish_cleanup
 from .subscription import Subscription
 
 
+async def _cancel_task(task: asyncio.Future[Any]) -> None:
+    task.cancel()
+    await finish_cleanup(asyncio.gather(task, return_exceptions=True))
+
+
 @dataclass(slots=True)
 class CallbackContext:
     event: Any
@@ -145,6 +150,8 @@ class CallbackSubscription(Subscription):
                 if inspect.iscoroutine(accepted):
                     accepted.close()
                 raise TypeError("predicate returned an awaitable")
+            if not isinstance(accepted, bool):
+                raise TypeError("predicate must return bool")
             if not accepted:
                 return False
         with self._policy_lock:
@@ -268,17 +275,17 @@ class CallbackSubscription(Subscription):
                 if remaining <= 0:
                     if inspect.iscoroutine(operation):
                         operation.close()
+                    else:
+                        await _cancel_task(asyncio.ensure_future(operation))
                     raise CallbackTimeoutError("Callback exceeded its asynchronous time budget")
                 task = asyncio.ensure_future(operation)
                 try:
                     done, _ = await asyncio.wait({task}, timeout=remaining)
                 except asyncio.CancelledError:
-                    task.cancel()
-                    await finish_cleanup(asyncio.gather(task, return_exceptions=True))
+                    await _cancel_task(task)
                     raise
                 if task not in done:
-                    task.cancel()
-                    await finish_cleanup(asyncio.gather(task, return_exceptions=True))
+                    await _cancel_task(task)
                     raise CallbackTimeoutError("Callback exceeded its asynchronous time budget")
                 context.result = await task
             context.elapsed = time.monotonic() - started

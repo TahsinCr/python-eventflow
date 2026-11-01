@@ -1,6 +1,8 @@
 import asyncio
+import gc
 import threading
 import unittest
+import warnings
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
@@ -240,6 +242,22 @@ class AsyncPipelineTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(PipelineExecutionError):
             await pipeline.run(1)
         self.assertIsNone(created[0].cr_frame)
+
+    async def test_ignored_async_middleware_continuation_is_closed(self):
+        pipeline = AsyncPipeline[int]()
+        pipeline.add("stage", lambda value: asyncio.sleep(0, result=value + 1))
+
+        async def middleware(value, next_):
+            next_(value)
+            return value
+
+        pipeline.add_middleware("ignored", middleware)
+        with warnings.catch_warnings(record=True) as observed:
+            warnings.simplefilter("always", RuntimeWarning)
+            self.assertEqual(await pipeline.run(1), 1)
+            gc.collect()
+
+        self.assertFalse(any(issubclass(item.category, RuntimeWarning) for item in observed))
 
     async def test_snapshot_concurrent_runs_and_cancellation_cleanup(self):
         pipeline = AsyncPipeline[int]()
