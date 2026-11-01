@@ -71,22 +71,26 @@ ortamına kurun:
 python -m pip install .
 ~~~
 
-İlk PyPI yayını için seçilen dağıtım adı `eventflow-tahsincr`, Python import
-paketi ise `eventflow` olarak kalır. Paket bu adla yayımlandıktan sonra
-`python -m pip install eventflow-tahsincr` komutuyla kurulabilir. Python
-3.10'da, Python 3.11 ve üzerindeki yerleşik özellikleri sağlayan
+PyPI yayını tamamlandığında EventFlow'u şu komutla kurabilirsiniz:
+
+~~~bash
+python -m pip install flowevent
+~~~
+
+`flowevent`, yalnızca PyPI dağıtım adıdır. Kütüphanenin adı EventFlow olarak
+kalır; Python kodunda `eventflow` paketini içe aktarırsınız:
+
+~~~python
+from eventflow import EventBus
+~~~
+
+Python 3.10'da, Python 3.11 ve üzerindeki yerleşik özellikleri sağlayan
 `backports.strenum` ve `exceptiongroup` paketleri kurulur. Paket metadata'sı bu
 bağımlılıkları yalnızca Python 3.10 için etkinleştirir.
 
 Dağıtım, PEP 561 uyumlu `py.typed` işaretçisiyle birlikte tip anotasyonlarını
 içerir. Böylece EventFlow kurulduğunda tip denetleyiciler kütüphanenin tiplerini
 keşfedebilir.
-
-`eventflow` ve `python-eventflow` dağıtım adları PyPI'de başka projelere
-kayıtlıdır ([eventflow](https://pypi.org/project/eventflow/),
-[python-eventflow](https://pypi.org/project/python-eventflow/)). Bu kütüphaneyi
-kurmak için `eventflow-tahsincr` adını kullanın; Python import yolu `eventflow`
-olarak kalır.
 
 Dağıtım, ortak `eventflow` import paketine dosyalar kurar. Aynı ortamda bu
 paketi sağlayan başka bir dağıtım bulunması dosyaların üzerine yazılmasına veya

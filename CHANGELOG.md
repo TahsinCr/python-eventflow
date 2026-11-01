@@ -40,8 +40,8 @@ All notable changes to this project are documented in this file.
   package in the same environment can overwrite or conflict with package files.
 - Document that sparse filtered replay scans history synchronously on the async
   event loop and may delay unrelated tasks.
-- Use the available `eventflow-tahsincr` PyPI distribution name while keeping
-  the `eventflow` Python import package.
+- Use `flowevent` as the PyPI distribution name while keeping EventFlow as the
+  library name and `eventflow` as the Python import package.
 - Bound pipeline middleware registrations at 64 to fail before exhausting the
   Python call stack, and update `PipelineStats` in place rather than allocating
   a new metrics snapshot for every observation.

@@ -69,12 +69,17 @@ active environment:
 python -m pip install .
 ~~~
 
-The reserved distribution name for the first PyPI release is
-`eventflow-tahsincr`, while the Python import package remains `eventflow`. After
-publication, install the distribution with:
+After the PyPI release is published, install EventFlow with:
 
 ~~~bash
-python -m pip install eventflow-tahsincr
+python -m pip install flowevent
+~~~
+
+`flowevent` is the PyPI distribution name. The library is called EventFlow,
+and Python code continues to import the `eventflow` package:
+
+~~~python
+from eventflow import EventBus
 ~~~
 
 Python 3.10 installs `backports.strenum` and `exceptiongroup` to supply features
@@ -83,12 +88,6 @@ dependencies only on Python 3.10.
 
 The distribution includes inline type annotations and a `py.typed` marker, so
 type checkers can discover EventFlow's types when the package is installed.
-
-The distribution names `eventflow` and `python-eventflow` are already registered
-to other projects on PyPI ([eventflow](https://pypi.org/project/eventflow/),
-[python-eventflow](https://pypi.org/project/python-eventflow/)). Use
-`eventflow-tahsincr` to install this library; imports continue to use
-`eventflow`.
 
 Because the distribution installs files in the shared `eventflow` import
 package, installing another distribution that provides that package in the
