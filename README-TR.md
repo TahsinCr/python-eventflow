@@ -487,7 +487,8 @@ Sıralı teslimat garantisi tek bir `publish()` çağrısı içindedir; ayrı ya
 `asyncio.CancelledError`, `publish()` çağrısından dışarı çıkar ve sonraki
 handler'lara teslimatı durdurur. Concurrent kipte bağımsız olarak iptal edilen
 handler task'ı başarısız teslimat olarak `PublishResult`'a eklenir. `publish()`
-çağıran task iptal edilirse her iki kipte de iptal çağırana yayılır.
+çağıran task iptal edilirse her iki kipte de iptal çağırana yayılır. İptal,
+handler'ın iptalden önce oluşturduğu yan etkileri geri alamaz.
 
 Concurrent teslimat varsayılan olarak sınırsızdır ve mevcut davranışı korur.
 `DeliveryMode.CONCURRENT` ile verilen `max_concurrency=N`, her bir publish

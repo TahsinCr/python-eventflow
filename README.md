@@ -476,7 +476,8 @@ may overlap. In sequential mode, a handler-raised `asyncio.CancelledError`
 propagates from `publish()` and stops delivery to later handlers. In concurrent
 mode, an independently cancelled handler task is recorded as a failed delivery
 in `PublishResult`. Cancelling the task that called `publish()` propagates in
-either mode and cancels in-flight handler work.
+either mode and cancels in-flight handler work. Cancellation cannot undo side
+effects a handler produced before it was cancelled.
 
 ~~~python
 import asyncio
