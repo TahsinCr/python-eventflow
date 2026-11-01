@@ -1,7 +1,8 @@
-"""Compare programmatic/decorator registration, async dispatch and opt-in metrics."""
+"""Measure pipeline registration, middleware execution and opt-in metrics."""
 
 import argparse
 import asyncio
+from collections.abc import Awaitable, Callable
 from functools import partial
 
 from eventflow.pipeline import AsyncPipeline, Pipeline
@@ -42,9 +43,30 @@ def main() -> None:
             observed.add(str(index), increment)
         results.append(measure(f"sync/{count}/metrics", partial(observed.run, 0), args.iterations))
 
+        def pass_through(context: int, next_: Callable[[int], int]) -> int:
+            return next_(context)
+
+        wrapped = Pipeline[int]()
+        wrapped.add("increment", increment)
+        for index in range(count):
+            wrapped.add_middleware(str(index), pass_through)
+        results.append(
+            measure(
+                f"sync/{count}/middleware",
+                partial(wrapped.run, 0),
+                args.iterations,
+            )
+        )
+
     async def asynchronous() -> None:
         async def increment_async(value: int) -> int:
             return value + 1
+
+        async def pass_through_async(
+            context: int,
+            next_: Callable[[int], Awaitable[int]],
+        ) -> int:
+            return await next_(context)
 
         for count in (1, 5, 20):
             for decorator in (False, True):
@@ -61,6 +83,17 @@ def main() -> None:
                         args.iterations,
                     )
                 )
+            wrapped = AsyncPipeline[int]()
+            wrapped.add("increment", increment_async)
+            for index in range(count):
+                wrapped.add_middleware(str(index), pass_through_async)
+            results.append(
+                await measure_async(
+                    f"async/{count}/middleware",
+                    partial(wrapped.run, 0),
+                    args.iterations,
+                )
+            )
 
     asyncio.run(asynchronous())
     report(results, args.output)
