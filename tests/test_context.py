@@ -4,7 +4,7 @@ import pickle
 import threading
 import unittest
 from dataclasses import FrozenInstanceError, asdict, replace
-from datetime import datetime
+from datetime import datetime, timedelta, timezone
 from types import MappingProxyType
 
 from eventflow.context import EventEnvelope, correlation_context, current_correlation_id
@@ -47,6 +47,8 @@ class ContextTests(unittest.TestCase):
         replaced = replace(envelope, source="test")
         self.assertEqual(asdict(envelope)["metadata"], {"nested": {"items": [1]}})
         self.assertEqual(copied.metadata["nested"], {"items": [1]})
+        with self.assertRaises(TypeError):
+            copied.metadata["new"] = "value"
         self.assertIsNot(copied.metadata["nested"], nested)
         self.assertEqual(replaced.metadata["nested"], {"items": [1]})
 
@@ -60,6 +62,24 @@ class ContextTests(unittest.TestCase):
                 self.assertEqual(restored.metadata["nested"]["items"], [1, 2])
                 with self.assertRaises(TypeError):
                     restored.metadata["other"] = "value"
+
+    def test_envelope_normalizes_timestamp_to_utc_and_deepcopy_preserves_cycles(self):
+        event = {}
+        envelope = EventEnvelope(
+            event,
+            timestamp=datetime(2026, 11, 2, 12, tzinfo=timezone(timedelta(hours=3))),
+            metadata={"shared": event},
+        )
+        event["envelope"] = envelope
+
+        copied = copy.deepcopy(envelope)
+
+        self.assertEqual(envelope.timestamp.tzinfo, timezone.utc)
+        self.assertEqual(envelope.timestamp.hour, 9)
+        self.assertIs(copied.event["envelope"], copied)
+        self.assertIs(copied.metadata["shared"], copied.event)
+        with self.assertRaises(TypeError):
+            copied.metadata["new"] = "value"
 
     def test_non_pickleable_metadata_is_rejected_by_pickle(self):
         envelope = EventEnvelope[int](1, metadata={"lock": threading.Lock()})

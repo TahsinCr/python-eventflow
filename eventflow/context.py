@@ -86,5 +86,18 @@ class EventEnvelope(Generic[T]):
             raise ValueError("Correlation ID must be a non-empty string")
         if not isinstance(self.timestamp, datetime) or self.timestamp.utcoffset() is None:
             raise ValueError("Envelope timestamp must be timezone-aware")
+        object.__setattr__(self, "timestamp", self.timestamp.astimezone(timezone.utc))
         object.__setattr__(self, "correlation_id", correlation)
         object.__setattr__(self, "metadata", _ReadOnlyMetadata(self.metadata))
+
+    def __deepcopy__(self, memo: dict[int, Any]) -> EventEnvelope[T]:
+        existing = memo.get(id(self))
+        if existing is not None:
+            return existing
+        copied = type(self).__new__(type(self))
+        memo[id(self)] = copied
+        for name in ("event", "id", "correlation_id", "source", "timestamp"):
+            object.__setattr__(copied, name, deepcopy(getattr(self, name), memo))
+        metadata = deepcopy(dict(self.metadata), memo)
+        object.__setattr__(copied, "metadata", _ReadOnlyMetadata(metadata))
+        return copied
