@@ -3,7 +3,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import unittest
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from unittest.mock import patch
 
 from eventflow import (
@@ -139,6 +139,53 @@ class EventEngineTests(unittest.TestCase):
         with self.assertRaises(EventBusClosedError):
             state.publish(4)
 
+    def test_engine_validates_history_and_thread_executor_at_construction(self) -> None:
+        for invalid in (True, 1.5, "10"):
+            with self.subTest(history=invalid), self.assertRaises(TypeError):
+                EventEngine(history=invalid)  # type: ignore[arg-type]
+            with self.subTest(async_history=invalid), self.assertRaises(TypeError):
+                AsyncEventEngine(history=invalid)  # type: ignore[arg-type]
+        for invalid in (0, -1):
+            with self.subTest(history=invalid), self.assertRaises(ValueError):
+                EventEngine(history=invalid)
+            with self.subTest(async_history=invalid), self.assertRaises(ValueError):
+                AsyncEventEngine(history=invalid)
+
+        with ProcessPoolExecutor(max_workers=1) as executor:
+            with self.assertRaisesRegex(TypeError, "ThreadPoolExecutor"):
+                EventEngine(executor=executor)  # type: ignore[arg-type]
+
+    def test_engine_rejects_closed_bus(self) -> None:
+        engine = EventEngine()
+        bus = EventBus[int]()
+        bus.close()
+        with self.assertRaises(EventBusClosedError):
+            engine.add("closed", bus)
+
+    def test_shared_executor_reentrancy_across_engine_channels_does_not_deadlock(self) -> None:
+        executor = ThreadPoolExecutor(max_workers=1)
+        engine = EventEngine(executor=executor)
+        received: list[int] = []
+        engine.subscribe("second", received.append)
+        engine.subscribe("first", lambda value: engine.publish("second", value))
+        results = []
+        publisher = threading.Thread(
+            target=lambda: results.append(engine.publish("first", 42)),
+            daemon=True,
+        )
+
+        publisher.start()
+        publisher.join(timeout=1.0)
+        if publisher.is_alive():
+            executor.shutdown(wait=False, cancel_futures=True)
+            publisher.join(timeout=1.0)
+        self.assertFalse(publisher.is_alive(), "cross-channel publish deadlocked")
+        executor.shutdown(wait=True)
+        engine.stop()
+
+        self.assertEqual(received, [42])
+        self.assertTrue(results[0].successful)
+
 
 class AsyncEventEngineTests(unittest.IsolatedAsyncioTestCase):
     async def test_async_named_channel_publish_once_and_stop(self) -> None:
@@ -241,6 +288,13 @@ class AsyncEventEngineTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaises(TypeError):
                 engine.add("invalid", EventBus())  # type: ignore[arg-type]
         self.assertFalse(engine.running)
+
+    async def test_async_engine_rejects_closed_bus(self) -> None:
+        engine = AsyncEventEngine()
+        bus = AsyncEventBus[int]()
+        await bus.close()
+        with self.assertRaises(EventBusClosedError):
+            engine.add("closed", bus)
 
     async def test_async_bus_cannot_be_registered_under_multiple_channels(self) -> None:
         engine = AsyncEventEngine()

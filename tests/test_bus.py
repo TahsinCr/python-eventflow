@@ -8,7 +8,7 @@ import unittest
 import warnings
 from collections import deque
 from collections.abc import Callable
-from concurrent.futures import ThreadPoolExecutor
+from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import cast
 from unittest.mock import patch
 
@@ -420,6 +420,32 @@ class EventBusTests(unittest.TestCase):
         self.assertEqual(bus.query(predicate=lambda value: value % 2 == 0), (2,))
         self.assertEqual(bus.latest(predicate=lambda value: value < 3), 2)
 
+    def test_history_configuration_rejects_invalid_values_immediately(self) -> None:
+        for constructor in (EventBus, AsyncEventBus):
+            for invalid in (True, 1.5, "10", object()):
+                with self.subTest(bus=constructor.__name__, history=invalid):
+                    with self.assertRaises(TypeError):
+                        constructor(history=invalid)  # type: ignore[arg-type]
+            for invalid in (0, -1):
+                with self.subTest(bus=constructor.__name__, history=invalid):
+                    with self.assertRaises(ValueError):
+                        constructor(history=invalid)
+
+    def test_periodic_publish_rejects_boolean_interval(self) -> None:
+        with self.assertRaises(ValueError):
+            EventBus[int]().publish_every(1, True)
+
+    def test_clear_does_not_stop_periodic_schedules(self) -> None:
+        published = threading.Event()
+        bus = EventBus[int](on_before=lambda _event: published.set())
+        schedule = bus.publish_every(1, 0.01, immediately=False)
+        try:
+            bus.clear()
+            self.assertTrue(published.wait(1.0))
+        finally:
+            bus.close()
+        self.assertFalse(schedule.active)
+
     def test_error_and_timeout_actions_receive_context(self) -> None:
         errors: list[tuple[int, str]] = []
         timeouts: list[float | None] = []
@@ -710,6 +736,37 @@ class EventBusTests(unittest.TestCase):
         self.assertTrue(result.successful)
         self.assertEqual(received, [1, 2])
 
+    def test_shared_executor_reentrancy_across_buses_does_not_deadlock(self) -> None:
+        executor = ThreadPoolExecutor(max_workers=1)
+        first = EventBus[int](executor=executor)
+        second = EventBus[int](executor=executor)
+        received: list[int] = []
+        second.subscribe(received.append)
+        first.subscribe(lambda value: second.publish(value))
+        results = []
+        publisher = threading.Thread(
+            target=lambda: results.append(first.publish(42)),
+            daemon=True,
+        )
+
+        publisher.start()
+        publisher.join(timeout=1.0)
+        if publisher.is_alive():
+            executor.shutdown(wait=False, cancel_futures=True)
+            publisher.join(timeout=1.0)
+        self.assertFalse(publisher.is_alive(), "cross-bus publish deadlocked")
+        executor.shutdown(wait=True)
+        first.close()
+        second.close()
+
+        self.assertEqual(received, [42])
+        self.assertTrue(results[0].successful)
+
+    def test_executor_rejects_process_pool(self) -> None:
+        with ProcessPoolExecutor(max_workers=1) as executor:
+            with self.assertRaisesRegex(TypeError, "ThreadPoolExecutor"):
+                EventBus[int](executor=executor)  # type: ignore[arg-type]
+
     def test_sync_bus_rejects_async_handler(self) -> None:
         async def handler(_event: int) -> None:
             pass
@@ -894,6 +951,26 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
         await concurrent.subscribe(releasing)
         result = await asyncio.wait_for(concurrent.publish(1), timeout=1.0)
         self.assertEqual(result.delivered, 2)
+
+    async def test_async_periodic_publish_rejects_boolean_interval(self) -> None:
+        with self.assertRaises(ValueError):
+            await AsyncEventBus[int]().publish_every(1, True)
+
+    async def test_async_clear_does_not_stop_periodic_schedules(self) -> None:
+        published = asyncio.Event()
+
+        async def before(_event):
+            published.set()
+
+        bus = AsyncEventBus[int](on_before=before)
+        schedule = await bus.publish_every(1, 0.01, immediately=False)
+        try:
+            await bus.clear()
+            await asyncio.wait_for(published.wait(), 1.0)
+        finally:
+            await schedule.cancel()
+            await bus.close()
+        self.assertFalse(schedule.active)
 
     async def test_async_history_replay_wait_timeout_and_close(self) -> None:
         history = MemoryEventHistory[int](capacity=2)

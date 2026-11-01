@@ -3,12 +3,11 @@
 from __future__ import annotations
 
 import inspect
-import math
 import threading
 import time
 from collections import deque
 from collections.abc import Callable
-from concurrent.futures import Executor, Future
+from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Generic, TypeVar
 
@@ -31,6 +30,13 @@ from .subscription import Subscription
 
 
 T = TypeVar("T")
+_executor_context = threading.local()
+
+
+def _validate_executor(executor: object) -> ThreadPoolExecutor | None:
+    if executor is not None and not isinstance(executor, ThreadPoolExecutor):
+        raise TypeError("executor must be a ThreadPoolExecutor or None")
+    return executor
 
 
 def _invoke_sync_callback(callback: Callable[[T], None], event: T) -> None:
@@ -94,7 +100,7 @@ class EventBus(BaseEventBus[T]):
         *,
         history: EventHistory[T] | int | None = None,
         error_policy: ErrorPolicy = ErrorPolicy.ISOLATE,
-        executor: Executor | None = None,
+        executor: ThreadPoolExecutor | None = None,
         replay_buffer_limit: int = 1_000,
         max_schedules: int = 64,
         shutdown_timeout: float = 5.0,
@@ -131,8 +137,7 @@ class EventBus(BaseEventBus[T]):
         ):
             if action is not None and self._is_async_handler(action):
                 raise InvalidEventHandlerError("EventBus actions must be synchronous")
-        self._executor = executor
-        self._executor_context = threading.local()
+        self._executor = _validate_executor(executor)
         self._replay_buffer_limit = replay_buffer_limit
         self._max_schedules = max_schedules
         self._shutdown_timeout = shutdown_timeout
@@ -301,7 +306,8 @@ class EventBus(BaseEventBus[T]):
                 matched.append(subscriber)
 
         delivered = 0
-        if self._executor is None or getattr(self._executor_context, "active", False):
+        active_executors = getattr(_executor_context, "active", frozenset())
+        if self._executor is None or id(self._executor) in active_executors:
             for subscriber in matched:
                 was_delivered, error = self._deliver(subscriber, event)
                 if was_delivered:
@@ -321,6 +327,7 @@ class EventBus(BaseEventBus[T]):
                         self._invoke_executor_callback,
                         subscriber.callback,
                         event,
+                        active_executors,
                     )
                 except Exception as exc:
                     errors.append(exc)
@@ -361,13 +368,26 @@ class EventBus(BaseEventBus[T]):
             raise ExceptionGroup("Event delivery failed", errors)
         return result
 
-    def _invoke_executor_callback(self, callback: Callable[[T], None], event: T) -> None:
-        previous = getattr(self._executor_context, "active", False)
-        self._executor_context.active = True
+    def _invoke_executor_callback(
+        self,
+        callback: Callable[[T], None],
+        event: T,
+        inherited_executors: frozenset[int],
+    ) -> None:
+        previous = getattr(_executor_context, "active", None)
+        active = set(inherited_executors)
+        if previous is not None:
+            active.update(previous)
+        if self._executor is not None:
+            active.add(id(self._executor))
+        _executor_context.active = frozenset(active)
         try:
             _invoke_sync_callback(callback, event)
         finally:
-            self._executor_context.active = previous
+            if previous is None:
+                del _executor_context.active
+            else:
+                _executor_context.active = previous
 
     def _notify_errors(
         self,
@@ -411,9 +431,7 @@ class EventBus(BaseEventBus[T]):
     ) -> Subscription:
         """Publish the same event periodically until cancelled or completed."""
 
-        interval = float(interval)
-        if not math.isfinite(interval) or interval <= 0:
-            raise ValueError("Event publish interval must be positive and finite")
+        interval = validate_positive_timeout(interval, name="Event publish interval")
         if times is not None and (
             isinstance(times, bool) or not isinstance(times, int) or times <= 0
         ):
@@ -522,6 +540,7 @@ class EventBus(BaseEventBus[T]):
         return value
 
     def clear(self) -> None:
+        """Remove subscribers and wake waiters; retain history and schedules."""
         with self._lock:
             self._clear_generation += 1
             subscriptions = tuple(

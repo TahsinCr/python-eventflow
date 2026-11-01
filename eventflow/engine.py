@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import threading
 from collections.abc import Awaitable, Callable
-from concurrent.futures import Executor
+from concurrent.futures import ThreadPoolExecutor
 from typing import Any
 
 from .actions import (
@@ -17,7 +17,8 @@ from .async_event_bus import AsyncEventBus
 from .base import validate_positive_capacity
 from .compatibility import ExceptionGroup
 from .contracts import DeliveryMode, ErrorPolicy, PublishResult
-from .event_bus import EventBus
+from .errors import EventBusClosedError
+from .event_bus import EventBus, _validate_executor
 from .filtering import EventFilter, EventType
 from .subscription import AsyncSubscription, Subscription
 
@@ -29,6 +30,16 @@ def _channel_name(name: str) -> str:
     return normalized
 
 
+def _validate_history_capacity(history: object) -> int | None:
+    if history is None:
+        return None
+    if isinstance(history, bool) or not isinstance(history, int):
+        raise TypeError("Engine history must be a positive integer capacity or None")
+    if history <= 0:
+        raise ValueError("Engine history capacity must be positive")
+    return history
+
+
 class EventEngine:
     """Create and manage thread-safe event buses by a readable channel name."""
 
@@ -37,16 +48,16 @@ class EventEngine:
         *,
         history: int | None = None,
         error_policy: ErrorPolicy = ErrorPolicy.ISOLATE,
-        executor: Executor | None = None,
+        executor: ThreadPoolExecutor | None = None,
         actions: EventBusActions[Any] | None = None,
         on_before: Callable[[Any], None] | None = None,
         on_after: Callable[[Any, PublishResult], None] | None = None,
         on_error: Callable[[EventErrorContext[Any]], None] | None = None,
         on_timeout: Callable[[EventTimeoutContext[Any]], None] | None = None,
     ) -> None:
-        self._history = history
+        self._history = _validate_history_capacity(history)
         self._error_policy = ErrorPolicy(error_policy)
-        self._executor = executor
+        self._executor = _validate_executor(executor)
         direct_actions = (on_before, on_after, on_error, on_timeout)
         if actions is not None and any(action is not None for action in direct_actions):
             raise ValueError("Use actions or direct on_* callbacks, not both")
@@ -96,6 +107,8 @@ class EventEngine:
 
         if not isinstance(bus, EventBus):
             raise TypeError("Event engine channels must be EventBus instances")
+        if bus.closed:
+            raise EventBusClosedError("Cannot add a closed EventBus to an engine")
         name = _channel_name(name)
         with self._lock:
             if name in self._channels:
@@ -247,7 +260,7 @@ class AsyncEventEngine:
         on_error: Callable[[EventErrorContext[Any]], Awaitable[None]] | None = None,
         on_timeout: Callable[[EventTimeoutContext[Any]], Awaitable[None]] | None = None,
     ) -> None:
-        self._history = history
+        self._history = _validate_history_capacity(history)
         self._error_policy = ErrorPolicy(error_policy)
         self._delivery_mode = DeliveryMode(delivery_mode)
         self._max_concurrency = (
@@ -308,6 +321,8 @@ class AsyncEventEngine:
 
         if not isinstance(bus, AsyncEventBus):
             raise TypeError("Async event engine channels must be AsyncEventBus instances")
+        if bus.closed:
+            raise EventBusClosedError("Cannot add a closed AsyncEventBus to an engine")
         name = _channel_name(name)
         with self._lock:
             if name in self._channels:

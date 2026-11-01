@@ -3,7 +3,6 @@
 from __future__ import annotations
 
 import asyncio
-import math
 from collections import deque
 from collections.abc import Awaitable, Callable
 from concurrent.futures import Future
@@ -17,6 +16,7 @@ from .base import (
     validate_nonnegative_count,
     validate_nonnegative_timeout,
     validate_positive_capacity,
+    validate_positive_timeout,
 )
 from .contracts import DeliveryMode, ErrorPolicy, EventBusStats, PublishResult
 from .compatibility import ExceptionGroup
@@ -470,9 +470,7 @@ class AsyncEventBus(BaseEventBus[T]):
         """Publish the same event periodically until cancelled or completed."""
 
         self._bind_loop()
-        interval = float(interval)
-        if not math.isfinite(interval) or interval <= 0:
-            raise ValueError("Event publish interval must be positive and finite")
+        interval = validate_positive_timeout(interval, name="Event publish interval")
         if times is not None and (
             isinstance(times, bool) or not isinstance(times, int) or times <= 0
         ):
@@ -587,6 +585,7 @@ class AsyncEventBus(BaseEventBus[T]):
             raise EventBusError("AsyncEventBus owning event loop is unavailable") from exc
 
     async def clear(self) -> None:
+        """Remove subscribers and wake waiters; retain history and schedules."""
         self._bind_loop()
         async with self._lock:
             subscriptions = tuple(

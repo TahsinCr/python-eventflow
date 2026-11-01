@@ -20,6 +20,14 @@ def _validate_query_limit(limit: int | None) -> None:
 
 
 class EventHistory(Generic[T], ABC):
+    """Storage contract for custom histories used by event buses.
+
+    Implementations must make ``append``, ``latest``, ``query``, ``clear``, and
+    ``__len__`` safe under concurrent calls and return query results from a
+    consistent snapshot. A history shared by multiple buses must provide the
+    same guarantees across those buses; a bus lock only protects its own writes.
+    """
+
     @abstractmethod
     def append(self, event: T) -> None: ...
 

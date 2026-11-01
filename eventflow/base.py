@@ -73,9 +73,12 @@ class BaseEventBus(Generic[T], ABC):
         history: EventHistory[T] | int | None = None,
         error_policy: ErrorPolicy = ErrorPolicy.ISOLATE,
     ) -> None:
-        if isinstance(history, bool):
-            raise TypeError("Event history must be a capacity or EventHistory")
-        self._history = MemoryEventHistory[T](history) if isinstance(history, int) else history
+        if history is None or isinstance(history, EventHistory):
+            self._history = history
+        elif isinstance(history, bool) or not isinstance(history, int):
+            raise TypeError("Event history must be a positive capacity or EventHistory")
+        else:
+            self._history = MemoryEventHistory[T](history)
         self._error_policy = ErrorPolicy(error_policy)
         self._published = 0
         self._delivered = 0

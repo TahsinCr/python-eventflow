@@ -20,6 +20,11 @@ from eventflow import (
 
 
 class PublicContractTests(unittest.TestCase):
+    _narrowed_executor_signatures = {
+        ("EventBus", "__init__"),
+        ("EventEngine", "__init__"),
+    }
+
     def test_legacy_readme_examples_execute(self):
         root = Path(__file__).resolve().parents[1]
         for name in ("README.md", "README-TR.md"):
@@ -44,6 +49,10 @@ class PublicContractTests(unittest.TestCase):
             item = getattr(eventflow, name)
             for method, signature in methods.items():
                 actual = inspect.signature(getattr(item, method))
+                if (name, method) in self._narrowed_executor_signatures:
+                    signature = signature.replace(
+                        "'Executor | None'", "'ThreadPoolExecutor | None'"
+                    )
                 if (name, method) in {
                     ("AsyncEventBus", "__init__"),
                     ("AsyncEventEngine", "__init__"),
