@@ -43,6 +43,10 @@ jobs:
           python -m coverage run --branch --source=eventflow -m unittest discover -s tests
           python -m coverage report --include="eventflow/*" --fail-under=88
           python -m coverage report --include="eventflow/pipeline/*" --fail-under=90
+          python -m coverage report --include="eventflow/callback.py" --fail-under=86
+          python -m coverage report --include="eventflow/_callbacks.py" --fail-under=84
+          python -m coverage report --include="eventflow/base.py" --fail-under=90
+          python -m coverage report --include="eventflow/async_event_bus.py" --fail-under=89
 
       - name: Check formatting and lint rules
         run: ruff check .

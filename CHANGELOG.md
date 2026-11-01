@@ -52,6 +52,18 @@ All notable changes to this project are documented in this file.
 - Extend CI typing to the runnable examples and benchmarks, require at least
   90% pipeline line coverage, and smoke-test new APIs from installed artifacts.
   The existing 88% package coverage floor and Python/platform matrix remain.
+- Set separate branch-coverage floors for callback, callback helpers, base bus,
+  and async bus modules so package-wide coverage cannot hide core regressions.
+- Refresh the recorded stream benchmark with equivalent native and EventFlow
+  map/filter work.
+- Document that custom `EventHistory` implementations must synchronize all
+  operations and produce query results from consistent snapshots.
+- Limit the sync bus executor option to `ThreadPoolExecutor` and document the
+  cross-bus reentrant delivery behavior for shared pools.
+- Clarify that `clear()` leaves history and periodic schedules running, while
+  `close()` stops schedules.
+- Normalize timezone-aware `EventEnvelope` timestamps to UTC and warn against
+  unpickling data from untrusted sources.
 
 ### Fixed
 
@@ -81,6 +93,17 @@ All notable changes to this project are documented in this file.
   interrupts, retaining failed handles and preserving additional cleanup errors.
 - Keep synchronous `wait_for()` waiting for its claimed one-shot callback when
   an unrelated condition notification arrives before the value is captured.
+- Prevent deadlock when callbacks publish through different buses sharing one
+  saturated thread pool.
+- Make concurrent async subscription cancellation wait for the in-flight
+  removal result so scopes retain handles after a failed removal.
+- Cancel and drain a `Task` or `Future` returned by an async callback when its
+  timeout budget expires before callback delivery begins.
+- Preserve read-only `EventEnvelope.metadata` after `copy.deepcopy()` and close
+  async middleware continuations that are created but never awaited.
+- Reject unsupported history values, non-thread executors, closed engine buses,
+  boolean schedule intervals, and non-boolean callback predicate results at
+  the relevant API boundary.
 
 ## [v1.1] - 2026-10-25
 

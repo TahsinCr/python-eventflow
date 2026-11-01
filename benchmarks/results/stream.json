@@ -5,35 +5,46 @@
     {
       "case": "direct-generator",
       "iterations": 100,
-      "ops_per_second": 12915.14106562829,
-      "p50_us": 77.424,
-      "p95_us": 85.159,
-      "p99_us": 103.012,
+      "ops_per_second": 5945.727400290151,
+      "p50_us": 167.654,
+      "p95_us": 195.618,
+      "p99_us": 203.338,
       "peak_traced_bytes": 1352,
       "items_per_operation": 1000,
-      "items_per_second": 12915141.06562829
+      "items_per_second": 5945727.400290151
+    },
+    {
+      "case": "native-map-filter",
+      "iterations": 100,
+      "ops_per_second": 5742.308178195307,
+      "p50_us": 174.118,
+      "p95_us": 177.675,
+      "p99_us": 178.528,
+      "peak_traced_bytes": 752,
+      "items_per_operation": 1000,
+      "items_per_second": 5742308.178195307
     },
     {
       "case": "unbuffered",
       "iterations": 100,
-      "ops_per_second": 245.39732772126004,
-      "p50_us": 4074.789,
-      "p95_us": 4192.957,
-      "p99_us": 4567.78,
-      "peak_traced_bytes": 4449,
+      "ops_per_second": 248.49968316290398,
+      "p50_us": 4024.101,
+      "p95_us": 4098.223,
+      "p99_us": 4190.94,
+      "peak_traced_bytes": 5096,
       "items_per_operation": 1000,
-      "items_per_second": 245397.32772126005
+      "items_per_second": 248499.68316290397
     },
     {
       "case": "buffer-16",
       "iterations": 100,
-      "ops_per_second": 137.1857186648784,
-      "p50_us": 7289.113,
-      "p95_us": 7602.593,
-      "p99_us": 7817.513,
-      "peak_traced_bytes": 6588,
+      "ops_per_second": 140.71033532187525,
+      "p50_us": 7106.649,
+      "p95_us": 13845.445,
+      "p99_us": 15964.537,
+      "peak_traced_bytes": 6652,
       "items_per_operation": 1000,
-      "items_per_second": 137185.7186648784
+      "items_per_second": 140710.33532187526
     }
   ]
 }

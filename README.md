@@ -171,8 +171,11 @@ check is needed.
 | Delivery order | Concurrent publisher calls may overlap | Sequential by default; optional concurrent delivery |
 
 Choose `EventBus` for synchronous code. By default, each handler runs on the
-thread that called `publish()`. An optional `concurrent.futures.Executor` can
-run handlers on executor workers, but the publishing call still waits for them.
+thread that called `publish()`. An optional `concurrent.futures.ThreadPoolExecutor`
+can run handlers on worker threads, but the publishing call still waits for them.
+When buses share a pool, a callback that publishes through another bus using
+that same pool delivers the nested event inline on the active worker. This
+prevents worker starvation during cross-bus reentrant publication.
 
 Publishing from multiple threads is safe. Two simultaneous publish calls may
 run their handlers at the same time, so handlers that update shared state must
@@ -368,12 +371,17 @@ overflows, that subscription is cancelled and the overflow is reported using
 the bus's error policy.
 
 To provide a custom history store, implement `EventHistory`:
-`append()`, `latest()`, `query()`, `clear()`, and `__len__()`. Bus
-`clear()` removes active subscriptions; it does not erase the history. To
-delete retained events, call `clear()` on the configured history object.
-EventFlow calls a custom history's `append()` while holding the bus publication
-lock to preserve event order. Keep that method fast and non-blocking, and do
-not publish recursively through the same bus from it.
+`append()`, `latest()`, `query()`, `clear()`, and `__len__()`. Implementations
+must synchronize all five operations and return `latest()`/`query()` results
+from a consistent snapshot. A history shared by multiple buses must synchronize
+across those buses too. The bus publication lock serializes `append()` only for
+that bus; history queries run outside it. Keep `append()` fast and non-blocking,
+and do not publish recursively through the same bus from it.
+
+Bus `clear()` removes active subscriptions and wakes pending waiters; it does
+not erase history or stop periodic schedules. Call the returned schedule's
+`cancel()` to stop it, or close the bus to stop all schedules. To delete retained
+events, call `clear()` on the configured history object.
 
 <a id="wait-for-event"></a>
 ### Waiting for an event
@@ -604,8 +612,9 @@ asyncio.run(main())
 ~~~
 
 Engine defaults are passed to the buses the engine creates. `EventEngine`
-carries history, error policy, executor, and hooks. `AsyncEventEngine` carries
-history, error policy, delivery mode, `max_concurrency`, and async hooks.
+carries history, error policy, executor, and hooks; its optional executor must
+be a `ThreadPoolExecutor`. `AsyncEventEngine` carries history, error policy,
+delivery mode, `max_concurrency`, and async hooks.
 
 ## Callback policies
 
@@ -894,11 +903,13 @@ loop and rejects reentrant cleanup that would await itself.
 
 `publish(event)` continues to accept raw objects. `EventEnvelope[T]` is an
 optional frozen container with `event`, generated `id`, `correlation_id`,
-`source`, timezone-aware UTC `timestamp` and `metadata`. Metadata is copied
-into a read-only mapping; payloads and nested metadata values retain their
-own mutability. `dataclasses.asdict()` and pickle work when the event and
-metadata values themselves support those operations. Use `dataclasses.replace`
-to transform an envelope's payload.
+`source`, UTC `timestamp` and `metadata`. A timezone-aware timestamp supplied
+in another zone is normalized to UTC. Metadata is copied into a read-only
+mapping, including after `copy.deepcopy()`; payloads and nested metadata values
+retain their own mutability. `dataclasses.asdict()` and pickle work when the
+event and metadata values themselves support those operations. Only unpickle
+data from trusted sources: Python pickle can execute code during loading. Use
+`dataclasses.replace` to transform an envelope's payload.
 
 ~~~python
 from dataclasses import replace
@@ -1007,9 +1018,10 @@ Hooks on `EventBus` are synchronous; hooks on `AsyncEventBus` are async.
 
 Use `close()` when a bus is no longer needed; context managers do this
 automatically. A closed bus rejects new subscriptions and publications with
-`EventBusClosedError`. `clear()` removes subscriptions but leaves history
-intact and completes pending `wait_for()` calls with `None` on both bus types.
-A synchronous wait also returns `None` when the bus closes.
+`EventBusClosedError`. `clear()` removes subscriptions, leaves history intact,
+does not stop periodic schedules, and completes pending `wait_for()` calls with
+`None` on both bus types. A synchronous wait also returns `None` when the bus
+closes.
 
 The synchronous bus waits up to `shutdown_timeout` for periodic workers to
 stop. If a worker does not stop in time, `EventShutdownTimeoutError` is
@@ -1029,7 +1041,7 @@ that has already started may finish after `close()` returns.
 | `wait_for(*, event_filter=None, event_type=None, predicate=None, timeout=None)` | Return one matching event or `None`. |
 | `publish_every(event, interval, *, times=None, immediately=True)` | Start a cancellable periodic schedule. |
 | `latest(...)` / `query(..., limit=None)` | Read retained history. These queries are synchronous on both bus types. |
-| `clear()` / `close()` | Clear subscriptions or close the bus. Both are awaited on `AsyncEventBus`. |
+| `clear()` / `close()` | Clear subscriptions (schedules continue) or close the bus (schedules stop). Both are awaited on `AsyncEventBus`. |
 
 On `AsyncEventBus`, await `subscribe()`, `once()`, `publish()`,
 `wait_for()`, `publish_every()`, `clear()`, `close()`, and subscription

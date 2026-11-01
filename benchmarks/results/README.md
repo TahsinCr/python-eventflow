@@ -62,18 +62,18 @@ Decorator and imperative registration use the same runtime plan; small independe
 
 ## Streams
 
-New benchmark runs include `native-map-filter`, which applies the same mapping and
-predicate as the EventFlow cases using a plain async generator. Compare this case
-with `unbuffered` to estimate stream API overhead. `direct-generator` remains a
-raw-source lower bound and has no mapping or filtering. The checked-in
-`stream.json` predates the equivalent baseline and should be read with that
-limitation in mind.
+`stream.json` was refreshed with 100 iterations of 1,000 items per case on
+Python 3.10.18/Linux. `native-map-filter` applies the same mapping and predicate
+as the EventFlow cases using a plain async generator; compare it with
+`unbuffered` to estimate stream API overhead. `direct-generator` remains a
+raw-source lower bound and has no mapping or filtering.
 
 | Case | p50 per 1,000 items (us) | Items/s | Peak traced bytes |
 | --- | ---: | ---: | ---: |
-| direct-generator | 77.424 | 12915141 | 1352 |
-| unbuffered | 4074.789 | 245397 | 4449 |
-| buffer-16 | 7289.113 | 137186 | 6588 |
+| direct-generator | 167.654 | 5945727 | 1352 |
+| native-map-filter | 174.118 | 5742308 | 752 |
+| unbuffered | 4024.101 | 248499 | 5096 |
+| buffer-16 | 7106.649 | 140710 | 6652 |
 
 The raw generator has no transformation or ownership machinery. The unbuffered case includes map/filter and owned closure. Buffering additionally runs one producer, a bounded queue and backpressure; it is a resource/decoupling choice, not a speedup for a trivial CPU-only source.
 

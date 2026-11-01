@@ -177,8 +177,11 @@ gerekiyorsa filtre kullanın.
 
 Senkron kodda `EventBus` kullanın. Varsayılan olarak handler,
 `publish()` çağrısını yapan thread'de çalışır. İsteğe bağlı
-`concurrent.futures.Executor` handler'ları executor worker'larında
+`concurrent.futures.ThreadPoolExecutor` handler'ları worker thread'lerinde
 çalıştırabilir; ancak yayın çağrısı handler'lar tamamlanana kadar bekler.
+Bus'lar aynı pool'u paylaşıyorsa, callback'in aynı pool'u kullanan başka bir bus
+üzerinden yaptığı iç içe yayın etkin worker üzerinde doğrudan teslim edilir;
+böylece worker'ların birbirini bekleyerek tükenmesi önlenir.
 
 Farklı thread'lerden yayın yapmak güvenlidir. İki yayın aynı anda yapılırsa
 handler'ları da eşzamanlı çalışabilir. Paylaşılan uygulama verisini güncelleyen
@@ -378,12 +381,19 @@ Kuyruk taşarsa ilgili abonelik iptal edilir ve taşma bus'ın hata politikasıy
 raporlanır.
 
 Özel geçmiş deposu için `EventHistory` arayüzünün `append()`, `latest()`,
-`query()`, `clear()` ve `__len__()` metotlarını uygulayın. Bus üzerindeki
-`clear()` aktif abonelikleri kaldırır, geçmişi silmez. Kayıtlı geçmişi
-silmek için yapılandırılmış history nesnesinde `clear()` çağırın.
-Yayın sırasını korumak için EventFlow, özel history nesnesinin `append()`
-metodunu bus'ın yayın kilidi tutulurken çağırır. Bu metot hızlı ve bloklamayan
-olmalı; aynı bus üzerinden yeniden yayın yapmamalıdır.
+`query()`, `clear()` ve `__len__()` metotlarını uygulayın. Uygulama bu beş
+işlemin eşzamanlı çağrılarını kendi içinde senkronize etmeli; sorguları tutarlı
+bir snapshot üzerinden yanıtlamalıdır. Aynı geçmiş birden fazla bus tarafından
+paylaşılıyorsa senkronizasyon bus'lar arasında da geçerli olmalıdır. Bus'ın
+yayın kilidi yalnızca o bus üzerinden yapılan `append()` çağrısını sıralar;
+history sorguları bu kilidin dışında çalışır. `append()` hızlı ve bloklamayan
+olmalı, aynı bus üzerinden yeniden yayın yapmamalıdır.
+
+Bus üzerindeki `clear()` aktif abonelikleri kaldırır, bekleyen wait işlemlerini
+uyandırır; history'yi silmez ve periyodik schedule'ları durdurmaz. Bir schedule'ı
+durdurmak için dönen handle'ın `cancel()` metodunu, tüm schedule'ları durdurmak
+için bus'ın `close()` metodunu kullanın. Kayıtlı geçmişi silmek için
+yapılandırılmış history nesnesinde `clear()` çağırın.
 
 <a id="wait-for-event"></a>
 ### Event bekleme
@@ -621,8 +631,9 @@ asyncio.run(main())
 ~~~
 
 `EventEngine` history, hata politikası, executor ve hook ayarlarını oluşturduğu
-bus'lara aktarır. `AsyncEventEngine` history, hata politikası, teslimat kipi,
-`max_concurrency` ve async hook'ları aktarır.
+bus'lara aktarır; executor olarak yalnızca `ThreadPoolExecutor` kabul edilir.
+`AsyncEventEngine` history, hata politikası, teslimat kipi, `max_concurrency`
+ve async hook'ları aktarır.
 
 <a id="callback-policies"></a>
 ## Callback politikaları
@@ -912,12 +923,15 @@ reentrant kapanış açıkça reddedilir.
 ## Event context ve ölçümler
 
 `publish(event)` ham nesneleri kabul etmeye devam eder. İsteğe bağlı
-`EventEnvelope[T]`; `event`, üretilen `id`, `correlation_id`, `source`, timezone
-bilgili UTC `timestamp` ve `metadata` alanlarını sunan frozen bir veri sınıfıdır.
-Metadata kopyalanıp salt okunur mapping'e alınır; payload ve metadata içindeki
-nesneler kendi mutability özelliklerini korur. Event ve metadata değerleri de
-uygunsa `dataclasses.asdict()` ve pickle ile dönüştürülebilir. Payload dönüşümü
-için `dataclasses.replace` kullanılabilir.
+`EventEnvelope[T]`; `event`, üretilen `id`, `correlation_id`, `source`, UTC
+`timestamp` ve `metadata` alanlarını sunan frozen bir veri sınıfıdır. Verilen
+timezone-aware timestamp UTC'ye normalize edilir. Metadata kopyalanıp salt
+okunur mapping'e alınır ve `copy.deepcopy()` sonrasında da böyle kalır; payload
+ve metadata içindeki nesneler kendi mutability özelliklerini korur. Event ve
+metadata değerleri uygunsa `dataclasses.asdict()` ve pickle ile dönüştürülebilir.
+Python pickle yükleme sırasında kod çalıştırabildiği için yalnızca güvenilir
+kaynaklardan gelen veriyi açın. Payload dönüşümü için `dataclasses.replace`
+kullanılabilir.
 
 ~~~python
 from dataclasses import replace
@@ -1031,7 +1045,8 @@ hook'ları async olmalıdır.
 
 İşiniz bitince `close()` çağırın; context manager bunu otomatik yapar.
 Kapatılmış bus yeni yayın veya abonelik kabul etmez ve `EventBusClosedError`
-yükseltir. `clear()` abonelikleri kaldırır, history'yi silmez.
+yükseltir. `clear()` abonelikleri kaldırır, history'yi silmez ve periyodik
+schedule'ları durdurmaz; schedule handle'ını iptal edin veya bus'ı kapatın.
 Her iki bus türünde de `clear()`, bekleyen `wait_for()` çağrılarını `None` ile
 tamamlar. Senkron wait, bus kapandığında da `None` döndürür.
 
@@ -1053,7 +1068,7 @@ bekletmez; başlamış bir callback `close()` döndükten sonra tamamlanabilir.
 | `wait_for(*, event_filter=None, event_type=None, predicate=None, timeout=None)` | Eşleşen bir event'i veya `None` döndürür. |
 | `publish_every(event, interval, *, times=None, immediately=True)` | İptal edilebilir periyodik zamanlama başlatır. |
 | `latest(...)` / `query(..., limit=None)` | Saklanan geçmişi okur. Her iki bus'ta da senkron metotlardır. |
-| `clear()` / `close()` | Abonelikleri temizler veya bus'ı kapatır. `AsyncEventBus` üzerinde await edilir. |
+| `clear()` / `close()` | Abonelikleri temizler (schedule'lar sürer) veya bus'ı kapatır (schedule'lar durur). `AsyncEventBus` üzerinde await edilir. |
 
 `AsyncEventBus` üzerinde `subscribe()`, `once()`, `publish()`,
 `wait_for()`, `publish_every()`, `clear()`, `close()` ve abonelik iptali
