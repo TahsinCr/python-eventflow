@@ -13,6 +13,8 @@ class Subscription:
         self._cancel = cancel
         self._active = True
         self._lock = threading.Lock()
+        self._cancel_condition = threading.Condition(self._lock)
+        self._cancel_owner: int | None = None
 
     @property
     def id(self) -> int:
@@ -34,14 +36,27 @@ class Subscription:
         self._consume()
 
     def _consume(self) -> bool:
-        if not self._deactivate():
-            return False
+        current_thread = threading.get_ident()
+        with self._cancel_condition:
+            while self._cancel_owner is not None:
+                if self._cancel_owner == current_thread:
+                    return False
+                self._cancel_condition.wait()
+            if not self._active:
+                return False
+            self._active = False
+            self._cancel_owner = current_thread
         try:
             self._cancel()
         except BaseException:
-            with self._lock:
+            with self._cancel_condition:
                 self._active = True
+                self._cancel_owner = None
+                self._cancel_condition.notify_all()
             raise
+        with self._cancel_condition:
+            self._cancel_owner = None
+            self._cancel_condition.notify_all()
         return True
 
     def __enter__(self) -> "Subscription":

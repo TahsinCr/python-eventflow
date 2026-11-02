@@ -1,5 +1,7 @@
 import asyncio
+import threading
 import unittest
+from unittest.mock import patch
 
 from eventflow import AsyncEventBus, EventBus
 from eventflow.scopes import AsyncSubscriptionScope, SubscriptionScope
@@ -23,6 +25,89 @@ class AsyncHandle(Handle):
 
 
 class ScopeTests(unittest.TestCase):
+    def test_concurrent_scope_close_retries_failed_subscription_removal(self):
+        bus = EventBus[int]()
+        subscription = bus.subscribe(lambda _event: None)
+        scope = SubscriptionScope()
+        scope.add(subscription)
+        removal_started = threading.Event()
+        release_removal = threading.Event()
+        second_cancel_started = threading.Event()
+        attempts = 0
+        first_errors = []
+        original_cancel = subscription._cancel
+        original_handle_cancel = subscription.cancel
+
+        def remove():
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                removal_started.set()
+                if not release_removal.wait(1.0):
+                    raise TimeoutError("test removal was not released")
+                raise RuntimeError("first removal failed")
+            original_cancel()
+
+        def observed_cancel():
+            second_cancel_started.set()
+            original_handle_cancel()
+
+        def cancel_first_time():
+            try:
+                subscription.cancel()
+            except RuntimeError as exc:
+                first_errors.append(exc)
+
+        with (
+            patch.object(subscription, "_cancel", side_effect=remove),
+            patch.object(subscription, "cancel", side_effect=observed_cancel),
+        ):
+            first = threading.Thread(target=cancel_first_time)
+            first.start()
+            self.assertTrue(removal_started.wait(1.0))
+            closing = threading.Thread(target=scope.close)
+            closing.start()
+            self.assertTrue(second_cancel_started.wait(1.0))
+            closing.join(timeout=0.05)
+            self.assertTrue(closing.is_alive())
+            release_removal.set()
+            first.join(timeout=1.0)
+            closing.join(timeout=1.0)
+
+        self.assertFalse(first.is_alive())
+        self.assertFalse(closing.is_alive())
+        self.assertEqual(len(first_errors), 1)
+        self.assertEqual(attempts, 2)
+        self.assertFalse(subscription.active)
+        self.assertEqual(bus.subscriber_count, 0)
+        bus.close()
+
+    def test_reentrant_subscription_cancel_does_not_deadlock(self):
+        bus = EventBus[int]()
+        subscription = bus.subscribe(lambda _event: None)
+        original_cancel = subscription._cancel
+        nested_cancel_completed = threading.Event()
+
+        def reentrant_remove():
+            subscription.cancel()
+            nested_cancel_completed.set()
+            original_cancel()
+
+        completed = threading.Event()
+        with patch.object(subscription, "_cancel", side_effect=reentrant_remove):
+            worker = threading.Thread(
+                target=lambda: (subscription.cancel(), completed.set()),
+                daemon=True,
+            )
+            worker.start()
+            self.assertTrue(completed.wait(1.0))
+            worker.join(timeout=1.0)
+
+        self.assertFalse(worker.is_alive())
+        self.assertTrue(nested_cancel_completed.is_set())
+        self.assertEqual(bus.subscriber_count, 0)
+        bus.close()
+
     def test_base_exception_still_attempts_remaining_handles_and_keeps_failures(self):
         class Abort(BaseException):
             pass

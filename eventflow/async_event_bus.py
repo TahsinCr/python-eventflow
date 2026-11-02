@@ -51,6 +51,10 @@ class _AsyncSubscriber(Generic[T]):
         self.remaining -= 1
         return True, self.remaining == 0
 
+    def restore_claim(self) -> None:
+        if self.remaining is not None:
+            self.remaining += 1
+
     def buffer_if_replaying(self, event: T) -> bool:
         if not self.replaying:
             return False
@@ -278,8 +282,8 @@ class AsyncEventBus(BaseEventBus[T]):
         async with self._lock:
             self._ensure_open()
             subscribers = tuple(self._subscribers.values())
-            self._published += 1
             self._record(event)
+            self._published += 1
 
         matched: list[_AsyncSubscriber[T]] = []
         errors: list[Exception] = []
@@ -452,7 +456,11 @@ class AsyncEventBus(BaseEventBus[T]):
         if not claimed:
             return False, None
         if final:
-            await subscriber.subscription._consume()
+            try:
+                await subscriber.subscription._consume()
+            except BaseException:
+                subscriber.restore_claim()
+                raise
         try:
             await subscriber.callback(event)
         except Exception as exc:

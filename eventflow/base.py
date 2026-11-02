@@ -36,14 +36,15 @@ def normalize_replay_capacity(value: int) -> int:
 def validate_positive_timeout(value: float, *, name: str) -> float:
     """Validate and normalize a finite timeout value."""
 
-    if (
-        isinstance(value, bool)
-        or not isinstance(value, (int, float))
-        or not math.isfinite(value)
-        or value <= 0
-    ):
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
         raise ValueError(f"{name} must be positive and finite")
-    return float(value)
+    try:
+        timeout = float(value)
+    except OverflowError:
+        raise ValueError(f"{name} must be positive and finite") from None
+    if not math.isfinite(timeout) or timeout <= 0:
+        raise ValueError(f"{name} must be positive and finite")
+    return timeout
 
 
 def validate_nonnegative_count(value: int, *, name: str) -> int:

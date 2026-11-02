@@ -35,6 +35,8 @@ class PublishResult:
 
 @dataclass(frozen=True, slots=True)
 class EventBusStats:
+    """Aggregate counts; published follows successful configured history recording."""
+
     published: int = 0
     delivered: int = 0
     failed: int = 0

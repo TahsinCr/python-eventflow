@@ -42,6 +42,11 @@ class _FailingQueryHistory(MemoryEventHistory[int]):
         raise RuntimeError("history query failed")
 
 
+class _FailingAppendHistory(MemoryEventHistory[int]):
+    def append(self, event: int) -> None:
+        raise RuntimeError("history append failed")
+
+
 class _RecordingQueryHistory(MemoryEventHistory[int]):
     def __init__(self) -> None:
         super().__init__(capacity=10)
@@ -123,6 +128,72 @@ class EventBusTests(unittest.TestCase):
         self.assertEqual(received, [1])
         self.assertFalse(subscription.active)
         self.assertEqual(bus.subscriber_count, 0)
+
+    def test_final_subscription_claim_is_restored_when_removal_fails(self) -> None:
+        bus = EventBus[int]()
+        received: list[int] = []
+        subscription = bus.subscribe(received.append, once=True)
+        original_cancel = subscription._cancel
+        attempts = 0
+
+        def fail_once() -> None:
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise RuntimeError("subscription removal failed")
+            original_cancel()
+
+        with patch.object(subscription, "_cancel", side_effect=fail_once):
+            with self.assertRaisesRegex(RuntimeError, "removal failed"):
+                bus.publish(1)
+            self.assertTrue(subscription.active)
+            result = bus.publish(2)
+
+        self.assertEqual(result.delivered, 1)
+        self.assertEqual(received, [2])
+        self.assertFalse(subscription.active)
+        bus.close()
+
+    def test_failed_history_append_does_not_increment_published(self) -> None:
+        bus = EventBus[int](history=_FailingAppendHistory())
+        with self.assertRaisesRegex(RuntimeError, "history append failed"):
+            bus.publish(1)
+        self.assertEqual(bus.stats.published, 0)
+        bus.close()
+
+    def test_executor_rejection_preserves_finite_subscription_quota(self) -> None:
+        received: list[int] = []
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            bus = EventBus[int](executor=executor)
+            subscription = bus.subscribe(received.append, times=2)
+            original_submit = executor.submit
+            attempts = 0
+
+            def reject_once(function, /, *args, **kwargs):
+                nonlocal attempts
+                attempts += 1
+                if attempts == 1:
+                    raise RuntimeError("executor is shutting down")
+                return original_submit(function, *args, **kwargs)
+
+            with patch.object(executor, "submit", side_effect=reject_once):
+                rejected = bus.publish(1)
+                self.assertEqual((rejected.delivered, rejected.failed), (0, 1))
+                self.assertTrue(subscription.active)
+                self.assertEqual(bus.publish(2).delivered, 1)
+                self.assertTrue(subscription.active)
+                self.assertEqual(bus.publish(3).delivered, 1)
+            self.assertEqual(received, [2, 3])
+            self.assertFalse(subscription.active)
+            bus.close()
+
+    def test_wait_for_rejects_timeout_larger_than_float_range(self) -> None:
+        bus = EventBus[int]()
+        with self.assertRaises(ValueError):
+            bus.wait_for(timeout=10**1000)
+        bus.close()
+        with self.assertRaisesRegex(ValueError, "positive and finite"):
+            EventBus[int](shutdown_timeout=10**1000)
 
     def test_once_subscription_is_atomic_across_publisher_threads(self) -> None:
         bus = EventBus[int]()
@@ -914,6 +985,71 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
         await bus.subscribe(handler, once=True)
         await asyncio.gather(*(bus.publish(value) for value in range(100)))
         self.assertEqual(len(received), 1)
+
+    async def test_failed_history_append_does_not_increment_published(self) -> None:
+        bus = AsyncEventBus[int](history=_FailingAppendHistory())
+        with self.assertRaisesRegex(RuntimeError, "history append failed"):
+            await bus.publish(1)
+        self.assertEqual(bus.stats.published, 0)
+        await bus.close()
+
+    async def test_final_finite_claim_is_restored_when_cancellation_interrupts_removal(
+        self,
+    ) -> None:
+        for delivery_mode in (DeliveryMode.SEQUENTIAL, DeliveryMode.CONCURRENT):
+            for once, times in ((True, None), (False, 1), (False, 2)):
+                with self.subTest(delivery_mode=delivery_mode, once=once, times=times):
+                    bus = AsyncEventBus[int](delivery_mode=delivery_mode)
+                    received: list[int] = []
+
+                    async def receive(event: int) -> None:
+                        received.append(event)
+
+                    subscription = await bus.subscribe(receive, once=once, times=times)
+                    if times == 2:
+                        await bus.publish(0)
+                    removal_started = asyncio.Event()
+                    release_removal = asyncio.Event()
+                    original_cancel = subscription._cancel
+                    attempts = 0
+
+                    async def cancel_once() -> None:
+                        nonlocal attempts
+                        attempts += 1
+                        if attempts == 1:
+                            removal_started.set()
+                            await release_removal.wait()
+                        await original_cancel()
+
+                    try:
+                        with patch.object(subscription, "_cancel", new=cancel_once):
+                            publishing = asyncio.create_task(bus.publish(1))
+                            await asyncio.wait_for(removal_started.wait(), timeout=1.0)
+                            publishing.cancel()
+                            with self.assertRaises(asyncio.CancelledError):
+                                await publishing
+
+                            self.assertTrue(subscription.active)
+                            self.assertEqual(bus.subscriber_count, 1)
+                            release_removal.set()
+                            await bus.publish(2)
+                            await bus.publish(3)
+
+                        expected = [0, 2] if times == 2 else [2]
+                        self.assertEqual(received, expected)
+                        self.assertFalse(subscription.active)
+                        self.assertEqual(bus.subscriber_count, 0)
+                    finally:
+                        release_removal.set()
+                        await bus.close()
+
+    async def test_async_wait_for_rejects_timeout_larger_than_float_range(self) -> None:
+        bus = AsyncEventBus[int]()
+        with self.assertRaises(ValueError):
+            await bus.wait_for(timeout=10**1000)
+        with self.assertRaisesRegex(ValueError, "positive and finite"):
+            await bus.publish_every(1, 10**1000)
+        await bus.close()
 
     async def test_async_bus_rejects_sync_handler(self) -> None:
         bus = AsyncEventBus[int]()

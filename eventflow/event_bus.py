@@ -73,6 +73,11 @@ class _Subscriber(Generic[T]):
             self.remaining -= 1
             return True, self.remaining == 0
 
+    def restore_claim(self) -> None:
+        with self.lock:
+            if self.remaining is not None:
+                self.remaining += 1
+
     def buffer_if_replaying(self, event: T) -> bool:
         with self.lock:
             if not self.replaying:
@@ -277,8 +282,8 @@ class EventBus(BaseEventBus[T]):
         with self._lock:
             self._ensure_open()
             subscribers = tuple(self._subscribers.values())
-            self._published += 1
             self._record(event)
+            self._published += 1
 
         matched: list[_Subscriber[T]] = []
         errors: list[Exception] = []
@@ -320,17 +325,20 @@ class EventBus(BaseEventBus[T]):
                 claimed, final = subscriber.claim()
                 if not claimed:
                     continue
-                if final:
-                    subscriber.subscription._consume()
                 try:
                     future = self._executor.submit(
                         self._invoke_executor_callback,
-                        subscriber.callback,
+                        subscriber,
                         event,
                         active_executors,
+                        final,
                     )
                 except Exception as exc:
+                    subscriber.restore_claim()
                     errors.append(exc)
+                except BaseException:
+                    subscriber.restore_claim()
+                    raise
                 else:
                     futures.append((subscriber, future))
             for _subscriber, future in futures:
@@ -370,10 +378,17 @@ class EventBus(BaseEventBus[T]):
 
     def _invoke_executor_callback(
         self,
-        callback: Callable[[T], None],
+        subscriber: _Subscriber[T],
         event: T,
         inherited_executors: frozenset[int],
+        final: bool,
     ) -> None:
+        if final:
+            try:
+                subscriber.subscription._consume()
+            except BaseException:
+                subscriber.restore_claim()
+                raise
         previous = getattr(_executor_context, "active", None)
         active = set(inherited_executors)
         if previous is not None:
@@ -382,7 +397,7 @@ class EventBus(BaseEventBus[T]):
             active.add(id(self._executor))
         _executor_context.active = frozenset(active)
         try:
-            _invoke_sync_callback(callback, event)
+            _invoke_sync_callback(subscriber.callback, event)
         finally:
             if previous is None:
                 del _executor_context.active
@@ -414,7 +429,11 @@ class EventBus(BaseEventBus[T]):
         if not claimed:
             return False, None
         if final:
-            subscriber.subscription._consume()
+            try:
+                subscriber.subscription._consume()
+            except BaseException:
+                subscriber.restore_claim()
+                raise
         try:
             _invoke_sync_callback(subscriber.callback, event)
         except Exception as exc:
