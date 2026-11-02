@@ -1,6 +1,6 @@
-[![Sürüm: v1.2][version-shield]](CHANGELOG.md)
+[![Sürüm: v1.2][version-shield]](https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md)
 [![Python 3.10+][python-shield]](https://www.python.org/downloads/)
-[![MIT Lisansı][license-shield]](LICENSE)
+[![MIT Lisansı][license-shield]](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE)
 
 [English](https://github.com/TahsinCr/python-eventflow/blob/main/README.md) | **Türkçe**
 
