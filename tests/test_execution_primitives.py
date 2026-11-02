@@ -6,6 +6,7 @@ import asyncio
 import contextvars
 import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 
 import eventflow
 from eventflow.bridges import AsyncEventQueue, LoopPortal
@@ -1056,6 +1057,38 @@ class ThreadBridgeTests(unittest.TestCase):
         coalescer.flush(1)
         coalescer.close()
         self.assertEqual(calls, [("key", 3)])
+
+    def test_keyed_coalescer_starts_lazily_and_serializes_parallel_merges(self):
+        calls = []
+        coalescer = KeyedCoalescer(
+            interval=60,
+            key=lambda item: item[0],
+            merge=lambda first, second: (first[0], first[1] + second[1]),
+            callback=calls.append,
+            max_pending_keys=1,
+        )
+        self.assertIsNone(coalescer._thread.ident)
+        coalescer.flush(timeout=0.1)
+        self.assertIsNone(coalescer._thread.ident)
+
+        barrier = threading.Barrier(5)
+
+        def push_many(_index):
+            barrier.wait(timeout=1)
+            for _ in range(10):
+                coalescer.push(("key", 1))
+
+        try:
+            with ThreadPoolExecutor(max_workers=4) as producers:
+                futures = [producers.submit(push_many, index) for index in range(4)]
+                barrier.wait(timeout=1)
+                for future in futures:
+                    future.result(timeout=2)
+            coalescer.flush(timeout=1)
+            self.assertEqual(coalescer.stats().merged, 39)
+            self.assertEqual(calls, [("key", 40)])
+        finally:
+            coalescer.close(timeout=1)
 
     def test_coalescer_rejects_async_key_and_merge_functions(self):
         async def async_key(value):

@@ -93,7 +93,7 @@ class KeyedCoalescer(Generic[K, T]):
         self._unreported_failures = 0
         self._discarded = 0
         self._thread = threading.Thread(target=self._run, name="EventFlowCoalescer", daemon=True)
-        self._thread.start()
+        self._thread_started = False
 
     def push(self, value: T) -> None:
         key = synchronous_result(self._key(value))
@@ -106,6 +106,9 @@ class KeyedCoalescer(Generic[K, T]):
                 if len(self._pending) >= self._capacity:
                     self._rejected += 1
                     raise RuntimeError("KeyedCoalescer pending-key capacity is full")
+                if not self._thread_started:
+                    self._thread.start()
+                    self._thread_started = True
                 self._pending[key] = _Coalesced(value, now + self._interval)
                 self._submitted += 1
             else:
@@ -251,10 +254,11 @@ class KeyedCoalescer(Generic[K, T]):
                 self._discarded += len(self._pending)
                 self._pending.clear()
             self._condition.notify_all()
-        remaining = None if end is None else max(0.0, end - time.monotonic())
-        self._thread.join(remaining)
-        if self._thread.is_alive():
-            raise TimeoutError("KeyedCoalescer callback is still running")
+        if self._thread_started:
+            remaining = None if end is None else max(0.0, end - time.monotonic())
+            self._thread.join(remaining)
+            if self._thread.is_alive():
+                raise TimeoutError("KeyedCoalescer callback is still running")
         self._raise_errors()
 
     def __enter__(self) -> KeyedCoalescer[K, T]:
