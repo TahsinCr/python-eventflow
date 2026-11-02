@@ -19,6 +19,24 @@ from eventflow.compatibility import ExceptionGroup
 
 
 class EventEngineTests(unittest.TestCase):
+    def test_automatically_created_channel_is_claimed_by_its_engine(self) -> None:
+        owner, other = EventEngine(), EventEngine()
+        bus = owner.channel("shared")
+
+        with self.assertRaisesRegex(ValueError, "only one engine"):
+            other.add("shared", bus)
+
+        self.assertEqual(owner.channel_names, ("shared",))
+        self.assertEqual(other.channel_names, ())
+        owner.stop()
+        other.stop()
+
+    def test_channel_name_must_be_a_string(self) -> None:
+        engine = EventEngine()
+        with self.assertRaisesRegex(TypeError, "must be a string"):
+            engine.channel(None)  # type: ignore[arg-type]
+        engine.stop()
+
     def test_named_channels_are_lazy_normalized_and_reusable(self) -> None:
         engine = EventEngine(history=2)
         received: list[int] = []
@@ -236,6 +254,24 @@ class EventEngineTests(unittest.TestCase):
 
 
 class AsyncEventEngineTests(unittest.IsolatedAsyncioTestCase):
+    async def test_automatically_created_channel_is_claimed_by_its_engine(self) -> None:
+        owner, other = AsyncEventEngine(), AsyncEventEngine()
+        bus = owner.channel("shared")
+
+        with self.assertRaisesRegex(ValueError, "only one engine"):
+            other.add("shared", bus)
+
+        self.assertEqual(owner.channel_names, ("shared",))
+        self.assertEqual(other.channel_names, ())
+        await owner.stop()
+        await other.stop()
+
+    async def test_channel_name_must_be_a_string(self) -> None:
+        engine = AsyncEventEngine()
+        with self.assertRaisesRegex(TypeError, "must be a string"):
+            engine.channel(None)  # type: ignore[arg-type]
+        await engine.stop()
+
     async def test_async_named_channel_publish_once_and_stop(self) -> None:
         engine = AsyncEventEngine(history=2)
         received: list[int] = []

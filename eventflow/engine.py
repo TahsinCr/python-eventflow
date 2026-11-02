@@ -24,7 +24,9 @@ from .subscription import AsyncSubscription, Subscription
 
 
 def _channel_name(name: str) -> str:
-    normalized = str(name).strip().lower()
+    if not isinstance(name, str):
+        raise TypeError("Event channel name must be a string")
+    normalized = name.strip().lower()
     if not normalized:
         raise ValueError("Event channel name cannot be empty")
     return normalized
@@ -95,6 +97,7 @@ class EventEngine:
                     executor=self._executor,
                     actions=self._actions,
                 )
+                bus._claim_engine_ownership(self)
                 self._channels[name] = bus
             self._running = True
             return bus
@@ -313,6 +316,7 @@ class AsyncEventEngine:
                     max_concurrency=self._max_concurrency,
                     actions=self._actions,
                 )
+                bus._claim_engine_ownership(self)
                 self._channels[name] = bus
             self._running = True
             return bus
