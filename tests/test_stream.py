@@ -311,6 +311,17 @@ class StreamTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await reader, 0)
         await stream.aclose()
 
+    async def test_stream_rejects_reads_from_a_different_event_loop(self):
+        stream = AsyncStream(numbers())
+        self.assertEqual(await stream.__anext__(), 0)
+
+        def read_from_another_loop():
+            with self.assertRaisesRegex(RuntimeError, "different event loop"):
+                asyncio.run(stream.__anext__())
+
+        await asyncio.to_thread(read_from_another_loop)
+        await stream.aclose()
+
     async def test_nested_buffers_close_without_producer_leaks(self):
         closed = asyncio.Event()
 

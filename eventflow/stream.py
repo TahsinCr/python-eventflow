@@ -69,12 +69,13 @@ class AsyncStream(AsyncIterator[T], Generic[T]):
         return self
 
     async def __anext__(self) -> T:
-        self._bind_loop()
+        task = asyncio.current_task()
+        if self._consumer is not task:
+            self._bind_loop()
         if self._closed:
             raise StopAsyncIteration
         if self._reader is not None:
             raise RuntimeError("Concurrent reads from one AsyncStream are not supported")
-        task = asyncio.current_task()
         if self._consumer is None:
             self._consumer = task
         elif self._consumer is not task:
