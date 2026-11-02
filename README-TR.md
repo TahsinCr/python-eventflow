@@ -1,4 +1,4 @@
-[![Sürüm: v1.1][version-shield]](CHANGELOG.md)
+[![Sürüm: v1.2][version-shield]](CHANGELOG.md)
 [![Python 3.10+][python-shield]](https://www.python.org/downloads/)
 [![MIT Lisansı][license-shield]](LICENSE)
 
@@ -118,7 +118,7 @@ Kurulu paketin sürüm numarasına `eventflow.__version__` üzerinden erişebili
 ~~~python
 from eventflow import __version__
 
-print(__version__)  # 1.1
+print(__version__)  # 1.2
 ~~~
 
 <a id="first-event"></a>
@@ -597,9 +597,9 @@ Bu nedenle `" Orders "` ve `"orders"` aynı kanala gider.
 kapatıp kaldırır; `stop()` tüm kanalları kapatır. Engine ayrıca `running` ve
 sıralanmış `channel_names` özelliklerini sunar. Aynı bus örneği aynı anda yalnızca
 tek kanal adına kaydedilebilir.
-`add()` ile verilen bus o engine'in sahipliğine geçer; aynı örneği başka bir
-engine'e vermeyin. Engine'lerden birinin `remove()` veya `stop()` çağrısı bus'ı
-kapatır.
+Başarılı `add()` çağrısı bus'ı o engine'e bağlar. Aynı bus örneğini başka bir
+engine eklemeye çalışırsa `ValueError` alır. Sahip engine'in `remove()` veya
+`stop()` çağrısı bus'ı kapatır.
 `stop()` sırasında iki engine de bütün kanalları kapatmayı dener. Bazı kanallar
 kapatılamazsa hatalar birlikte yükseltilir ve engine bu kanalların sahipliğini
 korur; sonraki `stop()` çağrısı temizliği yeniden deneyebilir. Başarılı bir
@@ -1160,6 +1160,6 @@ Copyright © 2026 TahsinCr. EventFlow, MIT Lisansı ile lisanslanmıştır.
 [CHANGELOG](https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md)
 dosyalarına bakın.
 
-[version-shield]: https://img.shields.io/badge/version-v1.1-b7a3e3.svg?style=for-the-badge
+[version-shield]: https://img.shields.io/badge/version-v1.2-b7a3e3.svg?style=for-the-badge
 [python-shield]: https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?style=for-the-badge&logo=python&logoColor=white
 [license-shield]: https://img.shields.io/badge/license-MIT-blue.svg?style=for-the-badge

@@ -1,4 +1,4 @@
-[![Version: v1.1][version-shield]](CHANGELOG.md)
+[![Version: v1.2][version-shield]](CHANGELOG.md)
 [![Python 3.10+][python-shield]](https://www.python.org/downloads/)
 [![MIT License][license-shield]](LICENSE)
 
@@ -114,7 +114,7 @@ The installed package exposes its version through `eventflow.__version__`:
 ~~~python
 from eventflow import __version__
 
-print(__version__)  # 1.1
+print(__version__)  # 1.2
 ~~~
 
 <a id="first-event"></a>
@@ -579,9 +579,10 @@ Channel names are stripped and lowercased, so `" Orders "` and `"orders"`
 refer to the same channel. `engine.channel(name)` returns a channel, creating
 it when necessary. Use `engine.add(name, bus)` to register a bus with custom
 settings. `remove(name)` closes one channel; `stop()` closes every channel.
-An engine can own a bus instance under only one channel name at a time.
-Treat a bus passed to `add()` as owned by that engine; do not pass the same bus
-to another engine, since removing or stopping either engine closes it.
+An engine can own a bus instance under only one channel name at a time. A
+successful `add()` claims that bus for the engine; another engine cannot claim
+the same instance and receives `ValueError`. Removing or stopping the owner
+closes the bus.
 The engine exposes `running` and a sorted `channel_names` tuple.
 During `stop()`, both engines attempt every channel. If some closes fail, the
 failures are raised together and the engine retains those channels so a later
@@ -1133,6 +1134,6 @@ Copyright © 2026 TahsinCr. EventFlow is licensed under the MIT License.
 See [LICENSE](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE) and
 [CHANGELOG](https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md).
 
-[version-shield]: https://img.shields.io/badge/version-v1.1-b7a3e3.svg?style=for-the-badge
+[version-shield]: https://img.shields.io/badge/version-v1.2-b7a3e3.svg?style=for-the-badge
 [python-shield]: https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?style=for-the-badge&logo=python&logoColor=white
 [license-shield]: https://img.shields.io/badge/license-MIT-blue.svg?style=for-the-badge

@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [v1.2] - 2026-11-02
+
 ### Added
 
 - Add independent `Pipeline[T]` and `AsyncPipeline[T]` execution with named
@@ -106,6 +108,8 @@ All notable changes to this project are documented in this file.
 - Reject unsupported history values, non-thread executors, closed engine buses,
   boolean schedule intervals, and non-boolean callback predicate results at
   the relevant API boundary.
+- Prevent multiple engine instances from claiming one sync or async bus, including
+  concurrent registration races, without retaining the owner after its lifetime.
 
 ## [v1.1] - 2026-10-25
 

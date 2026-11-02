@@ -1,4 +1,4 @@
-"""Frozen v1.1 public signatures and real decorator/context-manager contracts."""
+"""Frozen public signatures and real decorator/context-manager contracts."""
 
 import ast
 import inspect
@@ -65,6 +65,19 @@ class PublicContractTests(unittest.TestCase):
                         ]
                     )
                 self.assertEqual(str(actual), signature, f"{name}.{method}")
+
+    def test_v1_2_exports_and_signatures_match_release_contract(self):
+        contract = json.loads(Path(__file__).with_name("api_v1_2.json").read_text())
+        self.assertEqual(eventflow.__version__, "1.2")
+        for name, methods in contract.items():
+            self.assertIn(name, eventflow.__all__)
+            item = getattr(eventflow, name)
+            for method, signature in methods.items():
+                self.assertEqual(
+                    str(inspect.signature(getattr(item, method))),
+                    signature,
+                    f"{name}.{method}",
+                )
 
     def test_async_delivery_limit_is_keyword_only_and_opt_in(self):
         for item in (AsyncEventBus, AsyncEventEngine):
