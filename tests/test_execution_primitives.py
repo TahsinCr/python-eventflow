@@ -1017,6 +1017,28 @@ class ThreadBridgeTests(unittest.TestCase):
         self.assertIsNone(coroutine.cr_frame)
         portal.close(timeout=1)
 
+    def test_loop_portal_shutdown_waits_for_default_executor_threads(self):
+        portal = LoopPortal().start()
+        worker_started = threading.Event()
+        release_worker = threading.Event()
+
+        def blocking_work():
+            worker_started.set()
+            release_worker.wait(2)
+
+        async def operation():
+            await asyncio.to_thread(blocking_work)
+
+        portal.submit(operation())
+        try:
+            self.assertTrue(worker_started.wait(1))
+            with self.assertRaises(TimeoutError):
+                portal.close(timeout=0.01)
+            self.assertTrue(portal.running)
+        finally:
+            release_worker.set()
+            portal.close(timeout=2)
+
     def test_keyed_coalescer_merges_and_flushes_with_bounded_keys(self):
         calls = []
         coalescer = KeyedCoalescer(

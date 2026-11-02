@@ -539,6 +539,56 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(queue.stats().received, 1)
         bus.close()
 
+    async def test_event_queue_allows_consumer_takeover_after_task_finishes(self):
+        bus = EventBus[int]()
+        queue = AsyncEventQueue(bus)
+
+        async def receive_one():
+            return await queue.receive()
+
+        bus.publish(1)
+        first = asyncio.create_task(receive_one())
+        self.assertEqual(await first, 1)
+
+        bus.publish(2)
+        second = asyncio.create_task(receive_one())
+        self.assertEqual(await second, 2)
+        await queue.aclose()
+        bus.close()
+
+    async def test_event_queue_can_unsubscribe_after_owning_loop_closes(self):
+        bus = EventBus[int]()
+        queue = AsyncEventQueue(bus)
+        errors = []
+
+        def bind_and_close_loop():
+            loop = asyncio.new_event_loop()
+
+            async def attach_cancelled_consumer():
+                consumer = asyncio.create_task(queue.receive())
+                await asyncio.sleep(0)
+                consumer.cancel()
+                with self.assertRaises(asyncio.CancelledError):
+                    await consumer
+
+            try:
+                loop.run_until_complete(attach_cancelled_consumer())
+            except BaseException as error:
+                errors.append(error)
+            finally:
+                loop.close()
+
+        thread = threading.Thread(target=bind_and_close_loop)
+        thread.start()
+        thread.join(1)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(errors, [])
+
+        await queue.aclose()
+        self.assertTrue(queue.closed)
+        self.assertEqual(bus.subscriber_count, 0)
+        bus.close()
+
     async def test_event_queue_recovers_a_cancelled_waiter_in_the_same_consumer(self):
         bus = EventBus[int]()
         queue = AsyncEventQueue(bus)

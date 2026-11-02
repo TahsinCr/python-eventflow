@@ -134,7 +134,7 @@ class AsyncEventQueue(Generic[T]):
         """Receive one event; events already accepted are drained after close."""
         loop = self._bind_loop()
         task = asyncio.current_task()
-        if self._consumer is None:
+        if self._consumer is None or self._consumer.done():
             self._consumer = task
         elif self._consumer is not task:
             raise RuntimeError("AsyncEventQueue supports one consumer task")
@@ -184,7 +184,11 @@ class AsyncEventQueue(Generic[T]):
             )
 
     async def aclose(self) -> None:
-        loop = self._bind_loop()
+        owner = self._loop
+        if owner is not None and owner.is_closed():
+            loop = None
+        else:
+            loop = self._bind_loop()
         with self._lock:
             self._closed = True
             waiter, self._waiter = self._waiter, None
@@ -197,7 +201,7 @@ class AsyncEventQueue(Generic[T]):
                 error = exc
             else:
                 self._subscription = None
-        if waiter is not None:
+        if waiter is not None and loop is not None:
             loop.call_soon(self._wake, waiter)
         if error is not None:
             raise error
@@ -227,6 +231,7 @@ class LoopPortal:
         self._startup_error: BaseException | None = None
         self._futures: set[concurrent.futures.Future[Any]] = set()
         self._closing = False
+        self._stopping = False
         self._closed = False
 
     @property
@@ -288,9 +293,14 @@ class LoopPortal:
                     self._ready.set()
             raise
         finally:
-            loop.run_until_complete(loop.shutdown_asyncgens())
-            asyncio.set_event_loop(None)
-            loop.close()
+            try:
+                loop.run_until_complete(loop.shutdown_asyncgens())
+            finally:
+                try:
+                    loop.run_until_complete(loop.shutdown_default_executor())
+                finally:
+                    asyncio.set_event_loop(None)
+                    loop.close()
 
     def submit(
         self,
@@ -449,6 +459,7 @@ class LoopPortal:
             with self._lock:
                 loop = self._loop
                 startup_error = self._startup_error
+                stopping = self._stopping
 
             if loop is None:
                 remaining = None if end is None else max(0.0, end - time.monotonic())
@@ -466,7 +477,7 @@ class LoopPortal:
                     )
                 return
 
-            if not loop.is_running():
+            if stopping or not loop.is_running():
                 remaining = None if end is None else max(0.0, end - time.monotonic())
                 thread.join(remaining)
                 if thread.is_alive():
@@ -507,6 +518,8 @@ class LoopPortal:
                         "LoopPortal tasks remain active; loop ownership was retained"
                     ) from error
                 break
+            with self._lock:
+                self._stopping = True
             loop.call_soon_threadsafe(loop.stop)
             remaining = None if end is None else max(0.0, end - time.monotonic())
             thread.join(remaining)
