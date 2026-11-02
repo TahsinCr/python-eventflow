@@ -419,11 +419,15 @@ class LoopPortal:
             raise RuntimeError("LoopPortal.call cannot block its own event-loop thread")
         timeout = validate_nonnegative_timeout(timeout, name="portal call timeout")
         future = self.submit(operation, *args, **kwargs)
-        completed, _ = concurrent.futures.wait((future,), timeout=timeout)
-        if not completed:
+        try:
+            return future.result(timeout=timeout)
+        except concurrent.futures.TimeoutError as error:
+            if future.done() and not future.cancelled() and future.exception() is error:
+                raise
             future.cancel()
-            raise TimeoutError("LoopPortal call exceeded its timeout; cancellation is cooperative")
-        return future.result()
+            raise TimeoutError(
+                "LoopPortal call exceeded its timeout; cancellation is cooperative"
+            ) from error
 
     def cancel(self, future: concurrent.futures.Future[Any]) -> bool:
         if not isinstance(future, concurrent.futures.Future):

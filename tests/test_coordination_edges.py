@@ -646,7 +646,7 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
                 cancelled.set()
                 raise
 
-        with self.assertRaises(TimeoutError):
+        with self.assertRaisesRegex(TimeoutError, "LoopPortal call exceeded its timeout"):
             portal.call(slow, timeout=0.01)
         self.assertTrue(started.wait(1))
         self.assertTrue(cancelled.wait(1))

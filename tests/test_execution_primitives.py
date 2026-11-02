@@ -1138,14 +1138,17 @@ class ThreadBridgeTests(unittest.TestCase):
             portal.start()
 
     def test_loop_portal_preserves_operation_timeout_errors(self):
+        operation_error = TimeoutError("operation timed out")
+
         async def operation():
-            raise TimeoutError("operation timed out")
+            raise operation_error
 
         with LoopPortal() as portal:
             for timeout in (None, 1.0):
                 with self.subTest(timeout=timeout):
-                    with self.assertRaisesRegex(TimeoutError, "operation timed out"):
+                    with self.assertRaises(TimeoutError) as raised:
                         portal.call(operation, timeout=timeout)
+                    self.assertIs(raised.exception, operation_error)
 
     def test_loop_portal_rejects_work_after_stop_is_queued(self):
         portal = LoopPortal().start()
