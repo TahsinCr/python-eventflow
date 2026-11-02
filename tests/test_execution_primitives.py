@@ -867,10 +867,20 @@ class AsyncPrimitiveTests(unittest.IsolatedAsyncioTestCase):
         observer = OperationStats()
         scheduler = AsyncScheduler(observer=observer)
         values = []
+        second_tick = asyncio.Event()
+        tick_count = 0
+
+        def record_tick():
+            nonlocal tick_count
+            tick_count += 1
+            values.append("tick")
+            if tick_count == 2:
+                second_tick.set()
+
         once = scheduler.schedule_once(lambda: values.append("once"))
         await once.join(1)
-        periodic = scheduler.periodic(lambda: values.append("tick"), interval=0.01, overlap="skip")
-        await asyncio.sleep(0.035)
+        periodic = scheduler.periodic(record_tick, interval=0.01, overlap="skip")
+        await asyncio.wait_for(second_tick.wait(), 1)
         await scheduler.aclose(1)
         self.assertIn("once", values)
         self.assertGreaterEqual(values.count("tick"), 2)
@@ -1007,16 +1017,28 @@ class ThreadBridgeTests(unittest.TestCase):
     def test_loop_portal_closes_an_awaitable_cancelled_before_start(self):
         portal = LoopPortal()
         portal.start()
+        loop_blocked = threading.Event()
+        release_loop = threading.Event()
 
         async def operation():
             return 1
 
+        async def hold_loop():
+            loop_blocked.set()
+            release_loop.wait()
+
         coroutine = operation()
-        future = portal.submit(coroutine)
-        self.assertTrue(future.cancel())
-        portal.call(asyncio.sleep, 0)
+        blocker = portal.submit(hold_loop())
+        try:
+            self.assertTrue(loop_blocked.wait(1))
+            future = portal.submit(coroutine)
+            self.assertTrue(future.cancel())
+        finally:
+            release_loop.set()
+            portal.call(asyncio.sleep, 0)
+            blocker.result(timeout=1)
+            portal.close(timeout=1)
         self.assertIsNone(coroutine.cr_frame)
-        portal.close(timeout=1)
 
     def test_loop_portal_shutdown_waits_for_default_executor_threads(self):
         portal = LoopPortal().start()
