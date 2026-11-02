@@ -33,17 +33,19 @@ def normalize_replay_capacity(value: int) -> int:
     return validate_positive_capacity(value, name="Replay buffer limit")
 
 
-def validate_positive_timeout(value: float, *, name: str) -> float:
-    """Validate and normalize a finite timeout value."""
-
+def _validate_timeout(value: float, *, name: str, allow_zero: bool = False) -> float:
+    qualifier = "non-negative" if allow_zero else "positive"
+    message = f"{name} must be {qualifier} and finite"
     if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"{name} must be positive and finite")
+        raise ValueError(message)
     try:
         timeout = float(value)
-    except OverflowError:
-        raise ValueError(f"{name} must be positive and finite") from None
-    if not math.isfinite(timeout) or timeout <= 0:
-        raise ValueError(f"{name} must be positive and finite")
+    except OverflowError as exc:
+        if allow_zero:
+            raise ValueError(message) from exc
+        raise ValueError(message) from None
+    if not math.isfinite(timeout) or timeout < 0 or (timeout == 0 and not allow_zero):
+        raise ValueError(message)
     return timeout
 
 
@@ -53,20 +55,6 @@ def validate_nonnegative_count(value: int, *, name: str) -> int:
     if isinstance(value, bool) or not isinstance(value, int) or value < 0:
         raise ValueError(f"{name} must be a non-negative integer")
     return value
-
-
-def validate_nonnegative_timeout(value: float, *, name: str) -> float:
-    """Validate and normalize a finite timeout that may be zero."""
-
-    if isinstance(value, bool) or not isinstance(value, (int, float)):
-        raise ValueError(f"{name} must be non-negative and finite")
-    try:
-        normalized = float(value)
-    except OverflowError as exc:
-        raise ValueError(f"{name} must be non-negative and finite") from exc
-    if not math.isfinite(normalized) or normalized < 0:
-        raise ValueError(f"{name} must be non-negative and finite")
-    return normalized
 
 
 class BaseEventBus(Generic[T], ABC):
@@ -125,6 +113,18 @@ class BaseEventBus(Generic[T], ABC):
     def _record(self, event: T) -> None:
         if self._history is not None:
             self._history.append(event)
+
+    @staticmethod
+    def _query_replay(
+        history: EventHistory[T] | None,
+        replay: int,
+        has_filter: bool,
+    ) -> tuple[T, ...]:
+        if not replay or history is None:
+            return ()
+        if has_filter:
+            return history.query()
+        return history.query(limit=replay)
 
     @staticmethod
     def _delivery_limit(*, once: bool, times: int | None) -> int | None:

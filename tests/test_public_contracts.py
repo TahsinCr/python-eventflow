@@ -66,9 +66,9 @@ class PublicContractTests(unittest.TestCase):
                     )
                 self.assertEqual(str(actual), signature, f"{name}.{method}")
 
-    def test_v1_2_exports_and_signatures_match_release_contract(self):
+    def test_v1_2_1_exports_and_signatures_match_release_contract(self):
         contract = json.loads(Path(__file__).with_name("api_v1_2.json").read_text())
-        self.assertEqual(eventflow.__version__, "1.2")
+        self.assertEqual(eventflow.__version__, "1.2.1")
         for name, methods in contract.items():
             self.assertIn(name, eventflow.__all__)
             item = getattr(eventflow, name)

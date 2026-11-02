@@ -14,9 +14,8 @@ from .base import (
     BaseEventBus,
     normalize_replay_capacity,
     validate_nonnegative_count,
-    validate_nonnegative_timeout,
     validate_positive_capacity,
-    validate_positive_timeout,
+    _validate_timeout,
 )
 from .contracts import DeliveryMode, ErrorPolicy, EventBusStats, PublishResult
 from .compatibility import ExceptionGroup
@@ -182,13 +181,11 @@ class AsyncEventBus(BaseEventBus[T]):
         async with self._lock:
             self._ensure_open()
             history = self._history
-            if replay and history is not None:
-                if event_filter is None and event_type is None and predicate is None:
-                    replay_snapshot = history.query(limit=replay)
-                else:
-                    replay_snapshot = history.query()
-            else:
-                replay_snapshot = ()
+            replay_snapshot = self._query_replay(
+                history,
+                replay,
+                any(option is not None for option in (event_filter, event_type, predicate)),
+            )
             subscription, subscriber = self._subscribe_locked(
                 callback,
                 normalized_filter,
@@ -489,7 +486,7 @@ class AsyncEventBus(BaseEventBus[T]):
         """Publish the same event periodically until cancelled or completed."""
 
         self._bind_loop()
-        interval = validate_positive_timeout(interval, name="Event publish interval")
+        interval = _validate_timeout(interval, name="Event publish interval")
         if times is not None and (
             isinstance(times, bool) or not isinstance(times, int) or times <= 0
         ):
@@ -555,7 +552,11 @@ class AsyncEventBus(BaseEventBus[T]):
     ) -> T | None:
         loop = self._bind_loop()
         if timeout is not None:
-            timeout = validate_nonnegative_timeout(timeout, name="Event wait timeout")
+            timeout = _validate_timeout(
+                timeout,
+                name="Event wait timeout",
+                allow_zero=True,
+            )
         normalized_filter = coerce_event_filter(
             event_filter,
             event_type=event_type,

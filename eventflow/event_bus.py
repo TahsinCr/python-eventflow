@@ -17,9 +17,8 @@ from .base import (
     BaseEventBus,
     normalize_replay_capacity,
     validate_nonnegative_count,
-    validate_nonnegative_timeout,
     validate_positive_capacity,
-    validate_positive_timeout,
+    _validate_timeout,
 )
 from .contracts import ErrorPolicy, EventBusStats, PublishResult
 from .compatibility import ExceptionGroup
@@ -121,10 +120,7 @@ class EventBus(BaseEventBus[T]):
             max_schedules,
             name="Maximum periodic schedules",
         )
-        shutdown_timeout = validate_positive_timeout(
-            shutdown_timeout,
-            name="Shutdown timeout",
-        )
+        shutdown_timeout = _validate_timeout(shutdown_timeout, name="Shutdown timeout")
         direct_actions = (on_before, on_after, on_error, on_timeout)
         if actions is not None and any(action is not None for action in direct_actions):
             raise ValueError("Use actions or direct on_* callbacks, not both")
@@ -198,13 +194,11 @@ class EventBus(BaseEventBus[T]):
             history = self._history
             subscription_id = self._next_id
             self._next_id += 1
-            if replay and history is not None:
-                if event_filter is None and event_type is None and predicate is None:
-                    replay_snapshot = history.query(limit=replay)
-                else:
-                    replay_snapshot = history.query()
-            else:
-                replay_snapshot = ()
+            replay_snapshot = self._query_replay(
+                history,
+                replay,
+                any(option is not None for option in (event_filter, event_type, predicate)),
+            )
 
             def cancel() -> None:
                 with self._lock:
@@ -461,7 +455,7 @@ class EventBus(BaseEventBus[T]):
     ) -> Subscription:
         """Publish the same event periodically until cancelled or completed."""
 
-        interval = validate_positive_timeout(interval, name="Event publish interval")
+        interval = _validate_timeout(interval, name="Event publish interval")
         if times is not None and (
             isinstance(times, bool) or not isinstance(times, int) or times <= 0
         ):
@@ -529,7 +523,11 @@ class EventBus(BaseEventBus[T]):
         timeout: float | None = None,
     ) -> T | None:
         if timeout is not None:
-            timeout = validate_nonnegative_timeout(timeout, name="Event wait timeout")
+            timeout = _validate_timeout(
+                timeout,
+                name="Event wait timeout",
+                allow_zero=True,
+            )
         normalized_filter = coerce_event_filter(
             event_filter,
             event_type=event_type,

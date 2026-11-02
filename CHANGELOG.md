@@ -4,10 +4,14 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [v1.2.1] - 2026-11-02
+
 ### Changed
 
 - Isolate sync and async subscriber matching in focused bus helpers while
   keeping their cancellation and replay behavior separate.
+- Share finite timeout validation and replay-history window selection across
+  both buses without merging their independent delivery paths.
 - Count a publication only after a configured history append succeeds, and
   reject non-string engine channel names instead of coercing them.
 - Skip repeated event-loop lookups on stream reads after the owning consumer
