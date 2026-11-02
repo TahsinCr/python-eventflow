@@ -237,14 +237,19 @@ class LoopPortal:
     @property
     def running(self) -> bool:
         with self._lock:
-            return self._loop is not None and self._loop.is_running() and not self._closing
+            return (
+                self._loop is not None
+                and self._loop.is_running()
+                and not self._closing
+                and not self._stopping
+            )
 
     def start(self) -> LoopPortal:
         """Start the loop thread and wait until its event loop is running."""
         with self._lock:
             if self._closed:
                 raise LoopPortalClosedError("LoopPortal cannot be restarted after close")
-            if self._closing:
+            if self._closing or self._stopping:
                 raise LoopPortalClosedError("LoopPortal is closing")
             if self._thread is None:
                 self._ready.clear()
@@ -264,7 +269,7 @@ class LoopPortal:
                 raise LoopPortalClosedError("LoopPortal event loop failed to start") from (
                     self._startup_error
                 )
-            if self._closing or self._closed:
+            if self._closing or self._stopping or self._closed:
                 raise LoopPortalClosedError("LoopPortal is closing")
         return self
 
@@ -315,6 +320,7 @@ class LoopPortal:
                 or self._loop is None
                 or not self._loop.is_running()
                 or self._closing
+                or self._stopping
             ):
                 if not callable(operation):
                     close_awaitable(operation)
@@ -413,13 +419,11 @@ class LoopPortal:
             raise RuntimeError("LoopPortal.call cannot block its own event-loop thread")
         timeout = validate_nonnegative_timeout(timeout, name="portal call timeout")
         future = self.submit(operation, *args, **kwargs)
-        try:
-            return future.result(timeout=timeout)
-        except concurrent.futures.TimeoutError as error:
+        completed, _ = concurrent.futures.wait((future,), timeout=timeout)
+        if not completed:
             future.cancel()
-            raise TimeoutError(
-                "LoopPortal call exceeded its timeout; cancellation is cooperative"
-            ) from error
+            raise TimeoutError("LoopPortal call exceeded its timeout; cancellation is cooperative")
+        return future.result()
 
     def cancel(self, future: concurrent.futures.Future[Any]) -> bool:
         if not isinstance(future, concurrent.futures.Future):

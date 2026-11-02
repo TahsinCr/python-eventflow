@@ -13,7 +13,7 @@ from eventflow.bridges import AsyncEventQueue, LoopPortal
 from eventflow.cache import VersionedCache
 from eventflow.compatibility import ExceptionGroup
 from eventflow.concurrency import KeyedConcurrencyLimiter, KeyedRateLimiter, SingleFlight
-from eventflow.errors import EventQueueClosedError, QueueOverflowError
+from eventflow.errors import EventQueueClosedError, LoopPortalClosedError, QueueOverflowError
 from eventflow.executors import BoundedWorkPool
 from eventflow.observability import OperationStats
 from eventflow.policy import PolicyEvaluator
@@ -984,6 +984,63 @@ class ThreadBridgeTests(unittest.TestCase):
         with self.assertRaises(RuntimeError):
             portal.start()
 
+    def test_loop_portal_preserves_operation_timeout_errors(self):
+        async def operation():
+            raise TimeoutError("operation timed out")
+
+        with LoopPortal() as portal:
+            for timeout in (None, 1.0):
+                with self.subTest(timeout=timeout):
+                    with self.assertRaisesRegex(TimeoutError, "operation timed out"):
+                        portal.call(operation, timeout=timeout)
+
+    def test_loop_portal_rejects_work_after_stop_is_queued(self):
+        portal = LoopPortal().start()
+        loop = portal._loop
+        self.assertIsNotNone(loop)
+        assert loop is not None
+        original_call_soon_threadsafe = loop.call_soon_threadsafe
+        loop_blocked = threading.Event()
+        release_loop = threading.Event()
+
+        def block_loop():
+            loop_blocked.set()
+            release_loop.wait()
+
+        def intercept_stop(callback, *args, **kwargs):
+            if (
+                getattr(callback, "__self__", None) is loop
+                and getattr(callback, "__name__", None) == "stop"
+            ):
+                original_call_soon_threadsafe(block_loop)
+            return original_call_soon_threadsafe(callback, *args, **kwargs)
+
+        portal_thread = portal._thread
+        self.assertIsNotNone(portal_thread)
+        assert portal_thread is not None
+        original_join = portal_thread.join
+
+        def return_before_thread_exits(timeout=None):
+            self.assertTrue(loop_blocked.wait(1))
+
+        loop.call_soon_threadsafe = intercept_stop
+        portal_thread.join = return_before_thread_exits
+        try:
+            with self.assertRaises(TimeoutError):
+                portal.close(timeout=2)
+            self.assertFalse(portal.running)
+            with self.assertRaises(LoopPortalClosedError):
+                portal.start()
+            coroutine = asyncio.sleep(0)
+            with self.assertRaises(LoopPortalClosedError):
+                portal.submit(coroutine)
+            self.assertIsNone(coroutine.cr_frame)
+        finally:
+            release_loop.set()
+            loop.call_soon_threadsafe = original_call_soon_threadsafe
+            portal_thread.join = original_join
+            portal.close(timeout=1)
+
     def test_loop_portal_serializes_concurrent_start_and_close(self):
         portal = LoopPortal()
         barrier = threading.Barrier(3)
@@ -1057,7 +1114,7 @@ class ThreadBridgeTests(unittest.TestCase):
             self.assertTrue(worker_started.wait(1))
             with self.assertRaises(TimeoutError):
                 portal.close(timeout=0.01)
-            self.assertTrue(portal.running)
+            self.assertFalse(portal.running)
         finally:
             release_worker.set()
             portal.close(timeout=2)
