@@ -33,7 +33,8 @@ def normalize_replay_capacity(value: int) -> int:
     return validate_positive_capacity(value, name="Replay buffer limit")
 
 
-def _validate_timeout(value: float, *, name: str, allow_zero: bool = False) -> float:
+def validate_finite_duration(value: float, *, name: str, allow_zero: bool = False) -> float:
+    """Validate a finite duration, optionally accepting zero."""
     qualifier = "non-negative" if allow_zero else "positive"
     message = f"{name} must be {qualifier} and finite"
     if isinstance(value, bool) or not isinstance(value, (int, float)):
@@ -47,6 +48,13 @@ def _validate_timeout(value: float, *, name: str, allow_zero: bool = False) -> f
     if not math.isfinite(timeout) or timeout < 0 or (timeout == 0 and not allow_zero):
         raise ValueError(message)
     return timeout
+
+
+def validate_nonnegative_timeout(value: float | None, *, name: str) -> float | None:
+    """Validate an optional timeout that may be zero; None means no timeout."""
+    if value is None:
+        return None
+    return validate_finite_duration(value, name=name, allow_zero=True)
 
 
 def validate_nonnegative_count(value: int, *, name: str) -> int:

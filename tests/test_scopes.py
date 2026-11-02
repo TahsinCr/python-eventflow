@@ -199,7 +199,7 @@ class AsyncScopeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(calls, ["cancelled", "bad", "good"])
         self.assertIsInstance(caught.exception.__cause__, ExceptionGroup)
 
-    async def test_old_async_handles_and_failures(self):
+    async def test_async_handles_and_failures(self):
         calls = []
         async with AsyncEventBus[int]() as bus, AsyncSubscriptionScope() as scope:
 

@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
-from typing import Any
+from typing import Any, Generic, TypeVar
 
 from .actions import (
     AsyncEventBusActions,
@@ -14,13 +14,15 @@ from .actions import (
     EventTimeoutContext,
 )
 from .async_event_bus import AsyncEventBus
-from .base import validate_positive_capacity
+from .base import BaseEventBus, validate_positive_capacity
 from .compatibility import ExceptionGroup
 from .contracts import DeliveryMode, ErrorPolicy, PublishResult
 from .errors import EventBusClosedError
 from .event_bus import EventBus, _validate_executor
 from .filtering import EventFilter, EventType
 from .subscription import AsyncSubscription, Subscription
+
+BusT = TypeVar("BusT", bound=BaseEventBus[Any])
 
 
 def _channel_name(name: str) -> str:
@@ -40,6 +42,85 @@ def _validate_history_capacity(history: object) -> int | None:
     if history <= 0:
         raise ValueError("Engine history capacity must be positive")
     return history
+
+
+class _ChannelRegistry(Generic[BusT]):
+    """Own channel maps and close retries shared by both engine types."""
+
+    def __init__(self, owner: object) -> None:
+        self._owner = owner
+        self._channels: dict[str, BusT] = {}
+        self._pending_close: dict[int, BusT] = {}
+        self._bus_ids: set[int] = set()
+        self._lock = threading.RLock()
+        self._running = True
+
+    @property
+    def running(self) -> bool:
+        with self._lock:
+            return self._running
+
+    @property
+    def names(self) -> tuple[str, ...]:
+        with self._lock:
+            return tuple(sorted(self._channels))
+
+    def get_or_create(self, name: str, factory: Callable[[], BusT]) -> BusT:
+        with self._lock:
+            bus = self._channels.get(name)
+            if bus is None:
+                bus = factory()
+                bus._claim_engine_ownership(self._owner)
+                self._channels[name] = bus
+                self._bus_ids.add(id(bus))
+            self._running = True
+            return bus
+
+    def add(
+        self,
+        name: str,
+        bus: BusT,
+        *,
+        bus_type: str,
+        channel_type: str,
+    ) -> None:
+        with self._lock:
+            if name in self._channels:
+                raise ValueError(f"{channel_type} channel already exists: {name}")
+            bus_id = id(bus)
+            if bus_id in self._bus_ids:
+                raise ValueError(f"An {bus_type} instance can belong to only one channel")
+            self._channels[name] = bus
+            if not bus._claim_engine_ownership(self._owner):
+                del self._channels[name]
+                raise ValueError(f"An {bus_type} instance can belong to only one engine")
+            self._bus_ids.add(bus_id)
+            self._running = True
+
+    def begin_remove(self, name: str) -> BusT | None:
+        with self._lock:
+            bus = self._channels.pop(name, None)
+            if bus is not None:
+                self._pending_close[id(bus)] = bus
+            return bus
+
+    def begin_stop(self) -> tuple[BusT, ...]:
+        with self._lock:
+            channels = tuple(self._channels.values())
+            self._channels.clear()
+            for channel in channels:
+                self._pending_close[id(channel)] = channel
+            self._running = False
+            return tuple(self._pending_close.values())
+
+    def close_succeeded(self, bus: BusT) -> None:
+        with self._lock:
+            self._pending_close.pop(id(bus), None)
+            self._bus_ids.discard(id(bus))
+
+    def start(self) -> None:
+        with self._lock:
+            self._running = True
 
 
 class EventEngine:
@@ -69,38 +150,29 @@ class EventEngine:
             on_error=on_error,
             on_timeout=on_timeout,
         )
-        self._channels: dict[str, EventBus[Any]] = {}
-        self._pending_close: dict[int, EventBus[Any]] = {}
-        self._lock = threading.RLock()
-        self._running = True
+        self._channel_registry = _ChannelRegistry[EventBus[Any]](self)
 
     @property
     def running(self) -> bool:
-        with self._lock:
-            return self._running
+        return self._channel_registry.running
 
     @property
     def channel_names(self) -> tuple[str, ...]:
-        with self._lock:
-            return tuple(sorted(self._channels))
+        return self._channel_registry.names
 
     def channel(self, name: str) -> EventBus[Any]:
         """Return a channel, creating it with engine defaults when necessary."""
 
         name = _channel_name(name)
-        with self._lock:
-            bus = self._channels.get(name)
-            if bus is None:
-                bus = EventBus(
-                    history=self._history,
-                    error_policy=self._error_policy,
-                    executor=self._executor,
-                    actions=self._actions,
-                )
-                bus._claim_engine_ownership(self)
-                self._channels[name] = bus
-            self._running = True
-            return bus
+        return self._channel_registry.get_or_create(
+            name,
+            lambda: EventBus(
+                history=self._history,
+                error_policy=self._error_policy,
+                executor=self._executor,
+                actions=self._actions,
+            ),
+        )
 
     def add(self, name: str, bus: EventBus[Any]) -> EventBus[Any]:
         """Register a bus owned by this engine under a channel name.
@@ -114,18 +186,7 @@ class EventEngine:
         if bus.closed:
             raise EventBusClosedError("Cannot add a closed EventBus to an engine")
         name = _channel_name(name)
-        with self._lock:
-            if name in self._channels:
-                raise ValueError(f"Event channel already exists: {name}")
-            if any(channel is bus for channel in self._channels.values()) or any(
-                channel is bus for channel in self._pending_close.values()
-            ):
-                raise ValueError("An EventBus instance can belong to only one channel")
-            self._channels[name] = bus
-            if not bus._claim_engine_ownership(self):
-                del self._channels[name]
-                raise ValueError("An EventBus instance can belong to only one engine")
-            self._running = True
+        self._channel_registry.add(name, bus, bus_type="EventBus", channel_type="Event")
         return bus
 
     def publish(self, channel: str, event: Any) -> PublishResult:
@@ -205,31 +266,20 @@ class EventEngine:
 
     def remove(self, name: str) -> bool:
         name = _channel_name(name)
-        with self._lock:
-            bus = self._channels.pop(name, None)
-            if bus is not None:
-                self._pending_close[id(bus)] = bus
+        bus = self._channel_registry.begin_remove(name)
         if bus is None:
             return False
         bus.close()
-        with self._lock:
-            self._pending_close.pop(id(bus), None)
+        self._channel_registry.close_succeeded(bus)
         return True
 
     def start(self) -> None:
         """Keep Service-style lifecycle symmetry; channels start lazily."""
 
-        with self._lock:
-            self._running = True
+        self._channel_registry.start()
 
     def stop(self) -> None:
-        with self._lock:
-            channels = tuple(self._channels.values())
-            self._channels.clear()
-            for channel in channels:
-                self._pending_close[id(channel)] = channel
-            pending = tuple(self._pending_close.values())
-            self._running = False
+        pending = self._channel_registry.begin_stop()
         errors: list[Exception] = []
         for channel in pending:
             try:
@@ -237,8 +287,7 @@ class EventEngine:
             except Exception as exc:
                 errors.append(exc)
             else:
-                with self._lock:
-                    self._pending_close.pop(id(channel), None)
+                self._channel_registry.close_succeeded(channel)
         if errors:
             raise ExceptionGroup("One or more event channels failed to close", errors)
 
@@ -289,37 +338,28 @@ class AsyncEventEngine:
             on_error=on_error,
             on_timeout=on_timeout,
         )
-        self._channels: dict[str, AsyncEventBus[Any]] = {}
-        self._pending_close: dict[int, AsyncEventBus[Any]] = {}
-        self._lock = threading.RLock()
-        self._running = True
+        self._channel_registry = _ChannelRegistry[AsyncEventBus[Any]](self)
 
     @property
     def running(self) -> bool:
-        with self._lock:
-            return self._running
+        return self._channel_registry.running
 
     @property
     def channel_names(self) -> tuple[str, ...]:
-        with self._lock:
-            return tuple(sorted(self._channels))
+        return self._channel_registry.names
 
     def channel(self, name: str) -> AsyncEventBus[Any]:
         name = _channel_name(name)
-        with self._lock:
-            bus = self._channels.get(name)
-            if bus is None:
-                bus = AsyncEventBus(
-                    history=self._history,
-                    error_policy=self._error_policy,
-                    delivery_mode=self._delivery_mode,
-                    max_concurrency=self._max_concurrency,
-                    actions=self._actions,
-                )
-                bus._claim_engine_ownership(self)
-                self._channels[name] = bus
-            self._running = True
-            return bus
+        return self._channel_registry.get_or_create(
+            name,
+            lambda: AsyncEventBus(
+                history=self._history,
+                error_policy=self._error_policy,
+                delivery_mode=self._delivery_mode,
+                max_concurrency=self._max_concurrency,
+                actions=self._actions,
+            ),
+        )
 
     def add(self, name: str, bus: AsyncEventBus[Any]) -> AsyncEventBus[Any]:
         """Register a bus owned by this engine under a channel name.
@@ -333,18 +373,7 @@ class AsyncEventEngine:
         if bus.closed:
             raise EventBusClosedError("Cannot add a closed AsyncEventBus to an engine")
         name = _channel_name(name)
-        with self._lock:
-            if name in self._channels:
-                raise ValueError(f"Async event channel already exists: {name}")
-            if any(channel is bus for channel in self._channels.values()) or any(
-                channel is bus for channel in self._pending_close.values()
-            ):
-                raise ValueError("An AsyncEventBus instance can belong to only one channel")
-            self._channels[name] = bus
-            if not bus._claim_engine_ownership(self):
-                del self._channels[name]
-                raise ValueError("An AsyncEventBus instance can belong to only one engine")
-            self._running = True
+        self._channel_registry.add(name, bus, bus_type="AsyncEventBus", channel_type="Async event")
         return bus
 
     async def publish(self, channel: str, event: Any) -> PublishResult:
@@ -424,31 +453,20 @@ class AsyncEventEngine:
 
     async def remove(self, name: str) -> bool:
         name = _channel_name(name)
-        with self._lock:
-            bus = self._channels.pop(name, None)
-            if bus is not None:
-                self._pending_close[id(bus)] = bus
+        bus = self._channel_registry.begin_remove(name)
         if bus is None:
             return False
         await bus.close()
-        with self._lock:
-            self._pending_close.pop(id(bus), None)
+        self._channel_registry.close_succeeded(bus)
         return True
 
     async def start(self) -> None:
         """Keep lifecycle symmetry; channels bind to a loop when first used."""
 
-        with self._lock:
-            self._running = True
+        self._channel_registry.start()
 
     async def stop(self) -> None:
-        with self._lock:
-            channels = tuple(self._channels.values())
-            self._channels.clear()
-            for channel in channels:
-                self._pending_close[id(channel)] = channel
-            pending = tuple(self._pending_close.values())
-            self._running = False
+        pending = self._channel_registry.begin_stop()
         errors: list[Exception] = []
         for channel in pending:
             try:
@@ -456,8 +474,7 @@ class AsyncEventEngine:
             except Exception as exc:
                 errors.append(exc)
             else:
-                with self._lock:
-                    self._pending_close.pop(id(channel), None)
+                self._channel_registry.close_succeeded(channel)
         if errors:
             raise ExceptionGroup("One or more async event channels failed to close", errors)
 

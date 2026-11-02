@@ -7,8 +7,8 @@ import inspect
 from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
 from typing import Any, Generic, NoReturn, TypeVar, cast
 
-from ._lifecycle import finish_cleanup
-from .base import validate_positive_capacity
+from ._lifecycle import bind_running_loop, finish_cleanup
+from .base import validate_finite_duration, validate_positive_capacity
 
 T = TypeVar("T")
 U = TypeVar("U")
@@ -48,11 +48,7 @@ class AsyncStream(AsyncIterator[T], Generic[T]):
         self._cleanup: asyncio.Task[None] | None = None
 
     def _bind_loop(self) -> None:
-        loop = asyncio.get_running_loop()
-        if self._loop is None:
-            self._loop = loop
-        elif self._loop is not loop:
-            raise RuntimeError("AsyncStream belongs to a different event loop")
+        self._loop = bind_running_loop(self._loop, "AsyncStream")
 
     @property
     def closed(self) -> bool:
@@ -146,6 +142,136 @@ class AsyncStream(AsyncIterator[T], Generic[T]):
                     items.clear()
             if items and partial:
                 yield tuple(items)
+
+        return AsyncStream(batched(), _upstream=self)
+
+    def batch_within(
+        self,
+        max_items: int,
+        max_delay: float,
+        *,
+        partial: bool = True,
+    ) -> AsyncStream[tuple[T, ...]]:
+        """Emit a batch when full or when max_delay elapses after its first item.
+
+        One producer accumulates a bounded batch and transfers it through one
+        pending slot. Demand-gated handoff bounds internal buffering to one
+        batch and one source item in flight. A single monotonic timer serves
+        each batch; neither tasks nor timer handles are created per item.
+        """
+        max_items = validate_positive_capacity(max_items, name="Timed batch max_items")
+        delay = validate_finite_duration(max_delay, name="Timed batch max_delay")
+        if not isinstance(partial, bool):
+            raise TypeError("Stream partial flag must be a bool")
+
+        async def batched() -> AsyncIterator[tuple[T, ...]]:
+            loop = asyncio.get_running_loop()
+            available = asyncio.Event()
+            space = asyncio.Event()
+            space.set()
+            values: list[T] = []
+            pending: tuple[T, ...] | None = None
+            producer_done = False
+            stopped = False
+            source_error: BaseException | None = None
+            timer: asyncio.TimerHandle | None = None
+            deadline: float | None = None
+            end = object()
+
+            def cancel_timer() -> None:
+                nonlocal timer, deadline
+                if timer is not None:
+                    timer.cancel()
+                    timer = None
+                deadline = None
+
+            def flush() -> None:
+                nonlocal pending
+                if not values:
+                    return
+                pending = tuple(values)
+                values.clear()
+                cancel_timer()
+                space.clear()
+                available.set()
+
+            def expire() -> None:
+                nonlocal timer
+                timer = None
+                flush()
+
+            async def produce() -> None:
+                nonlocal producer_done, source_error, pending, timer, deadline
+                try:
+                    async for item in self:
+                        if not space.is_set():
+                            await space.wait()
+                        if stopped:
+                            return
+                        arrived = loop.time()
+                        if values and deadline is not None and arrived >= deadline:
+                            flush()
+                            await space.wait()
+                            if stopped:
+                                return
+                            arrived = loop.time()
+                        values.append(item)
+                        if len(values) == 1:
+                            deadline = arrived + delay
+                            timer = loop.call_at(deadline, expire)
+                        if len(values) == max_items:
+                            flush()
+                except BaseException as error:
+                    if not (stopped and isinstance(error, asyncio.CancelledError)):
+                        source_error = error
+                finally:
+                    if stopped:
+                        values.clear()
+                        pending = None
+                        cancel_timer()
+                    elif values and partial:
+                        flush()
+                    else:
+                        values.clear()
+                        cancel_timer()
+                    producer_done = True
+                    available.set()
+
+            def take_batch() -> tuple[T, ...] | None:
+                nonlocal pending
+                value = pending
+                if value is None:
+                    return None
+                pending = None
+                if not producer_done:
+                    available.clear()
+                return value
+
+            async def next_batch() -> tuple[T, ...] | object:
+                space.set()
+                while True:
+                    value = take_batch()
+                    if value is not None:
+                        return value
+                    if producer_done:
+                        return end
+                    available.clear()
+                    await available.wait()
+
+            producer = asyncio.create_task(produce(), name="EventFlowTimedBatchProducer")
+            try:
+                while True:
+                    item = await next_batch()
+                    if item is end:
+                        if source_error is not None:
+                            raise source_error
+                        break
+                    yield cast(tuple[T, ...], item)
+            finally:
+                cancel_timer()
+                stopped = True
+                producer.cancel()
+                await finish_cleanup(asyncio.gather(producer, return_exceptions=True))
 
         return AsyncStream(batched(), _upstream=self)
 

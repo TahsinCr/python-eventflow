@@ -14,8 +14,8 @@ from .base import (
     BaseEventBus,
     normalize_replay_capacity,
     validate_nonnegative_count,
+    validate_finite_duration,
     validate_positive_capacity,
-    _validate_timeout,
 )
 from .contracts import DeliveryMode, ErrorPolicy, EventBusStats, PublishResult
 from .compatibility import ExceptionGroup
@@ -486,7 +486,7 @@ class AsyncEventBus(BaseEventBus[T]):
         """Publish the same event periodically until cancelled or completed."""
 
         self._bind_loop()
-        interval = _validate_timeout(interval, name="Event publish interval")
+        interval = validate_finite_duration(interval, name="Event publish interval")
         if times is not None and (
             isinstance(times, bool) or not isinstance(times, int) or times <= 0
         ):
@@ -552,7 +552,7 @@ class AsyncEventBus(BaseEventBus[T]):
     ) -> T | None:
         loop = self._bind_loop()
         if timeout is not None:
-            timeout = _validate_timeout(
+            timeout = validate_finite_duration(
                 timeout,
                 name="Event wait timeout",
                 allow_zero=True,

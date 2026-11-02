@@ -49,6 +49,14 @@ ihtiyaç yoktur.
 - [Async pipeline ve stream](#streams)
 - [Abonelik scope'ları](#scopes)
 - [Event context ve ölçümler](#event-context)
+- [Uygulama koordinasyonu](#application-coordination)
+  - [Event köprüleri ve kuyruklar](#coordination-bridges)
+  - [Task ve kaynak sahipliği](#coordination-lifecycle)
+  - [Eşzamanlılık ve yinelenen işler](#coordination-concurrency)
+  - [Retry, cooldown ve deadline](#coordination-resilience)
+  - [Zamanlama ve sınırlı iş yürütme](#coordination-scheduling)
+  - [Durum, cache, servis ve policy](#coordination-state)
+  - [İşlem metrikleri](#coordination-metrics)
 - [Güvenlik ve çalışma sınırları](#security-boundaries)
 - [Bileşenleri birlikte kullanma](#composition)
 - [Yaşam döngüsü ve başvuru](#reference)
@@ -982,6 +990,375 @@ Mevcut bir pipeline hatası sırasında oluşan observer hataları orijinal
 `PipelineExecutionError.observer_errors` üzerinde korunur; asıl cause
 değiştirilmez. Mevcut `EventBusStats` alanları ve davranışı korunur.
 
+<a id="application-coordination"></a>
+## Uygulama koordinasyonu
+
+EventFlow, uygulama kodunda kullanılabilecek yürütme ve koordinasyon
+primitive'leri de sunar. Her bileşen isteğe bağlıdır; kendi sahibi ve açık bir
+kapatma yöntemi vardır. Bileşenler normal Python callable, awaitable, future,
+context manager ve iterator arayüzleriyle çalışır. Böylece event teslimatı ve
+pipeline sıralaması değişmeden bus, pipeline ve stream'lerle birleştirilebilir.
+
+| Bileşen | Modül | Kullanım amacı |
+| --- | --- | --- |
+| `AsyncEventQueue`, `LoopPortal` | `eventflow.bridges` | Senkron bus olaylarını ve thread çağrılarını sahip olunan async loop'a taşımak. |
+| `AsyncTaskScope` | `eventflow.tasks` | Arka plan asyncio task'larını sahiplenmek. |
+| `ResourceScope`, `AsyncResourceScope` | `eventflow.scopes` | Ters sırada, tekrar denenebilir kaynak temizliği yapmak. |
+| `KeyedConcurrencyLimiter`, `KeyedRateLimiter`, `SingleFlight` | `eventflow.concurrency` | Anahtarlı iş yükünü sınırlamak, token bucket uygulamak veya devam eden işi paylaşmak. |
+| `LatestTaskCoordinator` | `eventflow.tasks` | Her anahtar için yalnız en yeni sonucu uygulamak. |
+| `AsyncStream.batch_within()` | `eventflow.stream` | Boyut veya zaman eşiğinde batch üretmek. |
+| `BoundedWorkPool` | `eventflow.executors` | Thread pool'a verilen senkron işleri sınırlamak. |
+| `KeyedCoalescer`, `AsyncScheduler` | `eventflow.scheduling` | Anahtarlı güncellemeleri birleştirmek ve zamanlanmış async işleri yönetmek. |
+| `RetryPolicy`, `CooldownRegistry`, `CircuitBreaker` | `eventflow.resilience` | Retry ve geçici hata davranışını yönetmek. |
+| `Deadline` | `eventflow.timing` | İç içe işlemler arasında monotonic zaman bütçesi paylaşmak. |
+| `StateMachine`, `VersionedValue` | `eventflow.state` | Yerel durum geçişlerini ve sürümlü değerleri korumak. |
+| `VersionedCache` | `eventflow.cache` | Sürüm ve isteğe bağlı TTL içeren bellek içi LRU sınırlandırmak. |
+| `ServiceRegistry` | `eventflow.registry` | Sahibi belirlenmiş servisleri cleanup ile kaydetmek. |
+| `PolicyEvaluator` | `eventflow.policy` | Sıralı senkron kuralları değerlendirmek. |
+| `OperationStats` | `eventflow.observability` | Payload tutmadan sınırlı cardinality ile aggregate toplamak. |
+
+Bu araçlar süreç içi yapı taşlarıdır; durumu kalıcılaştırmaz ve ayrı süreçleri
+birbirine koordine etmez. Bileşenler `eventflow` üzerinden lazy top-level API
+olarak veya daha dar bir bağımlılık için doğrudan kendi modüllerinden alınabilir.
+
+<a id="coordination-bridges"></a>
+### Event köprüleri ve kuyruklar
+
+`AsyncEventQueue`, senkron `EventBus`'a abone olur ve olayları `receive()` veya
+async iterator ile sunar. Sabit bir öğe kapasitesi vardır, başka thread'lerden
+yayın alabilir ve `drop_oldest`, `drop_newest`, `error` taşma politikalarını
+destekler. Kapasite, sahip loop'a aktarılmayı bekleyen event'leri de kapsar.
+Tek seferde bir consumer task'ı kullanılır. Kuyruk kapatıldığında abonelik
+kaldırılır; içeride bekleyen event'ler tüketilir,
+sonraki okuma `EventQueueClosedError` üretir. `stats()` boyut, teslimat, düşen
+event ve taşma hatalarını verir. `error` politikası senkron subscriber içinde
+`QueueOverflowError` yükseltir; callback hatasını bus'ın `ErrorPolicy` ayarı
+değerlendirir.
+
+~~~python
+import asyncio
+from eventflow import AsyncEventQueue, EventBus
+
+bus = EventBus[int]()
+
+
+async def receive_one():
+    async with AsyncEventQueue(bus, event_type=int, capacity=64, overflow="drop_oldest") as events:
+        await asyncio.to_thread(bus.publish, 42)
+        return await events.receive()
+
+
+assert asyncio.run(receive_one()) == 42
+bus.close()
+~~~
+
+`LoopPortal` kendisine ait bir event loop'u thread içinde çalıştırır. `submit()`
+bir `concurrent.futures.Future` döndürür; başka thread'den senkron sonuç almak
+için `call()` kullanılabilir. Gönderim anındaki `contextvars` bağlamı kopyalanır.
+`close()` yeni işleri reddeder, portal task'larını iptal edip temizliğini bekler
+ve thread'i join eder. Portal'ın kendi loop'unda bloklayan `call()` deadlock'ı
+önlemek için reddedilir. Uygulamanın mevcut event loop'unun sahipliğini almaz.
+`call(timeout=...)` süresi dolarsa task cancellation istenir; cancellation'ı
+bastıran bir işlemi zorla durduramaz. İş tamamlanana kadar portalın sahipliğinde
+kalır; bekleme süresi dolarsa `close()` da timeout verebilir.
+
+~~~python
+from eventflow import LoopPortal
+
+
+async def load_value():
+    return 42
+
+
+with LoopPortal() as portal:
+    future = portal.submit(load_value)
+    assert future.result(timeout=2) == 42
+~~~
+
+<a id="coordination-lifecycle"></a>
+### Task ve kaynak sahipliği
+
+`AsyncTaskScope`, `start()` ile oluşturulan task'ların sahibidir. Her task için
+`shutdown="cancel"` veya `shutdown="drain"` seçilir. Scope kapanırken bu
+politika uygulanır, cleanup beklenir ve yeni task başlatılması reddedilir.
+`TaskHandle.join()` ilgili task'ın sonucunu döndürür. `snapshot()` aktif,
+tamamlanmış, başarısız ve iptal edilmiş task sayılarını verir. `on_error`,
+senkron callback olarak join ile alınmamış hataları bildirir.
+`aclose(timeout=...)` süresi dolarsa
+bitmemiş task'lar sahiplikte kalır; sonraki kapatma çağrısı temizliği yeniden
+deneyebilir.
+
+~~~python
+from eventflow import AsyncTaskScope
+
+
+async def refresh_cache():
+    pass
+
+
+def report_task_error(_handle, _error):
+    pass
+
+
+async with AsyncTaskScope(on_error=report_task_error) as tasks:
+    refresh = tasks.start(refresh_cache, name="cache-refresh", shutdown="cancel")
+    await refresh.join()
+~~~
+
+`ResourceScope` ve `AsyncResourceScope`, genel cleanup işlemlerini sahiplenir.
+`add(resource, close=..., owned=True)` kapatma metodunu adıyla veya callable
+olarak kaydeder; `defer(cleanup)` parametresiz cleanup callback'i ekler.
+Temizlik ters kayıt sırasında yürür, bütün kayıtları dener ve başarısız olanları
+yeniden denemek üzere tutar. Ödünç alınan kaynakta `owned=False` kullanın;
+`detach(resource)` ise sahipliği scope dışına aktarır. `pending_cleanup()`
+bekleyen kayıt sayısını verir. Async sürüm async kapatıcıları bekler ve
+`async with` sağlar; eşzamanlı kapatma çağrıları aynı cleanup'ı bekler.
+
+~~~python
+from eventflow import ResourceScope
+
+
+class Resource:
+    def close(self):
+        pass
+
+
+def flush_metrics():
+    pass
+
+
+with ResourceScope() as resources:
+    resources.add(Resource())
+    resources.defer(flush_metrics)
+~~~
+
+<a id="coordination-concurrency"></a>
+### Eşzamanlılık ve yinelenen işler
+
+`KeyedConcurrencyLimiter(max_concurrency)`, her anahtar için ayrı bir aktif iş
+limiti tutar. İptal durumunda slot'u güvenle bırakmak için
+`async with limiter.acquire(key)` kullanın. `acquire_nowait(key)` ise hemen
+reddedilebilen durumlar içindir. Boştaki anahtar kayıtları temizlenir.
+`aclose()` yeni talepleri durdurur ve bekleyenleri uyandırır. Bu bir eşzamanlılık
+limitidir; saniyedeki istek sayısını sınırlamaz. Bekleyenler için FIFO sırası
+garantisi verilmez. `acquire_nowait(key)` başarılıysa slot'u
+`await limiter.release(key)` ile bırakın. `stats()` toplam sayıları,
+`key_stats(key)` ise tek bir anahtarın aktif izin ve bekleyici sayılarını verir.
+
+`KeyedRateLimiter(rate, period, burst=...)` her anahtar için token bucket
+uygular. `await acquire(key)` token'ı iptal edilebilir biçimde bekler;
+`try_acquire(key)` hemen sonuç döndürür. `max_keys` kayıt sayısını sınırlar;
+tablo doluysa ve temizlenecek boş bucket yoksa yeni anahtar reddedilir.
+`prune()` kullanılmayan kayıtları siler. Loop sahipliğine bağlıdır ve
+`aclose()` ile kapatılmalıdır.
+
+`SingleFlight.run(key, factory)` aynı anahtar için devam eden tek awaitable'ın
+sonucunu çağıranlarla paylaşır. Farklı anahtarlar birbirini beklemez; bir
+bekleyicinin iptali ortak işi iptal etmez; mevcut bekleyiciler aynı sonucu veya
+hatayı alır. Sonuç tamamlandıktan sonra cache'lenmez.
+`LatestTaskCoordinator.submit(key, factory, on_result)` varsayılan olarak
+önceki işi iptal eder ve yalnızca en yeni gönderimin sonucunu uygular. İptale
+direnen eski task da generation kontrolü sayesinde eski sonuç yayımlayamaz.
+`on_result` sahip loop'ta çalışır ve senkron veya awaitable olabilir.
+Coordinator `aclose()` ile kapatılır.
+
+~~~python
+from eventflow import KeyedConcurrencyLimiter, SingleFlight
+
+limiter = KeyedConcurrencyLimiter[str](max_concurrency=2)
+flight = SingleFlight[str]()
+
+
+async def fetch_account(account_id):
+    return {"id": account_id}
+
+
+async def load_for(account_id):
+    async with limiter.acquire(account_id):
+        return await flight.run(account_id, lambda: fetch_account(account_id))
+
+
+await limiter.aclose()
+~~~
+
+<a id="coordination-resilience"></a>
+### Retry, cooldown ve deadline
+
+`RetryPolicy`; sabit veya exponential backoff, üst gecikme sınırı, isteğe bağlı
+jitter ve senkron observer callback'iyle senkron `run()` ve async `run_async()` sunar.
+Retry açıkça etkinleştirilir: `should_retry` verilmezse `max_attempts` daha
+büyük olsa bile hata ilk denemeden sonra yükseltilir. Senkron predicate normal
+`Exception` değerini alır ve `bool` döndürmelidir. Cancellation iletilir ve retry edilmez. `Deadline`
+hem denemelere hem bekleme sürelerine üst zaman sınırı koyabilir.
+
+`Deadline.after(seconds)` monotonic saat kullanır; `remaining` ve `expired`
+değerlerini sunar. `child(seconds)` üst deadline'ı aşamayan daha kısa bir bütçe
+oluşturur. `None` süresiz bütçeyi temsil eder. Deadline zaman bütçesini aktarır;
+senkron kodu veya cancellation'ı bastıran coroutine'i zorla durduramaz.
+
+`CooldownRegistry`, sınırlı sayıda anahtara ait monotonic bitiş zamanını tutar.
+`block()` cooldown koyar veya uzatır; `remaining()` kalan zamanı verir;
+`wait()` ve `wait_async()` süre dolana ya da kayıt temizlenene kadar bekleyebilir.
+`CircuitBreaker` senkron `call()` veya async `call_async()` çağrılarını `closed`, `open`, `half_open`
+durumlarından geçirir. Yarı açık deneme sayısını sınırlar ve task cancellation'ı
+başarısızlık saymaz. Bu araçlar tek süreçte çalışır; worker veya makineler
+arasında ortak durum oluşturmaz.
+
+~~~python
+from eventflow import Deadline, RetryPolicy
+
+
+class TemporaryError(Exception):
+    pass
+
+
+async def fetch_remote():
+    return "response"
+
+
+deadline = Deadline.after(5)
+retry = RetryPolicy(max_attempts=3, initial_delay=0.05, jitter=0.1)
+result = await retry.run_async(
+    fetch_remote,
+    should_retry=lambda error: isinstance(error, TemporaryError),
+    deadline=deadline,
+)
+~~~
+
+<a id="coordination-scheduling"></a>
+### Zamanlama ve sınırlı iş yürütme
+
+`AsyncScheduler` tek seferlik ve periyodik asyncio işleri sahiplenir. Periyodik
+işler için `overlap="skip"`, `"queue"` veya `"parallel"` seçilebilir;
+paralel çalışmanın üst sınırı `max_parallel` ile belirlenir. Tek bir işi iptal
+etmek veya beklemek için dönen `ScheduledHandle` saklanabilir. Queue modu callback
+çalışırken en fazla bir kaçırılmış tick'i sıraya alır. `aclose()` yeni
+schedule'ları durdurur, aktif işleri iptal eder ve cleanup'larını bekler.
+
+`BoundedWorkPool`, thread pool içinde senkron callable'ları çalıştırır ve kabul
+edilen iş sayısına sınır koyar.
+`max_workers` aynı anda çalışan thread sayısını, `max_pending` worker sayısını
+aşan kuyruktaki işleri belirler. `submit()` standart future döndürür; kapasite
+doluysa hemen hata verir. Pool `close()` veya context manager ile kapatılır.
+Çalışmakta olan senkron fonksiyon thread'den zorla durdurulamaz.
+
+`KeyedCoalescer`, aynı anahtara gelen değerleri verilen merge fonksiyonuyla
+birleştirir ve interval sonunda tek worker üzerinden callback'e teslim eder.
+İlk değer o anahtarın interval süresini başlatır. `max_pending_keys` saklanan
+anahtar sayısını sınırlar. Key ve merge fonksiyonları gönderim yapan thread'de;
+teslimat callback'i worker'da senkron çalışır. `flush()` bekleyen
+değerleri hemen işler; `close(flush=True)` önce flush eder,
+`close(flush=False)` bekleyenleri atar. Key, merge ve callback hızlı olmalıdır;
+callback hataları `on_error` ve `stats()` üzerinden gözlemlenir.
+
+~~~python
+from eventflow import BoundedWorkPool
+
+
+def parse_payload(payload):
+    return payload
+
+
+raw_payload = b"example"
+with BoundedWorkPool(max_workers=4, max_pending=8) as workers:
+    result = workers.submit(parse_payload, raw_payload).result(timeout=2)
+~~~
+
+`AsyncStream.batch_within(max_items, max_delay, partial=True)`, ilk limite
+ulaşıldığında batch üretir. Süre sayacı batch'in ilk öğesiyle başlar; öğe başına
+task oluşturulmaz. `partial=True` son eksik batch'i verir, `False` ise atar.
+Diğer stream işlemleri gibi tek tüketici ve loop sahipliğine bağlıdır; erken
+çıkışta açık `aclose()` veya `async with` ile cleanup yapılmalıdır.
+
+~~~python
+from eventflow import AsyncStream
+
+
+async def source():
+    for item in range(3):
+        yield item
+
+
+async def store_batch(batch):
+    print(batch)
+
+
+async with AsyncStream(source()).batch_within(100, 0.05) as batches:
+    async for batch in batches:
+        await store_batch(batch)
+~~~
+
+<a id="coordination-state"></a>
+### Durum, cache, servis ve policy
+
+`StateMachine(initial, transitions, terminal=..., guard=...)` senkron durum
+geçişlerini doğrular. `transition()` durumu ve sürümü atomik değiştirir;
+`compare_and_transition(expected_version, target)` başka bir çağrı sürümü
+değiştirmişse `None` döndürür. Observer güncelleme sonrasında ve kilit dışında
+çalışır. Guard kilit dışında değerlendirilir ve başka geçiş yarışı kazanırsa
+yeniden çağrılabilir; senkron ve yan etkisiz olmalıdır. `VersionedValue`, genel
+bir değer için aynı snapshot/sürüm ve compare-and-set kalıbını sunar. Snapshot
+değeri kopyalamaz; değişebilir nesnenin korunması çağırana aittir.
+
+`VersionedCache`, TTL ve byte limiti seçenekleri olan sınırlı, bellek içi LRU
+cache'tir. `max_bytes` verildiğinde `getsizeof(key, value)` de verilmelidir.
+`put()` sürüm ister; aynı anahtardaki daha yeni sürüm cache'te durduğu sürece
+daha eski yazmayı reddeder. Tahliye edilen kaydın sürüm geçmişi de silinir.
+Cache yalnızca yerel süreçte geçerlidir; kalıcılık veya süreçler arası
+geçersizleştirme sağlamaz.
+
+`ServiceRegistry`, boşlukları kırpılmış ve boş olmayan isimleri açıkça
+kaydedilmiş servislerle eşler. Cleanup callback'leri senkron olmalıdır. Her
+kayıt bir sahibin altındadır. `close_owner(owner)` bu sahibin kaynaklarını ters
+kayıt sırasında kapatır ve başarısız cleanup'ları tekrar
+denemek üzere tutar. İsteğe bağlı senkron observer, değişmez kayıt/kaldırma
+olaylarını mutasyondan sonra ve registry kilidinin dışında alır. Observer
+hatası tamamlanmış değişikliği geri almaz. Servis oluşturmaz ve dependency graph
+çözmez.
+
+`PolicyEvaluator`, isimli senkron kuralları kayıt sırasıyla değerlendirir.
+Kural `"allow"`, `"deny"`, `"abstain"`, `True`, `False` veya `None` döndürür. Açık deny önceliklidir;
+ardından allow, en son ayarlanmış varsayılan karar (varsayılan deny) gelir.
+`PolicyDecision` sonucu ve eşleşen kural bilgisini taşır. Bu, kimlik sağlayıcı
+veya policy dili değil; küçük, süreç içi bir kural birleştiricisidir.
+
+~~~python
+from eventflow import StateMachine, VersionedValue
+
+machine = StateMachine("queued", {"queued": {"running", "cancelled"}})
+running = machine.transition("running")
+value = VersionedValue("initial")
+value.compare_and_set(value.snapshot().version, "ready")
+~~~
+
+<a id="coordination-metrics"></a>
+### İşlem metrikleri
+
+`OperationStats`; çağrı, sonuç, geçen süre, kuyruk derinliği, düşürülen iş,
+retry, ret, timeout ve shutdown süresini thread-safe aggregate olarak toplar.
+`observer=` kabul eden bileşenlere aynı nesne verilerek ölçümler tek immutable
+snapshot'ta birleştirilebilir. `max_operations` label cardinality'yi sınırlar;
+limit dışındaki isimler `other` kovasında birikir. `reset()` sayaçları temizler.
+Metrikler yalnız sayaçları tutar; event payload, callback sonucu veya exception
+nesnesi saklamaz. Adları sabit tutun; telemetry gönderimini uygulama tarafındaki
+sınırlı kuyruğa bırakın.
+
+~~~python
+from eventflow import KeyedConcurrencyLimiter, OperationStats
+
+
+async def update_account():
+    pass
+
+
+metrics = OperationStats(max_operations=64)
+limiter = KeyedConcurrencyLimiter[str](1, observer=metrics)
+async with limiter.acquire("account-42"):
+    await update_account()
+print(metrics.snapshot().operations["keyed_concurrency.acquire"].successful)
+await limiter.aclose()
+~~~
+
 <a id="security-boundaries"></a>
 ### Güvenlik ve çalışma sınırları
 
@@ -1005,11 +1382,12 @@ fonksiyonu olarak `Pipeline.run` veya `AsyncPipeline.run`, scope handle'ı olara
 iki bus türünün `subscribe()` sonucu kullanılabilir. Bus yayını otomatik olarak
 pipeline başlatmaz veya event'e zarf eklemez.
 
-Depo kökünden çalıştırılabilen iki tam örnek bulunur:
+Depo kökünden çalıştırılabilen üç tam örnek bulunur:
 
 ~~~bash
 python -m examples.integrated
 python -m examples.bus_stream
+python -m examples.coordination
 ~~~
 
 [integrated.py](https://github.com/TahsinCr/python-eventflow/blob/main/examples/integrated.py);
@@ -1018,6 +1396,9 @@ sync/async stage'leri, decorator'ları, callback politikalarını, korelasyonu,
 [bus_stream.py](https://github.com/TahsinCr/python-eventflow/blob/main/examples/bus_stream.py)
 ise sınırlı bir uygulama kuyruğunu bus aboneliği ve stream kaynağı olarak kullanır.
 Tek publisher task'ını sahiplenip çıkışta bekler; her event için yeni task açmaz.
+[coordination.py](https://github.com/TahsinCr/python-eventflow/blob/main/examples/coordination.py)
+senkron bus, `AsyncEventQueue`, `AsyncTaskScope`, anahtarlı eşzamanlılık limiti,
+açık retry, deadline ve ortak işlem metriklerini birleştirir.
 
 <a id="reference"></a>
 ## Yaşam döngüsü ve başvuru
@@ -1106,6 +1487,10 @@ Paketten dışa aktarılan public adlar:
 | Filtre ve geçmiş | `EventFilter`, `EventHistory`, `MemoryEventHistory` |
 | Sonuç ve kipler | `PublishResult`, `EventBusStats`, `ErrorPolicy`, `DeliveryMode` |
 | Action ve context tipleri | `EventBusActions`, `AsyncEventBusActions`, `EventErrorContext`, `EventTimeoutContext`, `CallbackContext` |
+| Koordinasyon ve yaşam döngüsü | `AsyncEventQueue`, `AsyncTaskScope`, `ResourceScope`, `AsyncResourceScope`, `LoopPortal`, `TaskHandle` |
+| Eşzamanlılık ve zamanlama | `KeyedConcurrencyLimiter`, `KeyedConcurrencyKeyStats`, `KeyedRateLimiter`, `SingleFlight`, `LatestTaskCoordinator`, `AsyncScheduler`, `KeyedCoalescer`, `BoundedWorkPool` |
+| Durum ve dayanıklılık | `StateMachine`, `VersionedValue`, `VersionedCache`, `ServiceRegistry`, `RegistryChange`, `PolicyEvaluator`, `RetryPolicy`, `CooldownRegistry`, `CircuitBreaker`, `Deadline` |
+| Stream ve metrikler | `AsyncStream`, `OperationStats`, `OperationMetrics`, `PipelineStats`, `EventEnvelope` |
 | Hatalar | `EventBusError`, `EventBusClosedError`, `InvalidEventHandlerError`, `CallbackTimeoutError`, `EventShutdownTimeoutError` |
 
 `EventFilter` bir event sınıfı veya sınıf tuple'ı ve isteğe bağlı predicate
@@ -1122,6 +1507,11 @@ alır. Yerleşik `MemoryEventHistory(capacity=1000)` sınırlı ve thread-safe't
 | `InvalidEventHandlerError` | Handler veya hook seçilen bus'ın sync/async biçimine uymadığında. |
 | `CallbackTimeoutError` | Callback için ayrılan süre bütçesi aşıldığında. |
 | `EventShutdownTimeoutError` | Senkron periyodik worker `shutdown_timeout` süresinden uzun çalıştığında. |
+| `EventQueueClosedError` | Kapanmış kuyruk boşaldıktan sonra okuma istendiğinde. |
+| `QueueOverflowError` | `overflow="error"` ayarlı `AsyncEventQueue` dolduğunda. |
+| `LoopPortalClosedError` | Portal kapandıktan sonra iş gönderildiğinde. |
+| `CircuitOpenError` | Circuit açıkken veya yarı açık probe sınırına ulaşıldığında. |
+| `StateTransitionError` | Tanımlı geçiş grafiğinin izin vermediği bir geçiş istendiğinde. |
 
 `BaseEventBus` özel bus uygulamaları için soyut temel sınıftır.
 `EventHistory` özel geçmiş depolarının arayüzüdür. Çoğu uygulama yalnızca
@@ -1142,7 +1532,10 @@ varsayılan olarak 100.000 event kullanır; `--events`, `--replay`,
 
 Ek ölçümler için `python -m benchmarks.benchmark_publish`,
 `python -m benchmarks.benchmark_pipeline`, `python -m benchmarks.benchmark_stream`
-ve `python -m benchmarks.benchmark_runtime` kullanılabilir. Runtime benchmark'ı
+ve `python -m benchmarks.benchmark_runtime` kullanılabilir. Stream benchmark'ı
+burst girişte `batch_within(64, 60)` ile yerel size-only batching'i karşılaştırır;
+bu ölçüm batch coordination maliyetini kapsar, seyrek kaynakta timer flush
+gecikmesini ölçmez. Runtime benchmark'ı
 sync/async publisher rekabetini, async `max_concurrency` değerlerini, callback
 hata oranlarını, periyodik schedule kaynaklarını ve ayarlanabilir sayıda event
 üzerinden izlenen belleği karşılaştırır. Varsayılan olarak beş ölçüm örneği,

@@ -19,3 +19,19 @@ class CallbackTimeoutError(EventBusError, TimeoutError):
 
 class EventShutdownTimeoutError(EventBusError, TimeoutError):
     """Raised when a synchronous schedule cannot stop within its budget."""
+
+
+class EventQueueClosedError(EventBusError):
+    """Raised when receiving from a closed and drained event queue."""
+
+
+class QueueOverflowError(EventBusError):
+    """Raised when an event queue configured with overflow='error' is full."""
+
+
+class LoopPortalClosedError(RuntimeError):
+    """Raised when submitting work to a stopped LoopPortal."""
+
+
+class CircuitOpenError(RuntimeError):
+    """Raised when a circuit breaker rejects a call while open or saturated."""

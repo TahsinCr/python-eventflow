@@ -4,6 +4,56 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Add a bounded, thread-safe `AsyncEventQueue` bridge for synchronous bus
+  events and an owned-thread `LoopPortal` for coroutine submission.
+- Add `AsyncTaskScope`, `ResourceScope` and `AsyncResourceScope` for explicit,
+  cancellation-aware task and resource ownership.
+- Add keyed concurrency and token-bucket rate limiters, `SingleFlight`, and
+  latest-result task coordination.
+- Add `AsyncStream.batch_within()` for size- or time-triggered batching.
+- Add `BoundedWorkPool`, `KeyedCoalescer` and `AsyncScheduler` with explicit
+  capacity, overlap and shutdown behavior.
+- Add sync/async `RetryPolicy`, `CooldownRegistry`, `CircuitBreaker` and
+  monotonic `Deadline` primitives.
+- Add thread-safe `StateMachine` and `VersionedValue`, bounded
+  `VersionedCache`, owner-aware `ServiceRegistry` and synchronous
+  `PolicyEvaluator`.
+- Extend observability with bounded-cardinality `OperationStats` aggregates
+  and optional instrumentation on coordination components.
+- Expose per-key active/waiting counts for keyed concurrency and immutable
+  registration/removal observations from `ServiceRegistry`.
+- Document and test the new public APIs, their ownership boundaries and their
+  composition with the existing buses, pipelines and streams.
+
+### Changed
+
+- Make identity-based membership checks in scopes and engine channels average
+  constant-time, avoiding quadratic growth when registering large batches.
+- Skip dispatch bookkeeping for publications without subscribers or before/after
+  hooks while preserving history and publication statistics.
+- Transfer timed-stream batches between producer and consumer in one bounded
+  handoff, using one deadline timer per batch instead of per-item timers.
+- Reuse subscriber-matching error storage and check the synchronous periodic
+  stop signal directly in its publisher loop.
+
+### Fixed
+
+- Ensure `LoopPortal.start()` returns only after its event loop is running, so
+  immediate submissions cannot race loop startup.
+- Preserve shared keyed-limiter wakeups when one waiter is cancelled, serialize
+  concurrent portal startup/shutdown, and close unstarted coroutine inputs.
+- Keep portal loop ownership intact when a timed-out shutdown coordinator is
+  cancelled, and allow shutdown to retry after owned tasks finish.
+- Retain failed service cleanups for retry and report cleanup failures together.
+- Allow timed-out task-scope and scheduler shutdowns to retry after their work
+  completes, even when the original shutdown attempt has already failed.
+- Expire cache entries through a bounded stale-record heap instead of scanning
+  the full cache on every operation, including when TTL is disabled.
+- Reject awaitables passed to the synchronous circuit-breaker API.
+- Label grouped cleanup failures from resource scopes as resource cleanup errors.
+
 ## [v1.2.1] - 2026-11-02
 
 ### Changed

@@ -49,6 +49,14 @@ to install or use this package.
 - [Async pipelines and streams](#streams)
 - [Subscription scopes](#scopes)
 - [Event context and measurements](#event-context)
+- [Application coordination](#application-coordination)
+  - [Event bridges and queues](#coordination-bridges)
+  - [Task and resource ownership](#coordination-lifecycle)
+  - [Concurrency and duplicate work](#coordination-concurrency)
+  - [Retries, cooldowns and deadlines](#coordination-resilience)
+  - [Scheduling and bounded work](#coordination-scheduling)
+  - [State, cache, services and policy](#coordination-state)
+  - [Operation metrics](#coordination-metrics)
 - [Security and operational boundaries](#security-and-operational-boundaries)
 - [Composing the components](#composition)
 - [Lifecycle and reference](#reference)
@@ -961,6 +969,377 @@ bounded queue. An observer failure aborts an otherwise successful run with
 available as `observer_errors` on the original `PipelineExecutionError`,
 preserving its cause. Existing `EventBusStats` is unchanged.
 
+<a id="application-coordination"></a>
+## Application coordination
+
+EventFlow also provides small execution and coordination primitives for
+application code. Each is opt-in and has an explicit owner and shutdown
+method. They use ordinary Python callables, awaitables, futures, context
+managers and iterators, so they can be composed with buses, pipelines and
+streams without changing event delivery or stage ordering.
+
+| Component | Module | Purpose |
+| --- | --- | --- |
+| `AsyncEventQueue`, `LoopPortal` | `eventflow.bridges` | Bridge synchronous bus delivery and external threads to an owned async loop. |
+| `AsyncTaskScope` | `eventflow.tasks` | Own background asyncio tasks. |
+| `ResourceScope`, `AsyncResourceScope` | `eventflow.scopes` | Run reverse-order, retryable resource cleanup. |
+| `KeyedConcurrencyLimiter`, `KeyedRateLimiter`, `SingleFlight` | `eventflow.concurrency` | Bound keyed work, apply a token bucket, or share an in-flight operation. |
+| `LatestTaskCoordinator` | `eventflow.tasks` | Keep only the newest result for each key. |
+| `AsyncStream.batch_within()` | `eventflow.stream` | Emit a batch when its size or time window is reached. |
+| `BoundedWorkPool` | `eventflow.executors` | Bound synchronous work submitted to a thread pool. |
+| `KeyedCoalescer`, `AsyncScheduler` | `eventflow.scheduling` | Merge keyed updates and own scheduled async jobs. |
+| `RetryPolicy`, `CooldownRegistry`, `CircuitBreaker` | `eventflow.resilience` | Coordinate retries and temporary failure handling. |
+| `Deadline` | `eventflow.timing` | Share a monotonic time budget across nested operations. |
+| `StateMachine`, `VersionedValue` | `eventflow.state` | Guard local state transitions and versioned values. |
+| `VersionedCache` | `eventflow.cache` | Bound an in-memory LRU cache with versions and optional TTL. |
+| `ServiceRegistry` | `eventflow.registry` | Register owner-managed services with cleanup. |
+| `PolicyEvaluator` | `eventflow.policy` | Evaluate ordered synchronous rules. |
+| `OperationStats` | `eventflow.observability` | Collect bounded-cardinality aggregates without retaining payloads. |
+
+These utilities are in-process building blocks. They do not persist state or
+coordinate independent processes. Import a component from `eventflow` for the
+lazy top-level API or from its module when a narrower import is preferred.
+
+<a id="coordination-bridges"></a>
+### Event bridges and queues
+
+`AsyncEventQueue` subscribes to a synchronous `EventBus` and exposes received
+events through `receive()` or async iteration. It has a fixed item capacity,
+accepts publishes from other threads, and supports `drop_oldest`,
+`drop_newest` and `error` overflow policies. The configured capacity includes
+events waiting to be delivered onto the owning loop. It allows one consumer
+task at a time. Closing the queue removes
+its subscription, allows already queued items to drain, then makes the next
+read raise `EventQueueClosedError`. `stats()` reports queue size, deliveries,
+drops and overflow errors. An `error` overflow raises `QueueOverflowError`
+inside the synchronous subscriber; the bus applies its configured
+`ErrorPolicy` to that callback failure.
+
+~~~python
+import asyncio
+from eventflow import AsyncEventQueue, EventBus
+
+bus = EventBus[int]()
+
+
+async def receive_one():
+    async with AsyncEventQueue(bus, event_type=int, capacity=64, overflow="drop_oldest") as events:
+        await asyncio.to_thread(bus.publish, 42)
+        return await events.receive()
+
+
+assert asyncio.run(receive_one()) == 42
+bus.close()
+~~~
+
+`LoopPortal` owns a dedicated event-loop thread. Submit an awaitable to get a
+`concurrent.futures.Future`, or use `call()` from another thread when the
+caller needs a synchronous result. It copies the current `contextvars` context
+at submission time. `close()` rejects new work, cancels and waits for portal
+tasks, and joins its thread. A blocking `call()` from the portal's own loop is
+rejected to prevent deadlock. The portal does not take ownership of an
+application's existing event loop. A `call(timeout=...)` timeout requests
+cancellation; it cannot force a cancellation-resistant operation to stop.
+That operation remains owned by the portal until it actually finishes, and
+`close()` can time out while waiting for it.
+
+~~~python
+from eventflow import LoopPortal
+
+
+async def load_value():
+    return 42
+
+
+with LoopPortal() as portal:
+    future = portal.submit(load_value)
+    assert future.result(timeout=2) == 42
+~~~
+
+<a id="coordination-lifecycle"></a>
+### Task and resource ownership
+
+`AsyncTaskScope` owns tasks created with `start()`. Each task uses
+`shutdown="cancel"` or `shutdown="drain"`; closing the scope applies that
+task's policy, awaits cleanup, and rejects later starts. `TaskHandle.join()`
+waits for that task and returns its result. `snapshot()` reports active,
+completed, failed and cancelled work. A synchronous `on_error` callback
+observes failures not retrieved by a join. If `aclose(timeout=...)` times out, unfinished tasks
+remain owned and a later close can retry; a timeout never makes a still-running
+task disappear.
+
+~~~python
+from eventflow import AsyncTaskScope
+
+
+async def refresh_cache():
+    pass
+
+
+def report_task_error(_handle, _error):
+    pass
+
+
+async with AsyncTaskScope(on_error=report_task_error) as tasks:
+    refresh = tasks.start(refresh_cache, name="cache-refresh", shutdown="cancel")
+    await refresh.join()
+~~~
+
+`ResourceScope` and `AsyncResourceScope` own arbitrary cleanup operations.
+`add(resource, close=..., owned=True)` registers a method name or cleanup
+callable; `defer(cleanup)` registers a no-argument callback. Cleanup runs in
+reverse registration order, attempts every entry, and retains failures for a
+later retry. Use `owned=False` for a borrowed resource, or `detach(resource)`
+to transfer ownership out of the scope. `pending_cleanup()` reports entries
+still requiring cleanup. The async version awaits async closers and supports
+`async with`; cleanup is shared across concurrent close callers.
+
+~~~python
+from eventflow import ResourceScope
+
+
+class Resource:
+    def close(self):
+        pass
+
+
+def flush_metrics():
+    pass
+
+
+with ResourceScope() as resources:
+    resources.add(Resource())
+    resources.defer(flush_metrics)
+~~~
+
+<a id="coordination-concurrency"></a>
+### Concurrency and duplicate work
+
+`KeyedConcurrencyLimiter(max_concurrency)` keeps a separate active-work limit
+for every key. Use `async with limiter.acquire(key)` for cancellation-safe
+release, or `acquire_nowait(key)` when the caller can handle immediate
+rejection. Idle keys are removed. `aclose()` rejects new acquisitions and
+wakes waiters. Waiter order is not guaranteed. This is a concurrency cap; it
+does not limit requests per second. If `acquire_nowait(key)` succeeds, release
+the slot with `await limiter.release(key)`. `stats()` reports aggregate counts;
+`key_stats(key)` reports active permits and waiters for one key.
+
+`KeyedRateLimiter(rate, period, burst=...)` is a per-key token bucket.
+`await acquire(key)` waits cancellably for a token; `try_acquire(key)` returns
+immediately. `max_keys` bounds retained keys and `prune()` removes idle state;
+if the key table is full and no idle bucket can be pruned, a new key is
+rejected. It has loop ownership and should be closed with `aclose()`.
+
+`SingleFlight.run(key, factory)` shares one in-flight awaitable among callers
+with the same key. Different keys run independently, one waiter's cancellation
+does not cancel shared work, and current waiters receive the same result or
+failure. The result is not cached after completion.
+`LatestTaskCoordinator.submit(key, factory, on_result)` cancels prior work by
+default and applies a result only if that submission is still the newest for
+the key. Generation checks also prevent a cancellation-resistant old task
+from publishing a stale result. `on_result` runs on the owning loop and may be
+synchronous or awaitable. Close the coordinator with `aclose()`.
+
+~~~python
+from eventflow import KeyedConcurrencyLimiter, SingleFlight
+
+limiter = KeyedConcurrencyLimiter[str](max_concurrency=2)
+flight = SingleFlight[str]()
+
+
+async def fetch_account(account_id):
+    return {"id": account_id}
+
+
+async def load_for(account_id):
+    async with limiter.acquire(account_id):
+        return await flight.run(account_id, lambda: fetch_account(account_id))
+
+
+await limiter.aclose()
+~~~
+
+<a id="coordination-resilience"></a>
+### Retries, cooldowns and deadlines
+
+`RetryPolicy` offers synchronous `run()` and asynchronous `run_async()` with
+fixed or exponential backoff, a delay ceiling, optional jitter and an
+optional synchronous observation callback. Retries are explicit: without
+`should_retry`, a failure is raised after the first attempt even when
+`max_attempts` is larger. The synchronous predicate receives ordinary
+`Exception` instances and must return `bool`; cancellation is propagated and
+is never retried. Supplying a `Deadline` caps both attempts and delays.
+
+`Deadline.after(seconds)` uses a monotonic clock and exposes `remaining` and
+`expired`. `child(seconds)` creates a shorter budget that cannot outlive its
+parent. Passing `None` represents no deadline. The object communicates a time
+budget; it cannot forcibly stop synchronous code or a coroutine that suppresses
+cancellation.
+
+`CooldownRegistry` stores bounded per-key monotonic expiry times. `block()`
+sets or extends a cooldown, `remaining()` reports its duration, and `wait()` /
+`wait_async()` can wait until it expires or is cleared. `CircuitBreaker` wraps
+synchronous `call()` or asynchronous `call_async()` operations and moves through
+`closed`, `open` and `half_open` states.
+It limits concurrent half-open probes and ignores cancellation as a counted
+failure. These primitives coordinate one process; they do not share state
+across workers or machines.
+
+~~~python
+from eventflow import Deadline, RetryPolicy
+
+
+class TemporaryError(Exception):
+    pass
+
+
+async def fetch_remote():
+    return "response"
+
+
+deadline = Deadline.after(5)
+retry = RetryPolicy(max_attempts=3, initial_delay=0.05, jitter=0.1)
+result = await retry.run_async(
+    fetch_remote,
+    should_retry=lambda error: isinstance(error, TemporaryError),
+    deadline=deadline,
+)
+~~~
+
+<a id="coordination-scheduling"></a>
+### Scheduling and bounded work
+
+`AsyncScheduler` owns one-shot and periodic asyncio jobs. Periodic jobs choose
+`overlap="skip"`, `"queue"` or bounded `"parallel"` execution; the parallel
+limit is set with `max_parallel`. Queue mode retains at most one missed tick
+while a callback runs. Retain the returned `ScheduledHandle` when individual
+cancellation or joining is needed. `aclose()` stops new schedules,
+cancels active jobs and waits for their cleanup.
+
+`BoundedWorkPool` runs synchronous callables in a thread pool with an explicit
+accepted-work bound:
+`max_workers` controls concurrent threads and `max_pending` controls queued
+work beyond those workers. `submit()` returns a standard future and rejects
+immediately when capacity is full. Close the pool with `close()` or its
+context manager; cancellation cannot stop a function that is already running.
+
+`KeyedCoalescer` merges repeated values by a caller-supplied key and merge
+function, then delivers them from one owned worker at the configured interval.
+The first value for a key starts that key's interval. `max_pending_keys` bounds
+retained keys. Key and merge functions run synchronously on the submitting
+thread; delivery runs on the worker. `flush()` delivers pending values
+immediately; `close(flush=True)` flushes before stopping, while `flush=False`
+discards pending values. Keep key, merge and callback functions fast; callback
+failures are reported through `on_error` and `stats()`.
+
+~~~python
+from eventflow import BoundedWorkPool
+
+
+def parse_payload(payload):
+    return payload
+
+
+raw_payload = b"example"
+with BoundedWorkPool(max_workers=4, max_pending=8) as workers:
+    result = workers.submit(parse_payload, raw_payload).result(timeout=2)
+~~~
+
+`AsyncStream.batch_within(max_items, max_delay, partial=True)` emits when the
+first limit is reached. Its timer begins with the first item in a batch; it
+does not create one task per item. The final partial batch is emitted when
+`partial=True` and discarded when false. It retains the same single-consumer,
+event-loop ownership and explicit cleanup rules as other stream operations.
+
+~~~python
+from eventflow import AsyncStream
+
+
+async def source():
+    for item in range(3):
+        yield item
+
+
+async def store_batch(batch):
+    print(batch)
+
+
+async with AsyncStream(source()).batch_within(100, 0.05) as batches:
+    async for batch in batches:
+        await store_batch(batch)
+~~~
+
+<a id="coordination-state"></a>
+### State, cache, services and policy
+
+`StateMachine(initial, transitions, terminal=..., guard=...)` validates
+synchronous state transitions. `transition()` changes state and increments
+its version atomically; `compare_and_transition(expected_version, target)`
+returns `None` when another caller already changed the version. Observers run
+after the state update and outside the lock. `VersionedValue` offers the same
+snapshot/version and compare-and-set pattern for an arbitrary value. Its guard
+runs outside the lock and can be called again after a transition race, so it
+should be synchronous and free of side effects. A `VersionedValue` snapshot
+holds the value reference and does not copy mutable objects.
+
+`VersionedCache` is a bounded in-memory LRU with optional TTL and byte budget.
+Provide `getsizeof(key, value)` when `max_bytes` is set. `put()` requires a
+version and rejects an older write while a newer version for that key remains
+resident. Eviction removes that version history; the cache is process-local
+and does not provide persistence or cross-process invalidation.
+
+`ServiceRegistry` maps trimmed, non-empty names to explicitly registered
+services. Its cleanup callbacks must be synchronous. Every registration has an owner; `close_owner(owner)` closes that owner's
+resources in reverse registration order and retains failed cleanup for retry.
+An optional synchronous observer receives immutable registration and removal
+changes after mutation and outside the registry lock. Observer errors do not
+undo completed changes. The registry does not construct services or resolve
+dependency graphs.
+
+`PolicyEvaluator` evaluates named synchronous rules in registration order.
+A rule returns `"allow"`, `"deny"`, `"abstain"`, `True`, `False` or `None`;
+an explicit deny takes priority, then an allow applies, followed by the
+configured default (deny by default).
+Its `PolicyDecision` carries the decision and matching rule details. It is a
+small in-process rule combiner, not an identity provider or policy language.
+
+~~~python
+from eventflow import StateMachine, VersionedValue
+
+machine = StateMachine("queued", {"queued": {"running", "cancelled"}})
+running = machine.transition("running")
+value = VersionedValue("initial")
+value.compare_and_set(value.snapshot().version, "ready")
+~~~
+
+<a id="coordination-metrics"></a>
+### Operation metrics
+
+`OperationStats` is a thread-safe aggregate sink for calls, outcomes, elapsed
+time, queue depth, drops, retries, rejections, timeouts and shutdown time.
+Pass one instance to components that accept `observer=` to collect their
+measurements in the same immutable snapshot. `max_operations` bounds label
+cardinality; names beyond the limit share an `other` bucket. `reset()` clears
+the aggregates. Metrics retain counters only, not event payloads, callback
+results or exception objects. Keep operation names stable, and send telemetry
+outside the hot path through an application-owned bounded queue.
+
+~~~python
+from eventflow import KeyedConcurrencyLimiter, OperationStats
+
+
+async def update_account():
+    pass
+
+
+metrics = OperationStats(max_operations=64)
+limiter = KeyedConcurrencyLimiter[str](1, observer=metrics)
+async with limiter.acquire("account-42"):
+    await update_account()
+print(metrics.snapshot().operations["keyed_concurrency.acquire"].successful)
+await limiter.aclose()
+~~~
+
 ### Security and operational boundaries
 
 EventFlow invokes callbacks, predicates, middleware and stream sources in the
@@ -983,11 +1362,12 @@ interfaces. A stage can be `CallbackSubscription.invoke`, a stream map can be
 by either bus. Bus publication does not implicitly invoke a pipeline or add
 an envelope.
 
-Two complete, network-free examples are executable from the repository root:
+Three complete, network-free examples are executable from the repository root:
 
 ~~~bash
 python -m examples.integrated
 python -m examples.bus_stream
+python -m examples.coordination
 ~~~
 
 [integrated.py](https://github.com/TahsinCr/python-eventflow/blob/main/examples/integrated.py)
@@ -996,6 +1376,9 @@ correlation, metrics, a buffered stream and an async bus.
 [bus_stream.py](https://github.com/TahsinCr/python-eventflow/blob/main/examples/bus_stream.py)
 uses a bounded application queue as a bus subscription and stream source.
 It owns one publisher task and joins it on exit; no task is created per event.
+[coordination.py](https://github.com/TahsinCr/python-eventflow/blob/main/examples/coordination.py)
+connects a synchronous bus, `AsyncEventQueue`, `AsyncTaskScope`, a keyed
+concurrency limit, explicit retries, a deadline and shared operation metrics.
 
 <a id="reference"></a>
 ## Lifecycle and reference
@@ -1083,6 +1466,10 @@ The package exports the following public names:
 | Filters and history | `EventFilter`, `EventHistory`, `MemoryEventHistory` |
 | Results and modes | `PublishResult`, `EventBusStats`, `ErrorPolicy`, `DeliveryMode` |
 | Actions and contexts | `EventBusActions`, `AsyncEventBusActions`, `EventErrorContext`, `EventTimeoutContext`, `CallbackContext` |
+| Coordination and lifecycle | `AsyncEventQueue`, `AsyncTaskScope`, `ResourceScope`, `AsyncResourceScope`, `LoopPortal`, `TaskHandle` |
+| Concurrency and scheduling | `KeyedConcurrencyLimiter`, `KeyedConcurrencyKeyStats`, `KeyedRateLimiter`, `SingleFlight`, `LatestTaskCoordinator`, `AsyncScheduler`, `KeyedCoalescer`, `BoundedWorkPool` |
+| State and resilience | `StateMachine`, `VersionedValue`, `VersionedCache`, `ServiceRegistry`, `RegistryChange`, `PolicyEvaluator`, `RetryPolicy`, `CooldownRegistry`, `CircuitBreaker`, `Deadline` |
+| Stream and metrics | `AsyncStream`, `OperationStats`, `OperationMetrics`, `PipelineStats`, `EventEnvelope` |
 | Errors | `EventBusError`, `EventBusClosedError`, `InvalidEventHandlerError`, `CallbackTimeoutError`, `EventShutdownTimeoutError` |
 
 `EventFilter` accepts an event class or tuple of classes and an optional
@@ -1099,6 +1486,11 @@ Engines expose `running` and `channel_names`. Subscription handles expose
 | `InvalidEventHandlerError` | A handler or hook does not match the bus's sync/async mode. |
 | `CallbackTimeoutError` | A callback exceeds its configured time budget. |
 | `EventShutdownTimeoutError` | A synchronous periodic worker outlives `shutdown_timeout`. |
+| `EventQueueClosedError` | A read is attempted after a closed queue has drained. |
+| `QueueOverflowError` | An `AsyncEventQueue` configured with `overflow="error"` is full. |
+| `LoopPortalClosedError` | Work is submitted after a portal has closed. |
+| `CircuitOpenError` | A circuit is open or its half-open probe limit has been reached. |
+| `StateTransitionError` | A state transition is not allowed by the configured graph. |
 
 `BaseEventBus` is the abstract base for custom bus implementations.
 `EventHistory` is the interface for custom history stores. Most applications
@@ -1119,7 +1511,10 @@ to 100,000 retained events and can be adjusted with `--events`, `--replay`,
 
 Additional repeatable measurements use `python -m benchmarks.benchmark_publish`,
 `python -m benchmarks.benchmark_pipeline`, `python -m benchmarks.benchmark_stream`
-and `python -m benchmarks.benchmark_runtime`. The runtime-load benchmark compares
+and `python -m benchmarks.benchmark_runtime`. The stream benchmark also compares
+burst-input `batch_within(64, 60)` against native size-only batching; this
+isolates batch coordination overhead and does not measure sparse-source timer
+latency. The runtime-load benchmark compares
 sync and async publisher contention, async `max_concurrency` values, callback
 error rates, periodic schedule resources, and traced memory over a configurable
 event soak. It defaults to five samples, 500 publishes per publisher in each

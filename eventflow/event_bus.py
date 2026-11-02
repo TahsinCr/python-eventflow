@@ -17,8 +17,8 @@ from .base import (
     BaseEventBus,
     normalize_replay_capacity,
     validate_nonnegative_count,
+    validate_finite_duration,
     validate_positive_capacity,
-    _validate_timeout,
 )
 from .contracts import ErrorPolicy, EventBusStats, PublishResult
 from .compatibility import ExceptionGroup
@@ -120,7 +120,7 @@ class EventBus(BaseEventBus[T]):
             max_schedules,
             name="Maximum periodic schedules",
         )
-        shutdown_timeout = _validate_timeout(shutdown_timeout, name="Shutdown timeout")
+        shutdown_timeout = validate_finite_duration(shutdown_timeout, name="Shutdown timeout")
         direct_actions = (on_before, on_after, on_error, on_timeout)
         if actions is not None and any(action is not None for action in direct_actions):
             raise ValueError("Use actions or direct on_* callbacks, not both")
@@ -455,7 +455,7 @@ class EventBus(BaseEventBus[T]):
     ) -> Subscription:
         """Publish the same event periodically until cancelled or completed."""
 
-        interval = _validate_timeout(interval, name="Event publish interval")
+        interval = validate_finite_duration(interval, name="Event publish interval")
         if times is not None and (
             isinstance(times, bool) or not isinstance(times, int) or times <= 0
         ):
@@ -523,7 +523,7 @@ class EventBus(BaseEventBus[T]):
         timeout: float | None = None,
     ) -> T | None:
         if timeout is not None:
-            timeout = _validate_timeout(
+            timeout = validate_finite_duration(
                 timeout,
                 name="Event wait timeout",
                 allow_zero=True,

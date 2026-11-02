@@ -21,7 +21,7 @@ from eventflow import (
 
 
 class IntegrationTests(unittest.TestCase):
-    def test_legacy_import_does_not_load_optional_execution_components(self):
+    def test_package_import_keeps_execution_components_lazy(self):
         source = (
             "import sys, eventflow; "
             "assert 'eventflow.pipeline' not in sys.modules; "

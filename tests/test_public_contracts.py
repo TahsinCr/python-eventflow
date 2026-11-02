@@ -20,20 +20,15 @@ from eventflow import (
 
 
 class PublicContractTests(unittest.TestCase):
-    _narrowed_executor_signatures = {
-        ("EventBus", "__init__"),
-        ("EventEngine", "__init__"),
-    }
-
-    def test_legacy_readme_examples_execute(self):
+    def test_readme_examples_before_integrated_section_execute(self):
         root = Path(__file__).resolve().parents[1]
         for name in ("README.md", "README-TR.md"):
-            legacy = (
+            content = (
                 (root / name)
                 .read_text(encoding="utf-8")
                 .split("<!-- integrated execution documentation -->")[0]
             )
-            blocks = re.findall(r"~~~python\n(.*?)~~~", legacy, re.S)
+            blocks = re.findall(r"~~~python\n(.*?)~~~", content, re.S)
             subprocess.run(
                 [sys.executable, "-c", "\n".join(blocks)],
                 check=True,
@@ -42,42 +37,39 @@ class PublicContractTests(unittest.TestCase):
                 timeout=20,
             )
 
-    def test_v1_1_exports_and_signatures_are_preserved(self):
-        contract = json.loads(Path(__file__).with_name("api_v1_1.json").read_text())
-        for name, methods in contract.items():
+    def test_unreleased_execution_apis_match_the_reviewed_contract(self):
+        contract = json.loads(
+            Path(__file__).with_name("api_unreleased.json").read_text(encoding="utf-8")
+        )
+        for name in contract["exports"]:
             self.assertIn(name, eventflow.__all__)
+            self.assertIsNotNone(getattr(eventflow, name))
+        for name, definition in contract["signatures"].items():
             item = getattr(eventflow, name)
-            for method, signature in methods.items():
-                actual = inspect.signature(getattr(item, method))
-                if (name, method) in self._narrowed_executor_signatures:
-                    signature = signature.replace(
-                        "'Executor | None'", "'ThreadPoolExecutor | None'"
-                    )
-                if (name, method) in {
-                    ("AsyncEventBus", "__init__"),
-                    ("AsyncEventEngine", "__init__"),
-                }:
-                    actual = actual.replace(
-                        parameters=[
-                            parameter
-                            for parameter in actual.parameters.values()
-                            if parameter.name != "max_concurrency"
-                        ]
-                    )
-                self.assertEqual(str(actual), signature, f"{name}.{method}")
-
-    def test_v1_2_1_exports_and_signatures_match_release_contract(self):
-        contract = json.loads(Path(__file__).with_name("api_v1_2.json").read_text())
-        self.assertEqual(eventflow.__version__, "1.2.1")
-        for name, methods in contract.items():
-            self.assertIn(name, eventflow.__all__)
-            item = getattr(eventflow, name)
-            for method, signature in methods.items():
+            if "$call" in definition:
+                self.assertEqual(str(inspect.signature(item)), definition["$call"], name)
+            for method, signature in definition["methods"].items():
                 self.assertEqual(
                     str(inspect.signature(getattr(item, method))),
                     signature,
                     f"{name}.{method}",
                 )
+
+    def test_coordination_modules_remain_lazy_on_package_import(self):
+        source = (
+            "import eventflow, sys; "
+            "assert not any(name in sys.modules for name in ("
+            "'eventflow.bridges', 'eventflow.cache', 'eventflow.concurrency', "
+            "'eventflow.executors', 'eventflow.policy', 'eventflow.registry', "
+            "'eventflow.resilience', 'eventflow.scheduling', 'eventflow.state', "
+            "'eventflow.tasks', 'eventflow.timing'))"
+        )
+        subprocess.run(
+            [sys.executable, "-c", source],
+            check=True,
+            capture_output=True,
+            timeout=10,
+        )
 
     def test_async_delivery_limit_is_keyword_only_and_opt_in(self):
         for item in (AsyncEventBus, AsyncEventEngine):
@@ -101,7 +93,7 @@ class PublicContractTests(unittest.TestCase):
         callback.invoke("ignored")
         self.assertEqual(calls, ["direct", "cancel", ("before", "policy"), "policy"])
 
-    def test_subscribe_returns_handle_and_old_context_managers_work(self):
+    def test_subscribe_returns_handle_and_context_managers_work(self):
         seen = []
         with EventBus[int]() as bus:
             with bus.subscribe(seen.append) as handle:
