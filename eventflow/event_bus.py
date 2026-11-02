@@ -329,10 +329,12 @@ class EventBus(BaseEventBus[T]):
                     raise
                 else:
                     futures.append((subscriber, future))
-            for _subscriber, future in futures:
+            for subscriber, future in futures:
                 try:
                     future.result()
                 except Exception as exc:
+                    if future.cancelled():
+                        subscriber.restore_claim()
                     errors.append(exc)
                 else:
                     delivered += 1

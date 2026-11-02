@@ -802,6 +802,49 @@ class EventBusTests(unittest.TestCase):
             threaded_bus.publish(1)
         self.assertTrue(callback_threads[0].startswith("EventWorker"))
 
+    def test_cancelled_queued_final_executor_delivery_restores_claim(self) -> None:
+        class CancelNextExecutor(ThreadPoolExecutor):
+            cancel_next = False
+            cancelled_next = False
+
+            def submit(self, fn, /, *args, **kwargs):
+                future = super().submit(fn, *args, **kwargs)
+                if self.cancel_next:
+                    self.cancel_next = False
+                    self.cancelled_next = future.cancel()
+                return future
+
+        worker_started = threading.Event()
+        release_worker = threading.Event()
+
+        def block_worker() -> None:
+            worker_started.set()
+            release_worker.wait(1)
+
+        executor = CancelNextExecutor(max_workers=1)
+        blocker = executor.submit(block_worker)
+        self.assertTrue(worker_started.wait(1))
+        bus = EventBus[int](executor=executor)
+        received: list[int] = []
+        bus.subscribe(received.append, times=1)
+
+        try:
+            executor.cancel_next = True
+            cancelled = bus.publish(1)
+            self.assertTrue(executor.cancelled_next)
+            self.assertEqual(cancelled.delivered, 0)
+            self.assertEqual(cancelled.failed, 1)
+
+            release_worker.set()
+            blocker.result(timeout=1)
+            delivered = bus.publish(2)
+            self.assertEqual(delivered.delivered, 1)
+            self.assertEqual(received, [2])
+        finally:
+            release_worker.set()
+            bus.close()
+            executor.shutdown(wait=True, cancel_futures=True)
+
     def test_executor_handler_can_publish_reentrantly_with_one_worker(self) -> None:
         received: list[int] = []
         with ThreadPoolExecutor(max_workers=1) as executor:
