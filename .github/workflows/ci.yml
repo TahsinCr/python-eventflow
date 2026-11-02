@@ -47,6 +47,10 @@ jobs:
           python -m coverage report --include="eventflow/_callbacks.py" --fail-under=84
           python -m coverage report --include="eventflow/base.py" --fail-under=90
           python -m coverage report --include="eventflow/async_event_bus.py" --fail-under=89
+          python -m coverage report --include="eventflow/bridges.py" --fail-under=80
+          python -m coverage report --include="eventflow/tasks.py" --fail-under=79
+          python -m coverage report --include="eventflow/scheduling.py" --fail-under=81
+          python -m coverage report --include="eventflow/resilience.py" --fail-under=82
 
       - name: Check formatting and lint rules
         run: ruff check .
@@ -108,6 +112,7 @@ jobs:
         run: |
           python - <<'PY'
           from importlib.metadata import version
+          from importlib import import_module
           from pathlib import Path
           import asyncio
 
@@ -115,6 +120,12 @@ jobs:
 
           assert version("flowevent") == eventflow.__version__
           assert (Path(eventflow.__file__).parent / "py.typed").is_file()
+          for module in (
+              "bridges", "cache", "concurrency", "executors", "observability",
+              "policy", "registry", "resilience", "scheduling", "scopes",
+              "state", "tasks", "timing",
+          ):
+              import_module(f"eventflow.{module}")
           assert eventflow.Pipeline[int]().run(1) == 1
           assert eventflow.EventEnvelope[int](1).event == 1
 
