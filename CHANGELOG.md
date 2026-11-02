@@ -35,6 +35,8 @@ All notable changes to this project are documented in this file.
   hooks while preserving history and publication statistics.
 - Transfer timed-stream batches between producer and consumer in one bounded
   handoff, using one deadline timer per batch instead of per-item timers.
+- Fuse chained `AsyncStream.map()` and `filter()` callbacks into one lazy
+  iterator stage, avoiding an intermediate stream read for each operation.
 - Reuse subscriber-matching error storage and check the synchronous periodic
   stop signal directly in its publisher loop.
 

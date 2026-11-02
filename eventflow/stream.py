@@ -5,13 +5,14 @@ from __future__ import annotations
 import asyncio
 import inspect
 from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
-from typing import Any, Generic, NoReturn, TypeVar, cast
+from typing import Any, Generic, Literal, NoReturn, TypeVar, cast
 
 from ._lifecycle import bind_running_loop, finish_cleanup
 from .base import validate_finite_duration, validate_positive_capacity
 
 T = TypeVar("T")
 U = TypeVar("U")
+_StreamOperator = tuple[Literal["map", "filter"], Callable[[Any], object]]
 __all__ = ["AsyncStream"]
 
 
@@ -32,12 +33,17 @@ class AsyncStream(AsyncIterator[T], Generic[T]):
     """
 
     def __init__(
-        self, source: AsyncIterable[T], *, _upstream: AsyncStream[Any] | None = None
+        self,
+        source: AsyncIterable[T],
+        *,
+        _upstream: AsyncStream[Any] | None = None,
     ) -> None:
         if not isinstance(source, AsyncIterable):
             raise TypeError("AsyncStream source must be async iterable")
         self._source = source
         self._upstream = _upstream
+        self._operator_source: AsyncStream[Any] | None = None
+        self._operators: tuple[_StreamOperator, ...] = ()
         self._iterator: AsyncIterator[T] | None = None
         self._claimed = False
         self._closed = False
@@ -79,6 +85,22 @@ class AsyncStream(AsyncIterator[T], Generic[T]):
         self._claimed = True
         self._reader = task
         try:
+            if self._operator_source is not None:
+                while True:
+                    value: Any = await self._operator_source.__anext__()
+                    for operation, transform in self._operators:
+                        result = transform(value)
+                        if inspect.isawaitable(result):
+                            result = await result
+                        if operation == "filter":
+                            if type(result) is not bool:
+                                raise TypeError("Stream filter predicates must return bool")
+                            if not result:
+                                break
+                        else:
+                            value = result
+                    else:
+                        return cast(T, value)
             if self._iterator is None:
                 self._iterator = self._source.__aiter__()
             return await self._iterator.__anext__()
@@ -102,30 +124,27 @@ class AsyncStream(AsyncIterator[T], Generic[T]):
         """Transform each item with a sync or awaitable callback, without threads."""
         if not callable(callback):
             raise TypeError("Stream map callback must be callable")
-
-        async def transformed() -> AsyncIterator[U]:
-            async for item in self:
-                result = callback(item)
-                yield await result if inspect.isawaitable(result) else cast(U, result)
-
-        return AsyncStream(transformed(), _upstream=self)
+        return cast(AsyncStream[U], self._transform("map", callback))
 
     def filter(self, predicate: Callable[[T], bool | Awaitable[bool]]) -> AsyncStream[T]:
         """Keep matching items using a synchronous or awaitable predicate."""
         if not callable(predicate):
             raise TypeError("Stream filter predicate must be callable")
 
-        async def filtered() -> AsyncIterator[T]:
-            async for item in self:
-                accepted = predicate(item)
-                if inspect.isawaitable(accepted):
-                    accepted = await accepted
-                if type(accepted) is not bool:
-                    raise TypeError("Stream filter predicates must return bool")
-                if accepted:
-                    yield item
+        return cast(AsyncStream[T], self._transform("filter", predicate))
 
-        return AsyncStream(filtered(), _upstream=self)
+    def _transform(
+        self,
+        kind: Literal["map", "filter"],
+        callback: Callable[[Any], object],
+    ) -> AsyncStream[Any]:
+        upstream = self._operator_source if self._operator_source is not None else self
+        operator: _StreamOperator = (kind, callback)
+        operators = (*self._operators, operator)
+        stream = AsyncStream(upstream, _upstream=upstream)
+        stream._operator_source = upstream
+        stream._operators = operators
+        return stream
 
     def batch(self, size: int, *, partial: bool = True) -> AsyncStream[tuple[T, ...]]:
         """Yield fixed-size tuples and optionally the final partial tuple."""
@@ -324,13 +343,14 @@ class AsyncStream(AsyncIterator[T], Generic[T]):
             if read_finished is not None:
                 await read_finished.wait()
         source_error: BaseException | None = None
-        try:
-            source = self._iterator if self._iterator is not None else self._source
-            close = getattr(source, "aclose", None)
-            if close is not None:
-                await close()
-        except BaseException as error:
-            source_error = error
+        if self._operator_source is None:
+            try:
+                source = self._iterator if self._iterator is not None else self._source
+                close = getattr(source, "aclose", None)
+                if close is not None:
+                    await close()
+            except BaseException as error:
+                source_error = error
         if self._upstream is not None:
             try:
                 await self._upstream.aclose()

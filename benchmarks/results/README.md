@@ -77,6 +77,36 @@ raw-source lower bound and has no mapping or filtering.
 
 The raw generator has no transformation or ownership machinery. The unbuffered case includes map/filter and owned closure. Buffering additionally runs one producer, a bounded queue and backpressure; it is a resource/decoupling choice, not a speedup for a trivial CPU-only source.
 
+## Stream map/filter fusion (2026-11-02)
+
+On Python 3.14.8 and 3.10.18/Linux, sequential 30-iteration runs over 5,000
+items measured the implementation before and after fusing chained
+`AsyncStream.map()` and `filter()` callbacks. The complete per-case data is in
+[`stream_fusion.json`](stream_fusion.json).
+
+| Python | Case | Before p50 (us) | After p50 (us) | Before items/s | After items/s | Peak traced bytes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 3.14.8 | native map/filter | 1,306 | 1,347 | 3,828,776 | 3,704,893 | 1,176 -> 1,176 |
+| 3.14.8 | EventFlow unbuffered | 8,396 | 5,809 | 595,313 | 860,265 | 7,132 -> 6,016 |
+| 3.14.8 | EventFlow buffer-16 | 14,528 | 12,159 | 344,153 | 410,951 | 13,321 -> 12,149 |
+| 3.10.18 | native map/filter | 889 | 849 | 5,622,292 | 5,888,699 | 752 -> 752 |
+| 3.10.18 | EventFlow unbuffered | 17,333 | 12,417 | 288,300 | 402,587 | 4,397 -> 3,804 |
+| 3.10.18 | EventFlow buffer-16 | 31,361 | 27,042 | 159,409 | 184,881 | 7,361 -> 6,515 |
+
+For unbuffered streams, p50 fell by 30.8% and throughput rose by 44.5% on
+Python 3.14.8; on Python 3.10.18, p50 fell by 28.4% and throughput rose by
+39.6%. Peak traced allocations fell by 15.7% and 13.5%, respectively. EventFlow
+still measured slower than a native generator while maintaining single-consumer
+ownership, closure and error-propagation behavior. Buffering is slower for this
+CPU-only source; its purpose is bounded prefetch and producer/consumer
+decoupling.
+
+The timed batch path measured about 3.18 ms per 5,000 items on Python 3.14.8
+and 6.19 ms on Python 3.10.18, versus about 0.79 ms and 0.69 ms respectively
+for native size-only batching. The extra coordination serves its deadline and
+bounded producer/consumer handoff; this change did not alter that path. These
+are local sequential measurements, not production guarantees.
+
 ## Runtime load and resource checks
 
 `runtime_load.json`, `callback_errors.json` and `pipeline_diagnostics.json` were
