@@ -1028,9 +1028,12 @@ olarak veya daha dar bir bağımlılık için doğrudan kendi modüllerinden al�
 async iterator ile sunar. Sabit bir öğe kapasitesi vardır, başka thread'lerden
 yayın alabilir ve `drop_oldest`, `drop_newest`, `error` taşma politikalarını
 destekler. Kapasite, sahip loop'a aktarılmayı bekleyen event'leri de kapsar.
-Tek seferde bir consumer task'ı kullanılır. Kuyruk kapatıldığında abonelik
-kaldırılır; içeride bekleyen event'ler tüketilir,
-sonraki okuma `EventQueueClosedError` üretir. `stats()` boyut, teslimat, düşen
+Aynı anda yalnızca bir consumer task çalışabilir; bu task tamamlandıktan sonra
+başka bir task devralabilir. Kuyruk ilk sahip event loop'una bağlı kalır.
+Kuyruk kapatıldığında abonelik kaldırılır; içeride bekleyen event'ler tüketilir,
+sonraki okuma `EventQueueClosedError` üretir. Sahip loop zaten kapandıysa
+`aclose()` senkron bus aboneliğini başka bir çalışan loop'tan kaldırabilir.
+`stats()` boyut, teslimat, düşen
 event ve taşma hatalarını verir. `error` politikası senkron subscriber içinde
 `QueueOverflowError` yükseltir; callback hatasını bus'ın `ErrorPolicy` ayarı
 değerlendirir.
@@ -1055,12 +1058,16 @@ bus.close()
 `LoopPortal` kendisine ait bir event loop'u thread içinde çalıştırır. `submit()`
 bir `concurrent.futures.Future` döndürür; başka thread'den senkron sonuç almak
 için `call()` kullanılabilir. Gönderim anındaki `contextvars` bağlamı kopyalanır.
-`close()` yeni işleri reddeder, portal task'larını iptal edip temizliğini bekler
-ve thread'i join eder. Portal'ın kendi loop'unda bloklayan `call()` deadlock'ı
-önlemek için reddedilir. Uygulamanın mevcut event loop'unun sahipliğini almaz.
+`close()` yeni işleri reddeder, portal task'larını iptal edip temizliğini bekler,
+varsayılan executor'ı kapatır ve thread'i join eder. Deadlock'ı önlemek için
+portal'ın kendi loop'unda bloklayan `call()` reddedilir. Uygulamanın mevcut
+event loop'unun sahipliği alınmaz.
 `call(timeout=...)` süresi dolarsa task cancellation istenir; cancellation'ı
 bastıran bir işlemi zorla durduramaz. İş tamamlanana kadar portalın sahipliğinde
-kalır; bekleme süresi dolarsa `close()` da timeout verebilir.
+kalır; bekleme süresi dolarsa `close()` da timeout verebilir. `asyncio.to_thread()`
+ile başlamış bir thread task cancellation ile durdurulamaz. `close()` timeout
+verdiğinde portal thread'i bu iş tamamlanana kadar sahipliğinde tutar; ardından
+`close()` yeniden çağrılarak kapatma tamamlanabilir.
 
 ~~~python
 from eventflow import LoopPortal
@@ -1112,7 +1119,9 @@ Temizlik ters kayıt sırasında yürür, bütün kayıtları dener ve başarıs
 yeniden denemek üzere tutar. Ödünç alınan kaynakta `owned=False` kullanın;
 `detach(resource)` ise sahipliği scope dışına aktarır. `pending_cleanup()`
 bekleyen kayıt sayısını verir. Async sürüm async kapatıcıları bekler ve
-`async with` sağlar; eşzamanlı kapatma çağrıları aynı cleanup'ı bekler.
+`async with` sağlar; eşzamanlı kapatma çağrıları aynı cleanup'ı bekler. Bir
+cleanup kendi `ResourceScope.close()` metodunu yeniden çağırırsa iç çağrı etkisiz
+kalır; sayaç ve cleanup sonuçlarının sahibi dıştaki kapatmadır.
 
 ~~~python
 from eventflow import ResourceScope
@@ -1155,7 +1164,13 @@ tablo doluysa ve temizlenecek boş bucket yoksa yeni anahtar reddedilir.
 `SingleFlight.run(key, factory)` aynı anahtar için devam eden tek awaitable'ın
 sonucunu çağıranlarla paylaşır. Farklı anahtarlar birbirini beklemez; bir
 bekleyicinin iptali ortak işi iptal etmez; mevcut bekleyiciler aynı sonucu veya
-hatayı alır. Sonuç tamamlandıktan sonra cache'lenmez.
+hatayı alır. Sonuç tamamlandıktan sonra cache'lenmez. Bütün bekleyiciler ayrılsa
+bile ortak iş tamamlanana kadar çalışır ve `stats().active` içinde görünür.
+Artık kullanılmayacak örneği `await flight.aclose()` ile kapatın. Bu çağrı
+aktif işleri iptal eder, tamamlanmalarını bekler ve yeni işleri reddeder;
+kapanışın tamamlanması için factory işlevlerinin iptal isteğine yanıt vermesi
+gerekir. Bir factory, kendisini çalıştıran `SingleFlight` örneğini kapatamaz;
+bu deneme `RuntimeError` üretir.
 `LatestTaskCoordinator.submit(key, factory, on_result)` varsayılan olarak
 önceki işi iptal eder ve yalnızca en yeni gönderimin sonucunu uygular. İptale
 direnen eski task da generation kontrolü sayesinde eski sonuç yayımlayamaz.
@@ -1188,8 +1203,11 @@ await limiter.aclose()
 jitter ve senkron observer callback'iyle senkron `run()` ve async `run_async()` sunar.
 Retry açıkça etkinleştirilir: `should_retry` verilmezse `max_attempts` daha
 büyük olsa bile hata ilk denemeden sonra yükseltilir. Senkron predicate normal
-`Exception` değerini alır ve `bool` döndürmelidir. Cancellation iletilir ve retry edilmez. `Deadline`
-hem denemelere hem bekleme sürelerine üst zaman sınırı koyabilir.
+`Exception` değerini alır ve `bool` döndürmelidir. Cancellation iletilir ve retry edilmez.
+`Deadline` yeniden deneme bütçesidir: süre dolduktan sonra yeni denemeyi engeller
+ve retry beklemesini sınırlar. Çalışmaya başlamış operasyonu durdurmaz; başarılı
+bir operasyon deadline sonrasında sonuç döndürebilir. Operasyonun çalışma süresi
+de sınırlanacaksa etrafına ayrıca cancellation-aware timeout koyun.
 
 `Deadline.after(seconds)` monotonic saat kullanır; `remaining` ve `expired`
 değerlerini sunar. `child(seconds)` üst deadline'ı aşamayan daha kısa bir bütçe
@@ -1245,11 +1263,14 @@ doluysa hemen hata verir. Pool `close()` veya context manager ile kapatılır.
 `KeyedCoalescer`, aynı anahtara gelen değerleri verilen merge fonksiyonuyla
 birleştirir ve interval sonunda tek worker üzerinden callback'e teslim eder.
 İlk değer o anahtarın interval süresini başlatır. `max_pending_keys` saklanan
-anahtar sayısını sınırlar. Key ve merge fonksiyonları gönderim yapan thread'de;
-teslimat callback'i worker'da senkron çalışır. `flush()` bekleyen
-değerleri hemen işler; `close(flush=True)` önce flush eder,
-`close(flush=False)` bekleyenleri atar. Key, merge ve callback hızlı olmalıdır;
-callback hataları `on_error` ve `stats()` üzerinden gözlemlenir.
+anahtar sayısını sınırlar. Worker ilk kabul edilen `push()` çağrısında başlar;
+kullanılmayan örnek arka plan thread'i oluşturmaz. Key fonksiyonu kilit öncesi,
+merge fonksiyonu ise aynı anahtardaki güncellemelerin atomik sırasını korumak
+için condition kilidi altında gönderim yapan thread'de çalışır. İkisi de hızlı
+ve yeniden giriş yapmayan fonksiyonlar olmalıdır. Teslimat callback'i worker'da
+senkron çalışır. `flush()` bekleyen değerleri hemen işler;
+`close(flush=True)` önce flush eder, `close(flush=False)` bekleyenleri atar.
+Callback hataları `on_error` ve `stats()` üzerinden gözlemlenir.
 
 ~~~python
 from eventflow import BoundedWorkPool
@@ -1303,8 +1324,10 @@ değeri kopyalamaz; değişebilir nesnenin korunması çağırana aittir.
 `VersionedCache`, TTL ve byte limiti seçenekleri olan sınırlı, bellek içi LRU
 cache'tir. `max_bytes` verildiğinde `getsizeof(key, value)` de verilmelidir.
 `put()` sürüm ister; aynı anahtardaki daha yeni sürüm cache'te durduğu sürece
-daha eski yazmayı reddeder. Tahliye edilen kaydın sürüm geçmişi de silinir.
-Cache yalnızca yerel süreçte geçerlidir; kalıcılık veya süreçler arası
+daha eski yazmayı reddeder. TTL, tahliye veya kaldırma kaydın sürüm geçmişini de
+siler; kayıt cache dışında kaldıktan sonra daha eski bir sürüm kabul edilebilir.
+Cache dışında monoton sürüm garantisi gerekiyorsa `VersionedValue` veya kalıcı
+durum kullanın. Cache yalnızca yerel süreçte geçerlidir; kalıcılık veya süreçler arası
 geçersizleştirme sağlamaz.
 
 `ServiceRegistry`, boşlukları kırpılmış ve boş olmayan isimleri açıkça

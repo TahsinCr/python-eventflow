@@ -1007,10 +1007,13 @@ lazy top-level API or from its module when a narrower import is preferred.
 events through `receive()` or async iteration. It has a fixed item capacity,
 accepts publishes from other threads, and supports `drop_oldest`,
 `drop_newest` and `error` overflow policies. The configured capacity includes
-events waiting to be delivered onto the owning loop. It allows one consumer
-task at a time. Closing the queue removes
-its subscription, allows already queued items to drain, then makes the next
-read raise `EventQueueClosedError`. `stats()` reports queue size, deliveries,
+events waiting to be delivered onto the owning loop. It allows one active
+consumer task at a time; another task may take over after the current consumer
+has finished. The queue remains bound to its original event loop. Closing the
+queue removes its subscription, allows already queued items to drain, then
+makes the next read raise `EventQueueClosedError`. If that loop has already
+closed, `aclose()` can still remove the synchronous bus subscription from a
+different running loop. `stats()` reports queue size, deliveries,
 drops and overflow errors. An `error` overflow raises `QueueOverflowError`
 inside the synchronous subscriber; the bus applies its configured
 `ErrorPolicy` to that callback failure.
@@ -1036,12 +1039,16 @@ bus.close()
 `concurrent.futures.Future`, or use `call()` from another thread when the
 caller needs a synchronous result. It copies the current `contextvars` context
 at submission time. `close()` rejects new work, cancels and waits for portal
-tasks, and joins its thread. A blocking `call()` from the portal's own loop is
-rejected to prevent deadlock. The portal does not take ownership of an
-application's existing event loop. A `call(timeout=...)` timeout requests
+tasks, shuts down its default executor, and joins its thread. A blocking
+`call()` from the portal's own loop is rejected to prevent deadlock. The
+portal does not take ownership of an application's existing event loop. A
+`call(timeout=...)` timeout requests
 cancellation; it cannot force a cancellation-resistant operation to stop.
 That operation remains owned by the portal until it actually finishes, and
-`close()` can time out while waiting for it.
+`close()` can time out while waiting for it. Work already running through
+`asyncio.to_thread()` cannot be stopped by task cancellation. A timed-out
+`close()` retains the portal loop thread while that worker finishes; call
+`close()` again to complete shutdown.
 
 ~~~python
 from eventflow import LoopPortal
@@ -1092,7 +1099,10 @@ reverse registration order, attempts every entry, and retains failures for a
 later retry. Use `owned=False` for a borrowed resource, or `detach(resource)`
 to transfer ownership out of the scope. `pending_cleanup()` reports entries
 still requiring cleanup. The async version awaits async closers and supports
-`async with`; cleanup is shared across concurrent close callers.
+`async with`; cleanup is shared across concurrent close callers. A synchronous
+cleanup that reenters its own `ResourceScope.close()` gets a no-op from the
+nested call; the outer close retains responsibility for the pending count and
+cleanup results.
 
 ~~~python
 from eventflow import ResourceScope
@@ -1133,7 +1143,12 @@ rejected. It has loop ownership and should be closed with `aclose()`.
 `SingleFlight.run(key, factory)` shares one in-flight awaitable among callers
 with the same key. Different keys run independently, one waiter's cancellation
 does not cancel shared work, and current waiters receive the same result or
-failure. The result is not cached after completion.
+failure. The result is not cached after completion. Shared work continues if
+all waiters leave; it remains owned and visible through `stats().active` until
+completion. Call `await flight.aclose()` when the instance is no longer needed;
+it cancels and drains active work, then rejects new calls. Factories must
+cooperate with cancellation for shutdown to finish. A factory cannot close its
+own `SingleFlight` instance; that call raises `RuntimeError`.
 `LatestTaskCoordinator.submit(key, factory, on_result)` cancels prior work by
 default and applies a result only if that submission is still the newest for
 the key. Generation checks also prevent a cancellation-resistant old task
@@ -1168,7 +1183,11 @@ optional synchronous observation callback. Retries are explicit: without
 `should_retry`, a failure is raised after the first attempt even when
 `max_attempts` is larger. The synchronous predicate receives ordinary
 `Exception` instances and must return `bool`; cancellation is propagated and
-is never retried. Supplying a `Deadline` caps both attempts and delays.
+is never retried. A `Deadline` is a retry budget: it prevents attempts from
+starting after expiry and caps backoff delays. It does not interrupt an
+operation already in progress, and a successful operation may return after the
+deadline. Wrap an operation in a separate cancellation-aware timeout when its
+execution itself needs a hard time limit.
 
 `Deadline.after(seconds)` uses a monotonic clock and exposes `remaining` and
 `expired`. `child(seconds)` creates a shorter budget that cannot outlive its
@@ -1226,11 +1245,14 @@ context manager; cancellation cannot stop a function that is already running.
 `KeyedCoalescer` merges repeated values by a caller-supplied key and merge
 function, then delivers them from one owned worker at the configured interval.
 The first value for a key starts that key's interval. `max_pending_keys` bounds
-retained keys. Key and merge functions run synchronously on the submitting
-thread; delivery runs on the worker. `flush()` delivers pending values
-immediately; `close(flush=True)` flushes before stopping, while `flush=False`
-discards pending values. Keep key, merge and callback functions fast; callback
-failures are reported through `on_error` and `stats()`.
+retained keys. Its worker starts on the first accepted `push()`, so an unused
+instance creates no background thread. The key function runs on the submitting
+thread before locking. The merge function also runs there, under the
+coalescer's condition lock, to preserve atomic updates for a key. Keep both
+functions fast and non-reentrant. Delivery runs on the worker. `flush()`
+delivers pending values immediately; `close(flush=True)` flushes before
+stopping, while `flush=False` discards pending values. Callback failures are
+reported through `on_error` and `stats()`.
 
 ~~~python
 from eventflow import BoundedWorkPool
@@ -1285,8 +1307,11 @@ holds the value reference and does not copy mutable objects.
 `VersionedCache` is a bounded in-memory LRU with optional TTL and byte budget.
 Provide `getsizeof(key, value)` when `max_bytes` is set. `put()` requires a
 version and rejects an older write while a newer version for that key remains
-resident. Eviction removes that version history; the cache is process-local
-and does not provide persistence or cross-process invalidation.
+resident. Expiry, eviction and removal also discard the version history, so an
+older write can be accepted after the entry leaves the cache. Use
+`VersionedValue` or durable state when versions must remain monotonic beyond
+cache residency. The cache is process-local and does not provide persistence or
+cross-process invalidation.
 
 `ServiceRegistry` maps trimmed, non-empty names to explicitly registered
 services. Its cleanup callbacks must be synchronous. Every registration has an owner; `close_owner(owner)` closes that owner's

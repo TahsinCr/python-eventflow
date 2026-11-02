@@ -24,6 +24,8 @@ All notable changes to this project are documented in this file.
   and optional instrumentation on coordination components.
 - Expose per-key active/waiting counts for keyed concurrency and immutable
   registration/removal observations from `ServiceRegistry`.
+- Add `SingleFlight.aclose()` to cancel and drain shared operations owned by an
+  instance.
 - Document and test the new public APIs, their ownership boundaries and their
   composition with the existing buses, pipelines and streams.
 
@@ -39,6 +41,11 @@ All notable changes to this project are documented in this file.
   iterator stage, avoiding an intermediate stream read for each operation.
 - Reuse subscriber-matching error storage and check the synchronous periodic
   stop signal directly in its publisher loop.
+- Start a `KeyedCoalescer` worker only after the first accepted update, avoiding
+  idle threads for unused instances.
+- Allow an `AsyncEventQueue` consumer to take over after its previous consumer
+  task finishes.
+- Clarify retry-budget and cache-version retention semantics in both READMEs.
 
 ### Fixed
 
@@ -55,6 +62,12 @@ All notable changes to this project are documented in this file.
   the full cache on every operation, including when TTL is disabled.
 - Reject awaitables passed to the synchronous circuit-breaker API.
 - Label grouped cleanup failures from resource scopes as resource cleanup errors.
+- Restore final-delivery claims when an accepted executor future is cancelled
+  before its callback starts.
+- Keep `ResourceScope.pending_cleanup()` consistent during reentrant cleanup.
+- Shut down a `LoopPortal` loop's default executor and allow queue subscription
+  cleanup after its owning event loop has already closed.
+- Reject closing a `SingleFlight` instance from one of its own active operations.
 
 ## [v1.2.1] - 2026-11-02
 
