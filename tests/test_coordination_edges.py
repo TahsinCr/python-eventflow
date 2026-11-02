@@ -734,19 +734,24 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
             scheduler.schedule_once(lambda: None, delay=-1)
 
         calls = 0
+        second_tick_started = asyncio.Event()
 
         async def slow_tick():
             nonlocal calls
             calls += 1
+            if calls == 2:
+                second_tick_started.set()
             await asyncio.sleep(0.008)
 
         handle = scheduler.periodic(slow_tick, interval=0.002, initial_delay=0, overlap="queue")
-        await asyncio.sleep(0.03)
-        self.assertTrue(scheduler.cancel(handle))
-        with self.assertRaises(asyncio.CancelledError):
-            await handle.join(1)
-        self.assertGreaterEqual(calls, 2)
-        await scheduler.aclose()
+        try:
+            await asyncio.wait_for(second_tick_started.wait(), timeout=5)
+            self.assertGreaterEqual(calls, 2)
+        finally:
+            self.assertTrue(scheduler.cancel(handle))
+            with self.assertRaises(asyncio.CancelledError):
+                await handle.join(1)
+            await scheduler.aclose()
 
     async def test_scheduler_reports_periodic_callback_failures(self):
         reported = []
