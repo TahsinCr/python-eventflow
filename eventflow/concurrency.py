@@ -4,10 +4,10 @@ from __future__ import annotations
 
 import asyncio
 from collections.abc import Awaitable, Callable, Hashable
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
 
-from ._lifecycle import bind_running_loop
+from ._lifecycle import bind_running_loop, finish_cleanup
 from .base import validate_finite_duration
 from .observability import OperationStats, _require_operation_stats
 
@@ -26,9 +26,8 @@ __all__ = [
 
 @dataclass(slots=True)
 class _ConcurrencyEntry:
-    changed: asyncio.Future[None]
     active: int = 0
-    waiters: int = 0
+    waiters: dict[asyncio.Future[None], None] = field(default_factory=dict)
     users: int = 0
 
 
@@ -88,6 +87,7 @@ class KeyedConcurrencyLimiter(Generic[K]):
         self._loop: asyncio.AbstractEventLoop | None = None
         self._entries: dict[K, _ConcurrencyEntry] = {}
         self._waiter_tasks: set[asyncio.Task[Any]] = set()
+        self._total_waiters = 0
         self._closed = False
 
     def _bind_loop(self) -> asyncio.AbstractEventLoop:
@@ -98,7 +98,7 @@ class KeyedConcurrencyLimiter(Generic[K]):
     def _entry(self, key: K) -> _ConcurrencyEntry:
         entry = self._entries.get(key)
         if entry is None:
-            entry = _ConcurrencyEntry(asyncio.get_running_loop().create_future())
+            entry = _ConcurrencyEntry()
             self._entries[key] = entry
         return entry
 
@@ -112,54 +112,82 @@ class KeyedConcurrencyLimiter(Generic[K]):
                 "keyed_concurrency.acquire",
                 status=status,
                 elapsed=elapsed,
-                queue_depth=sum(entry.waiters for entry in self._entries.values()),
+                queue_depth=self._total_waiters,
             )
 
     async def _acquire(self, key: K) -> None:
-        self._bind_loop()
+        loop = self._bind_loop()
         if self._closed:
             raise RuntimeError("KeyedConcurrencyLimiter is closed")
         entry = self._entry(key)
         entry.users += 1
         acquired = False
+        waiter: asyncio.Future[None] | None = None
         task = asyncio.current_task()
         if task is not None:
             self._waiter_tasks.add(task)
         try:
-            while entry.active >= self._limit and not self._closed:
-                entry.waiters += 1
-                try:
-                    # Every waiter shares this broadcast future. Shield it so
-                    # cancellation of one waiter cannot cancel the signal for
-                    # every other waiter on the same key.
-                    await asyncio.shield(entry.changed)
-                finally:
-                    entry.waiters -= 1
             if self._closed:
                 raise RuntimeError("KeyedConcurrencyLimiter is closed")
-            entry.active += 1
-            acquired = True
+            if entry.active < self._limit and not entry.waiters:
+                entry.active += 1
+                acquired = True
+            else:
+                waiter = loop.create_future()
+                entry.waiters[waiter] = None
+                self._total_waiters += 1
+                self._wake_waiters(entry)
+                while True:
+                    if self._closed:
+                        raise RuntimeError("KeyedConcurrencyLimiter is closed")
+                    if next(iter(entry.waiters)) is waiter and entry.active < self._limit:
+                        entry.waiters.pop(waiter)
+                        self._total_waiters -= 1
+                        waiter = None
+                        entry.active += 1
+                        acquired = True
+                        self._wake_waiters(entry)
+                        break
+                    await asyncio.shield(waiter)
         finally:
+            if waiter is not None:
+                is_first = next(iter(entry.waiters)) is waiter
+                entry.waiters.pop(waiter)
+                self._total_waiters -= 1
+                if not waiter.done():
+                    waiter.cancel()
+                if is_first:
+                    self._wake_waiters(entry)
             if task is not None:
                 self._waiter_tasks.discard(task)
             if not acquired:
                 entry.users -= 1
                 self._prune(key, entry)
 
+    def _wake_waiters(self, entry: _ConcurrencyEntry) -> None:
+        if not entry.waiters:
+            return
+        if self._closed:
+            for waiter in tuple(entry.waiters):
+                if not waiter.done():
+                    waiter.set_result(None)
+        elif entry.active < self._limit:
+            waiter = next(iter(entry.waiters))
+            if not waiter.done():
+                waiter.set_result(None)
+
     def _release(self, key: K) -> None:
-        loop = self._bind_loop()
+        self._bind_loop()
         entry = self._entries.get(key)
         if entry is None or entry.active == 0:
             raise RuntimeError("No active permit exists for this key")
         entry.active -= 1
         entry.users -= 1
-        changed, entry.changed = entry.changed, loop.create_future()
-        if not changed.done():
-            changed.set_result(None)
+        self._wake_waiters(entry)
         self._prune(key, entry)
 
     def _prune(self, key: K, entry: _ConcurrencyEntry) -> None:
-        if entry.users == 0 and entry.active == 0 and entry.waiters == 0:
+        if entry.users == 0 and entry.active == 0 and not entry.waiters:
             self._entries.pop(key, None)
 
     def acquire_nowait(self, key: K) -> bool:
@@ -168,7 +196,7 @@ class KeyedConcurrencyLimiter(Generic[K]):
         if self._closed:
             return False
         entry = self._entry(key)
-        if entry.active >= self._limit:
+        if entry.active >= self._limit or entry.waiters:
             self._prune(key, entry)
             return False
         entry.active += 1
@@ -184,7 +212,7 @@ class KeyedConcurrencyLimiter(Generic[K]):
         return KeyedConcurrencyStats(
             len(self._entries),
             sum(entry.active for entry in self._entries.values()),
-            sum(entry.waiters for entry in self._entries.values()),
+            sum(len(entry.waiters) for entry in self._entries.values()),
             self._closed,
         )
 
@@ -194,22 +222,19 @@ class KeyedConcurrencyLimiter(Generic[K]):
         entry = self._entries.get(key)
         return KeyedConcurrencyKeyStats(
             0 if entry is None else entry.active,
-            0 if entry is None else entry.waiters,
+            0 if entry is None else len(entry.waiters),
         )
 
     async def aclose(self) -> None:
-        loop = self._bind_loop()
+        self._bind_loop()
         self._closed = True
-        entries = tuple(self._entries.values())
-        for entry in entries:
-            changed, entry.changed = entry.changed, loop.create_future()
-            if not changed.done():
-                changed.set_result(None)
+        for entry in tuple(self._entries.values()):
+            self._wake_waiters(entry)
         for key, entry in tuple(self._entries.items()):
             self._prune(key, entry)
         waiters = tuple(task for task in self._waiter_tasks if task is not asyncio.current_task())
         if waiters:
-            await asyncio.gather(*waiters, return_exceptions=True)
+            await finish_cleanup(asyncio.gather(*waiters, return_exceptions=True))
 
 
 @dataclass(frozen=True, slots=True)
@@ -306,6 +331,7 @@ class SingleFlight(Generic[K]):
                     )
 
     def stats(self) -> SingleFlightStats:
+        self._bind_loop()
         return SingleFlightStats(
             len(self._flights), sum(flight.waiters for flight in self._flights.values())
         )
@@ -482,6 +508,6 @@ class KeyedRateLimiter(Generic[K]):
                     signal.set()
         waiters = tuple(task for task in self._waiter_tasks if task is not asyncio.current_task())
         if waiters:
-            await asyncio.gather(*waiters, return_exceptions=True)
+            await finish_cleanup(asyncio.gather(*waiters, return_exceptions=True))
         for key, entry in tuple(self._entries.items()):
             self._prune(key, entry)

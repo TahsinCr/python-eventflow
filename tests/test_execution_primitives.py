@@ -666,6 +666,91 @@ class AsyncPrimitiveTests(unittest.IsolatedAsyncioTestCase):
             self.assertEqual(limiter.stats().active, 1)
         self.assertEqual(limiter.stats().active, 0)
 
+    async def test_keyed_concurrency_waiters_are_fifo_and_nowait_cannot_bypass(self):
+        limiter = KeyedConcurrencyLimiter[str](1)
+        holder = limiter.acquire("key")
+        await holder.__aenter__()
+        order = []
+        arrivals = 0
+        all_arrived = asyncio.Event()
+
+        async def wait_in_order(index):
+            nonlocal arrivals
+            arrivals += 1
+            if arrivals == 5:
+                all_arrived.set()
+            async with limiter.acquire("key"):
+                order.append(index)
+                await asyncio.sleep(0)
+
+        waiters = [asyncio.create_task(wait_in_order(index)) for index in range(5)]
+        await asyncio.wait_for(all_arrived.wait(), 1)
+        self.assertEqual(limiter.stats().waiters, len(waiters))
+        await holder.__aexit__(None, None, None)
+        barged = limiter.acquire_nowait("key")
+        if barged:
+            await limiter.release("key")
+        await asyncio.gather(*waiters)
+        self.assertFalse(barged)
+        self.assertEqual(order, list(range(len(waiters))))
+        await limiter.aclose()
+
+    async def test_keyed_concurrency_observer_reports_global_queue_depth(self):
+        observer = OperationStats()
+        limiter = KeyedConcurrencyLimiter[str](1, observer=observer)
+        holders = [limiter.acquire(key) for key in ("first", "second")]
+        for holder in holders:
+            await holder.__aenter__()
+
+        arrivals = 0
+        all_arrived = asyncio.Event()
+
+        async def wait_for_key(key):
+            nonlocal arrivals
+            arrivals += 1
+            if arrivals == len(holders):
+                all_arrived.set()
+            async with limiter.acquire(key):
+                pass
+
+        first = asyncio.create_task(wait_for_key("first"))
+        second = asyncio.create_task(wait_for_key("second"))
+        await asyncio.wait_for(all_arrived.wait(), 1)
+        self.assertEqual(limiter.stats().waiters, 2)
+        await holders[0].__aexit__(None, None, None)
+        await first
+        metrics = observer.snapshot().operations["keyed_concurrency.acquire"]
+        self.assertEqual(metrics.queue_depth, 1)
+        await holders[1].__aexit__(None, None, None)
+        await second
+        await limiter.aclose()
+
+    async def test_keyed_concurrency_close_cancellation_does_not_cancel_waiters(self):
+        limiter = KeyedConcurrencyLimiter[str](1)
+        async with limiter.acquire("key"):
+            arrivals = 0
+            all_arrived = asyncio.Event()
+
+            async def wait_for_slot():
+                nonlocal arrivals
+                arrivals += 1
+                if arrivals == 2:
+                    all_arrived.set()
+                await limiter.acquire("key").__aenter__()
+
+            waiters = [asyncio.create_task(wait_for_slot()) for _ in range(2)]
+            await asyncio.wait_for(all_arrived.wait(), 1)
+            self.assertEqual(limiter.stats().waiters, len(waiters))
+            closing = asyncio.create_task(limiter.aclose())
+            await asyncio.sleep(0)
+            closing.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await closing
+            outcomes = await asyncio.gather(*waiters, return_exceptions=True)
+            self.assertTrue(all(isinstance(outcome, RuntimeError) for outcome in outcomes))
+            self.assertEqual(limiter.stats().waiters, 0)
+            self.assertEqual(limiter.stats().active, 1)
+
     async def test_single_flight_shares_work_without_coupling_waiter_cancellation(self):
         flight = SingleFlight[str]()
         started = asyncio.Event()
@@ -739,6 +824,31 @@ class AsyncPrimitiveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(flight.stats().active, 0)
         await flight.aclose()
 
+    async def test_single_flight_stats_rejects_a_different_event_loop(self):
+        flight = SingleFlight[str]()
+        flight.stats()
+        errors = []
+        finished = threading.Event()
+
+        def read_from_another_loop():
+            async def read_stats():
+                flight.stats()
+
+            try:
+                asyncio.run(read_stats())
+            except RuntimeError as error:
+                errors.append(error)
+            finally:
+                finished.set()
+
+        thread = threading.Thread(target=read_from_another_loop)
+        thread.start()
+        self.assertTrue(finished.wait(1))
+        thread.join(1)
+        self.assertFalse(thread.is_alive())
+        self.assertEqual(len(errors), 1)
+        self.assertIn("different event loop", str(errors[0]))
+
     async def test_keyed_rate_limiter_waits_cancellably_and_cleans_waiters(self):
         default_burst = KeyedRateLimiter[str](rate=0.1)
         self.assertTrue(default_burst.try_acquire("low-rate"))
@@ -765,6 +875,31 @@ class AsyncPrimitiveTests(unittest.IsolatedAsyncioTestCase):
         await limiter.aclose()
         with self.assertRaises(RuntimeError):
             await waiter
+        self.assertEqual(limiter.stats().waiters, 0)
+
+    async def test_keyed_rate_limiter_close_cancellation_does_not_cancel_waiters(self):
+        limiter = KeyedRateLimiter[str](rate=0.1, period=1, burst=1)
+        self.assertTrue(limiter.try_acquire("key"))
+        arrivals = 0
+        all_arrived = asyncio.Event()
+
+        async def wait_for_token():
+            nonlocal arrivals
+            arrivals += 1
+            if arrivals == 2:
+                all_arrived.set()
+            await limiter.acquire("key")
+
+        waiters = [asyncio.create_task(wait_for_token()) for _ in range(2)]
+        await asyncio.wait_for(all_arrived.wait(), 1)
+        self.assertEqual(limiter.stats().waiters, len(waiters))
+        closing = asyncio.create_task(limiter.aclose())
+        await asyncio.sleep(0)
+        closing.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await closing
+        outcomes = await asyncio.gather(*waiters, return_exceptions=True)
+        self.assertTrue(all(isinstance(outcome, RuntimeError) for outcome in outcomes))
         self.assertEqual(limiter.stats().waiters, 0)
 
     async def test_async_retry_and_cancellation_semantics(self):

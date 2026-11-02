@@ -52,6 +52,35 @@ class BenchmarkTests(unittest.TestCase):
             by_case["async-periodic-schedules/1"]["remaining_tasks_after_cancel_peak"], 0
         )
 
+    def test_keyed_limiter_benchmark_reports_waiter_samples(self) -> None:
+        repository = Path(__file__).resolve().parents[1]
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "limiter.json"
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "benchmarks.benchmark_keyed_limiter",
+                    "--waiters",
+                    "8",
+                    "16",
+                    "--repeats",
+                    "1",
+                    "--output",
+                    str(output),
+                ],
+                cwd=repository,
+                check=True,
+                capture_output=True,
+                text=True,
+                timeout=20,
+            )
+            report = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual(report["benchmark"], "keyed-concurrency-same-key-waiters")
+        self.assertEqual([result["waiters"] for result in report["results"]], [8, 16])
+        self.assertTrue(all(result["p50_seconds"] > 0 for result in report["results"]))
+
     def test_publish_and_pipeline_reports_include_error_and_middleware_cases(self) -> None:
         repository = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temporary_directory:

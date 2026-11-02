@@ -1,0 +1,74 @@
+{
+  "benchmark": "keyed-concurrency-same-key-waiters",
+  "workload": "one permit; each waiter yields once while holding it",
+  "comparison": {
+    "baseline_revision": "cf89090",
+    "platform": "Linux x86_64",
+    "python": "3.10.18",
+    "baseline": [
+      {
+        "waiters": 100,
+        "sample_seconds": [0.029122, 0.02603, 0.025757],
+        "p50_seconds": 0.02603
+      },
+      {
+        "waiters": 1000,
+        "sample_seconds": [2.588848, 2.615293],
+        "p50_seconds": 2.60207
+      },
+      {
+        "waiters": 5000,
+        "sample_seconds": [77.263205],
+        "p50_seconds": 77.263205
+      }
+    ],
+    "fifo_waiter_queue": {
+      "python": "3.10.18",
+      "platform": "Linux-7.2.11-arch1-1-x86_64-with-glibc2.44",
+      "results": [
+        {
+          "waiters": 100,
+          "sample_seconds": [0.0015700480435043573, 0.001531792979221791, 0.0015147700323723257],
+          "p50_seconds": 0.001531792979221791
+        },
+        {
+          "waiters": 1000,
+          "sample_seconds": [0.014275192050263286, 0.014066302042920142, 0.01422218803782016],
+          "p50_seconds": 0.01422218803782016
+        },
+        {
+          "waiters": 5000,
+          "sample_seconds": [0.07696932699764147, 0.07599683600710705, 0.07603753398871049],
+          "p50_seconds": 0.07603753398871049
+        }
+      ]
+    },
+    "fifo_waiter_queue_python_3_14_8": {
+      "python": "3.14.8",
+      "platform": "Linux-7.2.11-arch1-1-x86_64-with-glibc2.44",
+      "results": [
+        {
+          "waiters": 100,
+          "sample_seconds": [0.0009867930202744901, 0.0011389590217731893, 0.001996980980038643],
+          "p50_seconds": 0.0011389590217731893
+        },
+        {
+          "waiters": 1000,
+          "sample_seconds": [0.008222861972171813, 0.00815436098491773, 0.008088234986644238],
+          "p50_seconds": 0.00815436098491773
+        },
+        {
+          "waiters": 5000,
+          "sample_seconds": [0.0480060669942759, 0.04802578000817448, 0.04711933102225885],
+          "p50_seconds": 0.0480060669942759
+        }
+      ]
+    }
+  },
+  "notes": [
+    "The baseline used one loop yield per acquired permit and began timing after all waiters had queued; it was measured before the FIFO change with the equivalent workload.",
+    "The baseline 1000-waiter sample list contains two measurements; the stored p50 is their median.",
+    "The 5000-waiter baseline took 77.26 seconds in one run. The FIFO queue took about 76 milliseconds at p50 on Python 3.10.18, roughly a 1,016x reduction for this workload.",
+    "These are local microbenchmarks, not production throughput guarantees."
+  ]
+}

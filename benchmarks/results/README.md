@@ -148,6 +148,25 @@ allocations and process RSS.
 
 Replay uses the unchanged benchmark; see `replay_before.txt` and `replay_after.txt`. JSON files retain complete distributions and environment details.
 
+## Keyed concurrency waiter contention
+
+`keyed_limiter_contention.json` compares the shared-future broadcast path at
+`cf89090` with the FIFO waiter queue. Each run holds one permit, queues 100,
+1,000 or 5,000 same-key waiters, and yields once inside every permit holder so
+remaining waiters must requeue as work progresses. Timing starts after all
+waiters are queued. On Python 3.10.18/Linux, the p50 was 26.0 ms versus 1.53 ms
+at 100 waiters (three samples each), 2.60 s versus 14.2 ms at 1,000 (two
+baseline samples and three FIFO samples), and 77.26 s versus 76.0 ms at 5,000
+(one baseline sample and three FIFO samples). Python 3.14.8/Linux measured
+8.15 ms and 48.0 ms at 1,000 and 5,000 waiters. These local measurements
+isolate a high-contention case and are not production guarantees.
+
+Reproduce the optimized measurement with:
+
+```bash
+python -m benchmarks.benchmark_keyed_limiter --waiters 100 1000 5000 --repeats 3 --output keyed_limiter.json
+```
+
 ## Reproduce
 
 ```bash
