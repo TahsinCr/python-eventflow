@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Isolate sync and async subscriber matching in focused bus helpers while
+  keeping their cancellation and replay behavior separate.
 - Count a publication only after a configured history append succeeds, and
   reject non-string engine channel names instead of coercing them.
 - Skip repeated event-loop lookups on stream reads after the owning consumer

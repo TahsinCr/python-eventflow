@@ -285,30 +285,15 @@ class EventBus(BaseEventBus[T]):
             self._record(event)
             self._published += 1
 
-        matched: list[_Subscriber[T]] = []
         errors: list[Exception] = []
         if self._actions.on_before is not None:
             try:
                 synchronous_result(self._actions.on_before(event))
             except Exception as exc:
                 errors.append(exc)
-        for subscriber in subscribers:
-            if not subscriber.subscription.active:
-                continue
-            try:
-                matches = subscriber.event_filter.matches(event)
-            except Exception as exc:
-                errors.append(exc)
-                continue
-            if matches:
-                try:
-                    if subscriber.buffer_if_replaying(event):
-                        continue
-                except BufferError as exc:
-                    subscriber.subscription.cancel()
-                    errors.append(exc)
-                    continue
-                matched.append(subscriber)
+
+        matched, matching_errors = self._match_subscribers(subscribers, event)
+        errors.extend(matching_errors)
 
         delivered = 0
         active_executors = getattr(_executor_context, "active", frozenset())
@@ -375,6 +360,32 @@ class EventBus(BaseEventBus[T]):
         if errors and self._error_policy is ErrorPolicy.RAISE:
             raise ExceptionGroup("Event delivery failed", errors)
         return result
+
+    def _match_subscribers(
+        self,
+        subscribers: tuple[_Subscriber[T], ...],
+        event: T,
+    ) -> tuple[list[_Subscriber[T]], list[Exception]]:
+        matched: list[_Subscriber[T]] = []
+        errors: list[Exception] = []
+        for subscriber in subscribers:
+            if not subscriber.subscription.active:
+                continue
+            try:
+                matches = subscriber.event_filter.matches(event)
+            except Exception as exc:
+                errors.append(exc)
+                continue
+            if matches:
+                try:
+                    if subscriber.buffer_if_replaying(event):
+                        continue
+                except BufferError as exc:
+                    subscriber.subscription.cancel()
+                    errors.append(exc)
+                    continue
+                matched.append(subscriber)
+        return matched, errors
 
     def _invoke_executor_callback(
         self,
