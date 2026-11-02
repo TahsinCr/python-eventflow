@@ -304,11 +304,12 @@ denedikten sonra toplanan hatalar için `ExceptionGroup` yükseltir; o yayın
 çağrısı `PublishResult` döndürmez. `bus.stats` toplam `published`,
 `delivered` ve `failed` sayaçlarını verir.
 
-Bu sayaçlar her yayın için değişmez bir eşitlik oluşturmaz. `published` callback'ler
-çalışmadan önce artar; `delivered` ve `failed` işlem sonunda güncellenir. Devam
-eden veya iptal edilen async yayınlarda değerler farklı kalabilir. `failed`,
-yalnızca başarısız handler'ları değil; handler, filtre ve action hatası
-kayıtlarını sayar.
+Bu sayaçlar her yayın için değişmez bir eşitlik oluşturmaz. `published`, history
+kaydı başarılı olduktan (history kapalıysa bu adım atlandıktan) sonra ve
+callback'ler çalışmadan önce artar; `delivered` ve `failed` işlem sonunda
+güncellenir. Devam eden veya iptal edilen async yayınlarda değerler farklı
+kalabilir. `failed`, yalnızca başarısız handler'ları değil; handler, filtre ve
+action hatası kayıtlarını sayar.
 
 Python 3.10 ve üzerindeki sürümlerde aynı import ile gruplandırılmış hataları
 yakalamak için `ExceptionGroup` sınıfını `eventflow.compatibility` modülünden
@@ -590,8 +591,8 @@ with EventEngine(history=50) as engine:
     print(result.delivered)
 ~~~
 
-Kanal adlarının başındaki ve sonundaki boşluklar silinir, harfler küçültülür.
-Bu nedenle `" Orders "` ve `"orders"` aynı kanala gider.
+Kanal adları string olmalı; başındaki ve sonundaki boşluklar silinir, harfler
+küçültülür. Bu nedenle `" Orders "` ve `"orders"` aynı kanala gider.
 `engine.channel(name)` kanalı döndürür veya oluşturur.
 `engine.add(name, bus)` özel ayarlı bus kaydeder. `remove(name)` bir kanalı
 kapatıp kaldırır; `stop()` tüm kanalları kapatır. Engine ayrıca `running` ve

@@ -295,10 +295,11 @@ directly. The bus attempts delivery to the selected handlers, then raises an
 a `PublishResult`. The `bus.stats` property provides cumulative
 `published`, `delivered`, and `failed` counts.
 
-These counters are not a per-publish invariant. `published` is incremented
-before callbacks run; `delivered` and `failed` are finalized afterward. An
-in-flight or cancelled async publish can leave them different. `failed` counts
-collected errors from handlers, filters, and actions, not only failed handlers.
+These counters are not a per-publish invariant. `published` advances after
+history recording succeeds (or is skipped when history is disabled) and before
+callbacks run; `delivered` and `failed` are finalized afterward. An in-flight
+or cancelled async publish can leave them different. `failed` counts collected
+errors from handlers, filters, and actions, not only failed handlers.
 
 To catch grouped failures with the same import on Python 3.10 and newer, import
 `ExceptionGroup` from `eventflow.compatibility`. On Python 3.11 and newer, that
@@ -575,10 +576,11 @@ with EventEngine(history=50) as engine:
     print(result.delivered)
 ~~~
 
-Channel names are stripped and lowercased, so `" Orders "` and `"orders"`
-refer to the same channel. `engine.channel(name)` returns a channel, creating
-it when necessary. Use `engine.add(name, bus)` to register a bus with custom
-settings. `remove(name)` closes one channel; `stop()` closes every channel.
+Channel names must be strings and are stripped and lowercased, so `" Orders "`
+and `"orders"` refer to the same channel. `engine.channel(name)` returns a
+channel, creating it when necessary. Use `engine.add(name, bus)` to register a
+bus with custom settings. `remove(name)` closes one channel; `stop()` closes
+every channel.
 An engine can own a bus instance under only one channel name at a time. A
 successful `add()` claims that bus for the engine; another engine cannot claim
 the same instance and receives `ValueError`. Removing or stopping the owner

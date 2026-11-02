@@ -95,7 +95,7 @@ jobs:
         run: python -m build
 
       - name: Check distribution metadata
-        run: python -m twine check dist/*
+        run: python -m twine check --strict dist/*
 
       - name: Build a wheel from the source distribution
         run: python -m build --wheel --outdir "${{ runner.temp }}/from-sdist" dist/*.tar.gz

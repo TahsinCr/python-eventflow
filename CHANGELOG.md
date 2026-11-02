@@ -4,6 +4,20 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Count a publication only after a configured history append succeeds, and
+  reject non-string engine channel names instead of coercing them.
+- Skip repeated event-loop lookups on stream reads after the owning consumer
+  task has been established.
+- Run Twine metadata checks in strict mode in CI.
+
+### Fixed
+
+- Claim engine-created channels for their owning engine, preserve finite
+  subscription deliveries when cancellation or executor submission fails, and
+  coordinate concurrent synchronous subscription cancellation retries.
+
 ## [v1.2] - 2026-11-02
 
 ### Added
