@@ -278,19 +278,28 @@ class AsyncEventBus(BaseEventBus[T]):
         self._bind_loop()
         async with self._lock:
             self._ensure_open()
+            if (
+                not self._subscribers
+                and self._actions.on_before is None
+                and self._actions.on_after is None
+            ):
+                self._record(event)
+                self._published += 1
+                return PublishResult()
             subscribers = tuple(self._subscribers.values())
             self._record(event)
             self._published += 1
 
-        errors: list[Exception] = []
+        before_error: Exception | None = None
         if self._actions.on_before is not None:
             try:
                 await self._actions.on_before(event)
             except Exception as exc:
-                errors.append(exc)
+                before_error = exc
 
-        matched, matching_errors = await self._match_subscribers(subscribers, event)
-        errors.extend(matching_errors)
+        matched, errors = await self._match_subscribers(subscribers, event)
+        if before_error is not None:
+            errors.insert(0, before_error)
 
         delivered = 0
         if self._delivery_mode is DeliveryMode.SEQUENTIAL:

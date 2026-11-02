@@ -119,7 +119,14 @@ class BenchmarkTests(unittest.TestCase):
         by_case = {result["case"]: result for result in results}
         self.assertEqual(
             set(by_case),
-            {"direct-generator", "native-map-filter", "unbuffered", "buffer-16"},
+            {
+                "direct-generator",
+                "native-map-filter",
+                "unbuffered",
+                "buffer-16",
+                "native-batch-64",
+                "batch_within-64-burst",
+            },
         )
         for result in by_case.values():
             self.assertEqual(result["items_per_operation"], 5)

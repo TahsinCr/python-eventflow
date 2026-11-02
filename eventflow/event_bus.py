@@ -275,19 +275,28 @@ class EventBus(BaseEventBus[T]):
     def publish(self, event: T) -> PublishResult:
         with self._lock:
             self._ensure_open()
+            if (
+                not self._subscribers
+                and self._actions.on_before is None
+                and self._actions.on_after is None
+            ):
+                self._record(event)
+                self._published += 1
+                return PublishResult()
             subscribers = tuple(self._subscribers.values())
             self._record(event)
             self._published += 1
 
-        errors: list[Exception] = []
+        before_error: Exception | None = None
         if self._actions.on_before is not None:
             try:
                 synchronous_result(self._actions.on_before(event))
             except Exception as exc:
-                errors.append(exc)
+                before_error = exc
 
-        matched, matching_errors = self._match_subscribers(subscribers, event)
-        errors.extend(matching_errors)
+        matched, errors = self._match_subscribers(subscribers, event)
+        if before_error is not None:
+            errors.insert(0, before_error)
 
         delivered = 0
         active_executors = getattr(_executor_context, "active", frozenset())
@@ -479,7 +488,7 @@ class EventBus(BaseEventBus[T]):
             try:
                 if not immediately and stopped.wait(interval):
                     return
-                while subscription.active and not self.closed:
+                while not stopped.is_set() and not self.closed:
                     try:
                         self.publish(event)
                     except Exception:
@@ -488,7 +497,7 @@ class EventBus(BaseEventBus[T]):
                     completed += 1
                     if times is not None and completed >= times:
                         break
-                    if not subscription.active:
+                    if stopped.is_set():
                         break
                     if stopped.wait(interval):
                         break

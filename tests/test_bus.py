@@ -161,6 +161,17 @@ class EventBusTests(unittest.TestCase):
         self.assertEqual(bus.stats.published, 0)
         bus.close()
 
+    def test_publish_without_subscribers_records_event_and_stats(self) -> None:
+        history = MemoryEventHistory[int](capacity=2)
+        bus = EventBus[int](history=history)
+
+        result = bus.publish(7)
+
+        self.assertEqual((result.matched, result.delivered, result.failed), (0, 0, 0))
+        self.assertEqual(history.query(), (7,))
+        self.assertEqual((bus.stats.published, bus.stats.delivered, bus.stats.failed), (1, 0, 0))
+        bus.close()
+
     def test_executor_rejection_preserves_finite_subscription_quota(self) -> None:
         received: list[int] = []
         with ThreadPoolExecutor(max_workers=1) as executor:
@@ -991,6 +1002,17 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaisesRegex(RuntimeError, "history append failed"):
             await bus.publish(1)
         self.assertEqual(bus.stats.published, 0)
+        await bus.close()
+
+    async def test_publish_without_subscribers_records_event_and_stats(self) -> None:
+        history = MemoryEventHistory[int](capacity=2)
+        bus = AsyncEventBus[int](history=history)
+
+        result = await bus.publish(7)
+
+        self.assertEqual((result.matched, result.delivered, result.failed), (0, 0, 0))
+        self.assertEqual(history.query(), (7,))
+        self.assertEqual((bus.stats.published, bus.stats.delivered, bus.stats.failed), (1, 0, 0))
         await bus.close()
 
     async def test_final_finite_claim_is_restored_when_cancellation_interrupts_removal(

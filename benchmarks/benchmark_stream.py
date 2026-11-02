@@ -34,6 +34,20 @@ def main() -> None:
         async for _ in native_map_filter():
             pass
 
+    async def native_batches() -> AsyncIterator[tuple[int, ...]]:
+        batch: list[int] = []
+        async for value in source():
+            batch.append(value)
+            if len(batch) == 64:
+                yield tuple(batch)
+                batch.clear()
+        if batch:
+            yield tuple(batch)
+
+    async def consume_native_batches() -> None:
+        async for _ in native_batches():
+            pass
+
     async def consume(buffered: bool) -> None:
         stream = AsyncStream(source()).map(lambda value: value + 1).filter(lambda value: value > 0)
         if buffered:
@@ -46,12 +60,20 @@ def main() -> None:
         async for _ in source():
             pass
 
+    async def consume_batch_within() -> None:
+        stream = AsyncStream(source()).batch_within(64, 60.0)
+        async with stream:
+            async for _ in stream:
+                pass
+
     async def asynchronous() -> None:
         operations = [
             ("direct-generator", direct),
             ("native-map-filter", consume_native),
             ("unbuffered", lambda: consume(False)),
             ("buffer-16", lambda: consume(True)),
+            ("native-batch-64", consume_native_batches),
+            ("batch_within-64-burst", consume_batch_within),
         ]
         for label, operation in operations:
             result = await measure_async(label, operation, args.iterations)
