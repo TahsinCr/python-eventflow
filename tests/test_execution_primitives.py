@@ -1022,6 +1022,24 @@ class AsyncPrimitiveTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(periodic.done)
         self.assertIn("scheduler.once", observer.snapshot().operations)
 
+    async def test_scheduler_closes_coroutine_when_task_creation_fails(self):
+        from unittest.mock import patch
+
+        scheduler = AsyncScheduler()
+        loop = asyncio.get_running_loop()
+        created = []
+
+        def fail_create_task(coroutine, **_kwargs):
+            created.append(coroutine)
+            raise RuntimeError("task factory failed")
+
+        with patch.object(loop, "create_task", side_effect=fail_create_task):
+            with self.assertRaisesRegex(RuntimeError, "task factory failed"):
+                scheduler.schedule_once(lambda: None)
+        self.assertEqual(len(created), 1)
+        self.assertIsNone(created[0].cr_frame)
+        await scheduler.aclose()
+
     async def test_async_stream_batch_within_flushes_by_time_and_preserves_final_partial(self):
         closed = asyncio.Event()
 

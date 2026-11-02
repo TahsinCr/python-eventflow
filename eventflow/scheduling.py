@@ -331,7 +331,11 @@ class AsyncScheduler:
         if self._closed:
             coroutine.close()
             raise RuntimeError("AsyncScheduler is closed")
-        task = loop.create_task(coroutine, name=name)
+        try:
+            task = loop.create_task(coroutine, name=name)
+        except BaseException:
+            coroutine.close()
+            raise
         self._tasks.add(task)
         task.add_done_callback(self._finished)
         return ScheduledHandle(task, loop)
