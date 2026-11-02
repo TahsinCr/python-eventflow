@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import inspect
 import math
+import threading
+import weakref
 from abc import ABC, abstractmethod
 from collections.abc import Callable
 from typing import Any, Generic, TypeVar
@@ -80,9 +82,20 @@ class BaseEventBus(Generic[T], ABC):
         else:
             self._history = MemoryEventHistory[T](history)
         self._error_policy = ErrorPolicy(error_policy)
+        self._engine_owner_lock = threading.Lock()
+        self._engine_owner: weakref.ReferenceType[Any] | None = None
         self._published = 0
         self._delivered = 0
         self._failed = 0
+
+    def _claim_engine_ownership(self, owner: Any) -> bool:
+        """Atomically assign this bus to one live engine without retaining it."""
+        with self._engine_owner_lock:
+            current_owner = self._engine_owner() if self._engine_owner is not None else None
+            if current_owner is not None and current_owner is not owner:
+                return False
+            self._engine_owner = weakref.ref(owner)
+            return True
 
     @property
     def history(self) -> EventHistory[T] | None:

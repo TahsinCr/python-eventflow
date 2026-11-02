@@ -102,7 +102,8 @@ class EventEngine:
     def add(self, name: str, bus: EventBus[Any]) -> EventBus[Any]:
         """Register a bus owned by this engine under a channel name.
 
-        Do not share the same bus instance between engine instances.
+        An open bus cannot be claimed by another engine; that registration raises
+        ValueError.
         """
 
         if not isinstance(bus, EventBus):
@@ -118,6 +119,9 @@ class EventEngine:
             ):
                 raise ValueError("An EventBus instance can belong to only one channel")
             self._channels[name] = bus
+            if not bus._claim_engine_ownership(self):
+                del self._channels[name]
+                raise ValueError("An EventBus instance can belong to only one engine")
             self._running = True
         return bus
 
@@ -316,7 +320,8 @@ class AsyncEventEngine:
     def add(self, name: str, bus: AsyncEventBus[Any]) -> AsyncEventBus[Any]:
         """Register a bus owned by this engine under a channel name.
 
-        Do not share the same bus instance between engine instances.
+        An open bus cannot be claimed by another engine; that registration raises
+        ValueError.
         """
 
         if not isinstance(bus, AsyncEventBus):
@@ -332,6 +337,9 @@ class AsyncEventEngine:
             ):
                 raise ValueError("An AsyncEventBus instance can belong to only one channel")
             self._channels[name] = bus
+            if not bus._claim_engine_ownership(self):
+                del self._channels[name]
+                raise ValueError("An AsyncEventBus instance can belong to only one engine")
             self._running = True
         return bus
 

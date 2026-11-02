@@ -1,10 +1,12 @@
 from __future__ import annotations
 
 import asyncio
+import gc
 import threading
 import unittest
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from unittest.mock import patch
+from weakref import ref
 
 from eventflow import (
     AsyncEventBus,
@@ -71,6 +73,52 @@ class EventEngineTests(unittest.TestCase):
                     engine.add("second", custom)
                 close_release.set()
                 self.assertTrue(removing.result(timeout=1.0))
+
+    def test_bus_has_one_owner_across_concurrent_engine_registration(self) -> None:
+        bus = EventBus[int]()
+        engines = (EventEngine(), EventEngine())
+        barrier = threading.Barrier(len(engines))
+        results: list[bool] = []
+        results_lock = threading.Lock()
+
+        def register(engine: EventEngine) -> None:
+            barrier.wait(timeout=1.0)
+            try:
+                engine.add("shared", bus)
+            except ValueError:
+                accepted = False
+            else:
+                accepted = True
+            with results_lock:
+                results.append(accepted)
+
+        threads = [threading.Thread(target=register, args=(engine,)) for engine in engines]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=2.0)
+
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual(results.count(True), 1)
+        self.assertEqual(results.count(False), 1)
+        self.assertEqual(sum(bool(engine.channel_names) for engine in engines), 1)
+        for engine in engines:
+            engine.stop()
+        self.assertTrue(bus.closed)
+
+    def test_bus_engine_ownership_does_not_keep_engine_alive(self) -> None:
+        bus = EventBus[int]()
+        engine = EventEngine()
+        engine.add("events", bus)
+        engine_ref = ref(engine)
+
+        del engine
+        gc.collect()
+
+        self.assertIsNone(engine_ref())
+        replacement = EventEngine()
+        replacement.add("events", bus)
+        replacement.stop()
 
     def test_engine_can_create_new_channels_after_stop(self) -> None:
         engine = EventEngine()
@@ -320,3 +368,35 @@ class AsyncEventEngineTests(unittest.IsolatedAsyncioTestCase):
                 engine.add("second", custom)
             close_release.set()
             self.assertTrue(await asyncio.wait_for(removing, 1.0))
+
+    async def test_async_bus_has_one_owner_across_engine_instances(self) -> None:
+        bus = AsyncEventBus[int]()
+        engines = (AsyncEventEngine(), AsyncEventEngine())
+        barrier = threading.Barrier(len(engines))
+        results: list[bool] = []
+        results_lock = threading.Lock()
+
+        def register(engine: AsyncEventEngine) -> None:
+            barrier.wait(timeout=1.0)
+            try:
+                engine.add("shared", bus)
+            except ValueError:
+                accepted = False
+            else:
+                accepted = True
+            with results_lock:
+                results.append(accepted)
+
+        threads = [threading.Thread(target=register, args=(engine,)) for engine in engines]
+        for thread in threads:
+            thread.start()
+        for thread in threads:
+            thread.join(timeout=2.0)
+
+        self.assertTrue(all(not thread.is_alive() for thread in threads))
+        self.assertEqual(results.count(True), 1)
+        self.assertEqual(results.count(False), 1)
+        self.assertEqual(sum(bool(engine.channel_names) for engine in engines), 1)
+        for engine in engines:
+            await engine.stop()
+        self.assertTrue(bus.closed)
