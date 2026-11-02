@@ -176,6 +176,33 @@ class PrimitiveTests(unittest.TestCase):
         now[0] = 6
         self.assertIsNone(cache.get("key"))
 
+    def test_versioned_cache_forgets_versions_after_eviction(self):
+        cache = VersionedCache(max_entries=1)
+        self.assertTrue(cache.put("key", "new", version=2))
+        self.assertTrue(cache.put("other", "resident", version=1))
+        self.assertIsNone(cache.get("key"))
+        self.assertTrue(cache.put("key", "older", version=1))
+
+    def test_resource_scope_ignores_reentrant_close_from_cleanup(self):
+        scope = ResourceScope()
+        scope.defer(scope.close)
+
+        scope.close()
+
+        self.assertTrue(scope.closed)
+        self.assertEqual(scope.pending_cleanup(), 0)
+
+    def test_retry_deadline_does_not_interrupt_started_sync_operation(self):
+        now = [0.0]
+        deadline = Deadline.after(1, clock=lambda: now[0])
+
+        def operation():
+            now[0] = 2.0
+            return "completed"
+
+        result = RetryPolicy(max_attempts=1).run(operation, deadline=deadline)
+        self.assertEqual(result, "completed")
+
     def test_service_registry_closes_owner_resources_in_reverse_order(self):
         calls = []
 

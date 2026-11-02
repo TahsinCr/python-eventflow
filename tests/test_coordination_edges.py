@@ -903,6 +903,17 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(TypeError):
             await policy.run_async(transient, should_retry=object())
 
+    async def test_retry_deadline_does_not_interrupt_started_async_operation(self):
+        now = [0.0]
+        deadline = Deadline.after(1, clock=lambda: now[0])
+
+        async def operation():
+            now[0] = 2.0
+            return "completed"
+
+        result = await RetryPolicy(max_attempts=1).run_async(operation, deadline=deadline)
+        self.assertEqual(result, "completed")
+
     async def test_circuit_breaker_half_open_and_classifier_behavior(self):
         now = [0.0]
         breaker = CircuitBreaker(

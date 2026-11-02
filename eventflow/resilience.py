@@ -116,7 +116,7 @@ class RetryPolicy:
         should_retry: Callable[[Exception], bool] | None = None,
         deadline: Deadline | None = None,
     ) -> T:
-        """Run a synchronous operation; without should_retry, only one attempt is made."""
+        """Run sync attempts within a retry budget; running work is not interrupted."""
         if not callable(operation):
             raise TypeError("operation must be callable")
         if should_retry is not None and not callable(should_retry):
@@ -163,7 +163,11 @@ class RetryPolicy:
         should_retry: Callable[[Exception], bool] | None = None,
         deadline: Deadline | None = None,
     ) -> T:
-        """Async counterpart; cancellation propagates immediately and is never retried."""
+        """Run async attempts within a retry budget; cancellation is never retried.
+
+        The deadline gates new attempts and caps retry delays. It does not
+        interrupt an operation that has already started.
+        """
         if not callable(operation):
             raise TypeError("operation must be callable")
         if should_retry is not None and not callable(should_retry):

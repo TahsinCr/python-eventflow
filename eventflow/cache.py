@@ -39,7 +39,7 @@ class CacheStats:
 
 
 class VersionedCache(Generic[K, V]):
-    """Thread-safe LRU cache; byte bounds require an explicit size function."""
+    """Thread-safe bounded LRU; stale versions are rejected while entries remain cached."""
 
     def __init__(
         self,

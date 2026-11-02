@@ -209,6 +209,7 @@ class ResourceScope:
         self._close_lock = threading.RLock()
         self._closed = False
         self._inflight = 0
+        self._closing_thread: int | None = None
 
     @property
     def closed(self) -> bool:
@@ -265,26 +266,34 @@ class ResourceScope:
         """Attempt all cleanups; failed entries remain available for a later retry."""
         with self._close_lock:
             with self._lock:
+                current_thread = threading.get_ident()
+                if self._closing_thread == current_thread:
+                    return
+                self._closing_thread = current_thread
                 self._closed = True
                 pending, self._entries = list(reversed(self._entries)), []
                 self._inflight = sum(entry.cleanup is not None for entry in pending)
             failed: list[_ResourceEntry] = []
             errors: list[BaseException] = []
-            for entry in pending:
-                if entry.cleanup is None:
-                    continue
-                try:
-                    synchronous_result(entry.cleanup())
-                except BaseException as error:
-                    failed.append(entry)
-                    errors.append(error)
-                finally:
-                    with self._lock:
-                        self._inflight -= 1
-            with self._lock:
-                self._entries = list(reversed(failed))
-                self._resource_ids = {id(entry.resource) for entry in failed}
-            raise_cleanup_errors(errors, message="Resource scope cleanup failed")
+            try:
+                for entry in pending:
+                    if entry.cleanup is None:
+                        continue
+                    try:
+                        synchronous_result(entry.cleanup())
+                    except BaseException as error:
+                        failed.append(entry)
+                        errors.append(error)
+                    finally:
+                        with self._lock:
+                            self._inflight -= 1
+                with self._lock:
+                    self._entries = list(reversed(failed))
+                    self._resource_ids = {id(entry.resource) for entry in failed}
+                raise_cleanup_errors(errors, message="Resource scope cleanup failed")
+            finally:
+                with self._lock:
+                    self._closing_thread = None
 
     def __enter__(self) -> ResourceScope:
         return self
