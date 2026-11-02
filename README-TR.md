@@ -1063,8 +1063,10 @@ varsayılan executor'ı kapatır ve thread'i join eder. Deadlock'ı önlemek iç
 portal'ın kendi loop'unda bloklayan `call()` reddedilir. Uygulamanın mevcut
 event loop'unun sahipliği alınmaz.
 `call(timeout=...)` süresi dolarsa task cancellation istenir; cancellation'ı
-bastıran bir işlemi zorla durduramaz. İş tamamlanana kadar portalın sahipliğinde
-kalır; bekleme süresi dolarsa `close()` da timeout verebilir. `asyncio.to_thread()`
+bastıran bir işlemi zorla durduramaz. İşlemin kendi ürettiği `TimeoutError` aynen
+yayılır; portal timeout'u yalnızca `call()` bekleme süresi dolduğunda oluşur.
+İş tamamlanana kadar portalın sahipliğinde kalır; bekleme süresi dolarsa `close()`
+da timeout verebilir. `asyncio.to_thread()`
 ile başlamış bir thread task cancellation ile durdurulamaz. `close()` timeout
 verdiğinde portal thread'i bu iş tamamlanana kadar sahipliğinde tutar; ardından
 `close()` yeniden çağrılarak kapatma tamamlanabilir.
@@ -1149,8 +1151,9 @@ limiti tutar. İptal durumunda slot'u güvenle bırakmak için
 `async with limiter.acquire(key)` kullanın. `acquire_nowait(key)` ise hemen
 reddedilebilen durumlar içindir. Boştaki anahtar kayıtları temizlenir.
 `aclose()` yeni talepleri durdurur ve bekleyenleri uyandırır. Bu bir eşzamanlılık
-limitidir; saniyedeki istek sayısını sınırlamaz. Bekleyenler için FIFO sırası
-garantisi verilmez. `acquire_nowait(key)` başarılıysa slot'u
+limitidir; saniyedeki istek sayısını sınırlamaz. Kuyruğa alınan edinimler FIFO
+sırasında çalışır. `acquire_nowait(key)`, bekleyen bir iş varken sırayı
+atlamaması için `False` döndürür. Başarılı çağrıda slot'u
 `await limiter.release(key)` ile bırakın. `stats()` toplam sayıları,
 `key_stats(key)` ise tek bir anahtarın aktif izin ve bekleyici sayılarını verir.
 
@@ -1170,7 +1173,8 @@ Artık kullanılmayacak örneği `await flight.aclose()` ile kapatın. Bu çağr
 aktif işleri iptal eder, tamamlanmalarını bekler ve yeni işleri reddeder;
 kapanışın tamamlanması için factory işlevlerinin iptal isteğine yanıt vermesi
 gerekir. Bir factory, kendisini çalıştıran `SingleFlight` örneğini kapatamaz;
-bu deneme `RuntimeError` üretir.
+bu deneme `RuntimeError` üretir. `stats()` örneğin sahibi olan event loop
+içinden çağrılmalıdır.
 `LatestTaskCoordinator.submit(key, factory, on_result)` varsayılan olarak
 önceki işi iptal eder ve yalnızca en yeni gönderimin sonucunu uygular. İptale
 direnen eski task da generation kontrolü sayesinde eski sonuç yayımlayamaz.

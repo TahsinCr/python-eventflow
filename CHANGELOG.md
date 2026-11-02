@@ -31,6 +31,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Serve queued keyed-concurrency acquisitions in FIFO order and reject
+  `acquire_nowait()` while queued work exists; keep observer queue-depth updates
+  independent of the number of active keys.
+- Require `SingleFlight.stats()` calls to run on the instance's owning event loop.
 - Make identity-based membership checks in scopes and engine channels average
   constant-time, avoiding quadratic growth when registering large batches.
 - Skip dispatch bookkeeping for publications without subscribers or before/after
@@ -49,6 +53,13 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserve operation-raised `TimeoutError` in `LoopPortal.call()` and distinguish
+  it from an actual wait timeout.
+- Reject `LoopPortal.start()` and `submit()` once loop stopping begins, including
+  after a timed-out join that leaves the loop owned for retry.
+- Finish keyed-limiter waiter cleanup before propagating cancellation from
+  `aclose()`, without cancelling the waiters themselves.
+- Close scheduled coroutines when `AsyncScheduler` task creation fails.
 - Ensure `LoopPortal.start()` returns only after its event loop is running, so
   immediate submissions cannot race loop startup.
 - Preserve shared keyed-limiter wakeups when one waiter is cancelled, serialize

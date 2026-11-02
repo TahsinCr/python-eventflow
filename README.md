@@ -1044,6 +1044,8 @@ tasks, shuts down its default executor, and joins its thread. A blocking
 portal does not take ownership of an application's existing event loop. A
 `call(timeout=...)` timeout requests
 cancellation; it cannot force a cancellation-resistant operation to stop.
+An operation's own `TimeoutError` is propagated unchanged; the portal timeout
+is raised only when `call()`'s wait deadline expires.
 That operation remains owned by the portal until it actually finishes, and
 `close()` can time out while waiting for it. Work already running through
 `asyncio.to_thread()` cannot be stopped by task cancellation. A timed-out
@@ -1129,10 +1131,12 @@ with ResourceScope() as resources:
 for every key. Use `async with limiter.acquire(key)` for cancellation-safe
 release, or `acquire_nowait(key)` when the caller can handle immediate
 rejection. Idle keys are removed. `aclose()` rejects new acquisitions and
-wakes waiters. Waiter order is not guaranteed. This is a concurrency cap; it
-does not limit requests per second. If `acquire_nowait(key)` succeeds, release
-the slot with `await limiter.release(key)`. `stats()` reports aggregate counts;
-`key_stats(key)` reports active permits and waiters for one key.
+wakes waiters. Queued acquisitions run in FIFO order, and `acquire_nowait(key)`
+returns `False` while a waiter is queued so it cannot bypass earlier work. This
+is a concurrency cap; it does not limit requests per second. If
+`acquire_nowait(key)` succeeds, release the slot with `await limiter.release(key)`.
+`stats()` reports aggregate counts; `key_stats(key)` reports active permits and
+waiters for one key.
 
 `KeyedRateLimiter(rate, period, burst=...)` is a per-key token bucket.
 `await acquire(key)` waits cancellably for a token; `try_acquire(key)` returns
@@ -1148,7 +1152,8 @@ all waiters leave; it remains owned and visible through `stats().active` until
 completion. Call `await flight.aclose()` when the instance is no longer needed;
 it cancels and drains active work, then rejects new calls. Factories must
 cooperate with cancellation for shutdown to finish. A factory cannot close its
-own `SingleFlight` instance; that call raises `RuntimeError`.
+own `SingleFlight` instance; that call raises `RuntimeError`. `stats()` must be
+called from the instance's owning event loop.
 `LatestTaskCoordinator.submit(key, factory, on_result)` cancels prior work by
 default and applies a result only if that submission is still the newest for
 the key. Generation checks also prevent a cancellation-resistant old task
