@@ -6,6 +6,7 @@ import asyncio
 import concurrent.futures
 import threading
 import unittest
+from unittest.mock import patch
 
 from eventflow.bridges import AsyncEventQueue, LoopPortal
 from eventflow.cache import VersionedCache
@@ -873,9 +874,11 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertFalse(limiter.acquire_nowait("closed"))
 
         rate = KeyedRateLimiter[str](rate=100, period=0.1, burst=1, max_keys=1)
-        self.assertTrue(rate.try_acquire("a"))
-        with self.assertRaises(RuntimeError):
-            rate.try_acquire("b")
+        loop = asyncio.get_running_loop()
+        with patch.object(loop, "time", return_value=loop.time()):
+            self.assertTrue(rate.try_acquire("a"))
+            with self.assertRaises(RuntimeError):
+                rate.try_acquire("b")
         await asyncio.sleep(0.02)
         self.assertTrue(rate.try_acquire("b"))
         self.assertGreaterEqual(rate.available("b"), 0)

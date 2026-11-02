@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [v1.3.0] - 2026-11-02
+
 ### Added
 
 - Add a bounded, thread-safe `AsyncEventQueue` bridge for synchronous bus

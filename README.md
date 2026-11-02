@@ -1,4 +1,4 @@
-[![Version: v1.2.1][version-shield]](https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md)
+[![Version: v1.3.0][version-shield]](https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md)
 [![Python 3.10+][python-shield]](https://www.python.org/downloads/)
 [![MIT License][license-shield]](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE)
 
@@ -122,7 +122,7 @@ The installed package exposes its version through `eventflow.__version__`:
 ~~~python
 from eventflow import __version__
 
-print(__version__)  # 1.2.1
+print(__version__)  # 1.3.0
 ~~~
 
 <a id="first-event"></a>
@@ -1561,6 +1561,6 @@ Copyright © 2026 TahsinCr. EventFlow is licensed under the MIT License.
 See [LICENSE](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE) and
 [CHANGELOG](https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md).
 
-[version-shield]: https://img.shields.io/badge/version-v1.2.1-b7a3e3.svg?style=for-the-badge
+[version-shield]: https://img.shields.io/badge/version-v1.3.0-b7a3e3.svg?style=for-the-badge
 [python-shield]: https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?style=for-the-badge&logo=python&logoColor=white
 [license-shield]: https://img.shields.io/badge/license-MIT-blue.svg?style=for-the-badge
