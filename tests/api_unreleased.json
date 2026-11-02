@@ -125,6 +125,7 @@
       "methods": {
         "__init__": "(self) -> 'None'",
         "run": "(self, key: 'K', factory: 'Callable[[], Awaitable[T]]') -> 'T'",
+        "aclose": "(self) -> 'None'",
         "stats": "(self) -> 'SingleFlightStats'"
       },
       "$call": "() -> 'None'"

@@ -230,6 +230,8 @@ class SingleFlight(Generic[K]):
     def __init__(self) -> None:
         self._loop: asyncio.AbstractEventLoop | None = None
         self._flights: dict[K, _Flight[Any]] = {}
+        self._closed = False
+        self._close_task: asyncio.Task[None] | None = None
 
     def _bind_loop(self) -> asyncio.AbstractEventLoop:
         loop = bind_running_loop(self._loop, "SingleFlight")
@@ -241,6 +243,8 @@ class SingleFlight(Generic[K]):
         loop = self._bind_loop()
         if not callable(factory):
             raise TypeError("factory must be callable")
+        if self._closed:
+            raise RuntimeError("SingleFlight is closed")
         flight = self._flights.get(key)
         if flight is None or flight.task.done():
 
@@ -260,6 +264,30 @@ class SingleFlight(Generic[K]):
             return await asyncio.shield(flight.task)
         finally:
             flight.waiters -= 1
+
+    async def aclose(self) -> None:
+        """Cancel and drain shared operations owned by this instance.
+
+        Factories must cooperate with cancellation for shutdown to finish.
+        Cancelling one waiter still leaves shared work running; call ``aclose``
+        when the instance is no longer needed.
+        """
+        loop = self._bind_loop()
+        current = asyncio.current_task()
+        if any(flight.task is current for flight in self._flights.values()):
+            raise RuntimeError("A SingleFlight operation cannot close its own instance")
+        if self._close_task is None:
+            self._closed = True
+            tasks = tuple(flight.task for flight in self._flights.values())
+
+            async def close_tasks() -> None:
+                for task in tasks:
+                    task.cancel()
+                if tasks:
+                    await asyncio.gather(*tasks, return_exceptions=True)
+
+            self._close_task = loop.create_task(close_tasks(), name="EventFlowSingleFlightClose")
+        await asyncio.shield(self._close_task)
 
     def _finished(self, key: K, flight: _Flight[Any], task: asyncio.Task[Any]) -> None:
         if self._flights.get(key) is flight:

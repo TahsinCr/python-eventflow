@@ -663,6 +663,54 @@ class AsyncPrimitiveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(len(calls), 1)
         self.assertEqual(flight.stats().active, 0)
 
+    async def test_single_flight_aclose_owns_orphaned_work_and_survives_caller_cancel(self):
+        flight = SingleFlight[str]()
+        started = asyncio.Event()
+        cancellation_seen = asyncio.Event()
+        release = asyncio.Event()
+
+        async def factory():
+            started.set()
+            try:
+                await asyncio.Event().wait()
+            except asyncio.CancelledError:
+                cancellation_seen.set()
+                await release.wait()
+                raise
+
+        waiter = asyncio.create_task(flight.run("key", factory))
+        await started.wait()
+        waiter.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await waiter
+        self.assertEqual(flight.stats().active, 1)
+
+        closing = asyncio.create_task(flight.aclose())
+        await asyncio.wait_for(cancellation_seen.wait(), timeout=1)
+        closing.cancel()
+        with self.assertRaises(asyncio.CancelledError):
+            await closing
+        self.assertEqual(flight.stats().active, 1)
+
+        release.set()
+        await flight.aclose()
+        await asyncio.sleep(0)
+        self.assertEqual(flight.stats().active, 0)
+        with self.assertRaises(RuntimeError):
+            await flight.run("after-close", factory)
+
+    async def test_single_flight_operation_cannot_close_its_own_owner(self):
+        flight = SingleFlight[str]()
+
+        async def factory():
+            await flight.aclose()
+
+        with self.assertRaisesRegex(RuntimeError, "cannot close its own instance"):
+            await flight.run("key", factory)
+
+        self.assertEqual(flight.stats().active, 0)
+        await flight.aclose()
+
     async def test_keyed_rate_limiter_waits_cancellably_and_cleans_waiters(self):
         default_burst = KeyedRateLimiter[str](rate=0.1)
         self.assertTrue(default_burst.try_acquire("low-rate"))
