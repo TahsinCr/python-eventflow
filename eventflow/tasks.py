@@ -10,7 +10,12 @@ from types import MappingProxyType
 from typing import Any, Generic, Literal, TypeVar, cast
 
 from ._callbacks import close_awaitable
-from ._lifecycle import bind_running_loop, finish_cleanup, request_task_cancellation
+from ._lifecycle import (
+    bind_running_loop,
+    create_task_safely,
+    finish_cleanup,
+    request_task_cancellation,
+)
 from .base import validate_nonnegative_timeout
 from .compatibility import BaseExceptionGroup, ExceptionGroup
 from .observability import OperationStats, _require_operation_stats
@@ -247,7 +252,7 @@ class AsyncTaskScope:
             self._closing.done()
             and (self._tasks or self._closing.cancelled() or self._closing.exception() is not None)
         ):
-            self._closing = asyncio.create_task(
+            self._closing = create_task_safely(
                 self._close_tasks(timeout), name="EventFlowTaskScopeClose"
             )
         await finish_cleanup(self._closing)

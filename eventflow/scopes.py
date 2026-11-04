@@ -12,6 +12,7 @@ from typing import Callable, Protocol, TypeVar
 from ._callbacks import is_async_callable, synchronous_result
 from ._lifecycle import (
     bind_running_loop,
+    create_task_safely,
     finish_cleanup_errors,
     raise_cleanup_errors,
 )
@@ -167,7 +168,7 @@ class AsyncSubscriptionScope:
         self._closed = True
         cleanup = self._cleanup
         if cleanup is None or (cleanup.done() and self._handles):
-            cleanup = asyncio.create_task(self._cancel_handles(), name="EventFlowScopeCleanup")
+            cleanup = create_task_safely(self._cancel_handles(), name="EventFlowScopeCleanup")
             self._cleanup = cleanup
         errors = await finish_cleanup_errors(cleanup, message="Subscription scope cleanup failed")
         raise_cleanup_errors(errors, message="Subscription scope cleanup failed")
@@ -395,7 +396,7 @@ class AsyncResourceScope:
         self._closed = True
         cleanup = self._cleanup
         if cleanup is None or (cleanup.done() and self._entries):
-            cleanup = asyncio.create_task(self._run_cleanups(), name="EventFlowResourceCleanup")
+            cleanup = create_task_safely(self._run_cleanups(), name="EventFlowResourceCleanup")
             self._cleanup = cleanup
         errors = await finish_cleanup_errors(cleanup, message="Resource scope cleanup failed")
         raise_cleanup_errors(errors, message="Resource scope cleanup failed")

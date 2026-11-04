@@ -22,7 +22,7 @@ from .compatibility import ExceptionGroup
 from .errors import EventBusError, InvalidEventHandlerError
 from .filtering import EventFilter, EventType, coerce_event_filter
 from .history import EventHistory
-from ._lifecycle import finish_cleanup
+from ._lifecycle import create_task_safely, finish_cleanup
 from .subscription import AsyncSubscription
 
 
@@ -412,14 +412,13 @@ class AsyncEventBus(BaseEventBus[T]):
 
         def start_next() -> None:
             nonlocal next_index
-            task = asyncio.create_task(self._deliver(matched[next_index], event))
+            task = create_task_safely(self._deliver(matched[next_index], event))
             active[task] = next_index
             next_index += 1
 
-        for _ in range(min(limit, len(matched))):
-            start_next()
-
         try:
+            for _ in range(min(limit, len(matched))):
+                start_next()
             while active:
                 done, _ = await asyncio.wait(tuple(active), return_when=asyncio.FIRST_COMPLETED)
                 for task in done:
@@ -551,7 +550,11 @@ class AsyncEventBus(BaseEventBus[T]):
                 finally:
                     cleanup()
 
-            task = asyncio.create_task(run(), name=f"AsyncEventBusPeriodic-{schedule_id}")
+            try:
+                task = create_task_safely(run(), name=f"AsyncEventBusPeriodic-{schedule_id}")
+            except BaseException:
+                cleanup()
+                raise
             self._schedules[schedule_id] = (subscription, task)
             task.add_done_callback(cleanup)
         return subscription

@@ -157,6 +157,31 @@ class AsyncCallbackTests(unittest.IsolatedAsyncioTestCase):
             await sub.invoke_async(1)
         self.assertEqual(hooks, ["timeout", "after"])
 
+    async def test_timed_callback_closes_coroutine_when_task_creation_fails(self):
+        loop = asyncio.get_running_loop()
+        rejected = []
+
+        def reject_task(coroutine, *, name=None, context=None):
+            rejected.append(coroutine)
+            raise RuntimeError("task creation rejected")
+
+        async def callback(event):
+            return event
+
+        subscription = CallbackSubscription(
+            1,
+            lambda: None,
+            callback,
+            asynchronous=True,
+            timeout=1.0,
+        )
+        with patch.object(loop, "create_task", side_effect=reject_task):
+            with self.assertRaisesRegex(RuntimeError, "creation rejected"):
+                await subscription.invoke_async("event")
+
+        self.assertEqual(len(rejected), 1)
+        self.assertIsNone(rejected[0].cr_frame)
+
     async def test_timeout_cancels_task_returned_by_sync_async_callback(self):
         cleaned = asyncio.Event()
         work_task = []

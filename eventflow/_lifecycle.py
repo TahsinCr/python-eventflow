@@ -1,12 +1,39 @@
 """Share event-loop ownership and cleanup operations across async components."""
 
 import asyncio
-from collections.abc import Awaitable
-from typing import TypeVar
+import inspect
+from collections.abc import Awaitable, Coroutine
+from typing import Any, TypeVar
 
 from .compatibility import BaseExceptionGroup, ExceptionGroup
 
 T = TypeVar("T")
+
+
+def create_task_safely(
+    coroutine: Coroutine[Any, Any, T],
+    *,
+    name: str | None = None,
+    loop: asyncio.AbstractEventLoop | None = None,
+) -> asyncio.Task[T]:
+    """Close a fresh coroutine if its event loop rejects task creation."""
+    try:
+        if loop is None:
+            return asyncio.create_task(coroutine, name=name)
+        return loop.create_task(coroutine, name=name)
+    except BaseException:
+        coroutine.close()
+        raise
+
+
+def ensure_future_safely(operation: Awaitable[T]) -> asyncio.Future[T]:
+    """Close a coroutine if its event loop rejects scheduling it."""
+    try:
+        return asyncio.ensure_future(operation)
+    except BaseException:
+        if inspect.iscoroutine(operation):
+            operation.close()
+        raise
 
 
 def bind_running_loop(
@@ -59,7 +86,7 @@ def raise_cleanup_errors(
 
 
 async def finish_cleanup(operation: Awaitable[T]) -> T:
-    task = asyncio.ensure_future(operation)
+    task = ensure_future_safely(operation)
     if task is asyncio.current_task():
         raise RuntimeError("Cleanup cannot await itself")
     cancellation: asyncio.CancelledError | None = None

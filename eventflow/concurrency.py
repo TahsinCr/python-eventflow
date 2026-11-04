@@ -7,7 +7,7 @@ from collections.abc import Awaitable, Callable, Hashable
 from dataclasses import dataclass, field
 from typing import Any, Generic, TypeVar
 
-from ._lifecycle import bind_running_loop, finish_cleanup
+from ._lifecycle import bind_running_loop, create_task_safely, finish_cleanup
 from .base import validate_finite_duration
 from .observability import OperationStats, _require_operation_stats
 
@@ -276,7 +276,7 @@ class SingleFlight(Generic[K]):
             async def execute() -> T:
                 return await factory()
 
-            task = loop.create_task(execute(), name="EventFlowSingleFlight")
+            task = create_task_safely(execute(), name="EventFlowSingleFlight", loop=loop)
             flight = _Flight(task)
             self._flights[key] = flight
             task.add_done_callback(
@@ -311,7 +311,9 @@ class SingleFlight(Generic[K]):
                 if tasks:
                     await asyncio.gather(*tasks, return_exceptions=True)
 
-            self._close_task = loop.create_task(close_tasks(), name="EventFlowSingleFlightClose")
+            self._close_task = create_task_safely(
+                close_tasks(), name="EventFlowSingleFlightClose", loop=loop
+            )
         await asyncio.shield(self._close_task)
 
     def _finished(self, key: K, flight: _Flight[Any], task: asyncio.Task[Any]) -> None:

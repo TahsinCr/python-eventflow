@@ -13,7 +13,12 @@ from dataclasses import dataclass
 from typing import Any, Generic, Literal, TypeVar
 
 from ._callbacks import close_awaitable, synchronous_result
-from ._lifecycle import bind_running_loop, finish_cleanup, request_task_cancellation
+from ._lifecycle import (
+    bind_running_loop,
+    create_task_safely,
+    finish_cleanup,
+    request_task_cancellation,
+)
 from .base import (
     validate_finite_duration,
     validate_nonnegative_timeout,
@@ -466,8 +471,8 @@ class AsyncScheduler:
                         return
                     if overlap == "parallel":
                         if len(children) < parallel_limit:
-                            child = loop.create_task(
-                                run_tick(), name=f"{name or 'EventFlowPeriodic'}:tick"
+                            child = create_task_safely(
+                                run_tick(), name=f"{name or 'EventFlowPeriodic'}:tick", loop=loop
                             )
                             children.add(child)
                             child.add_done_callback(children.discard)
@@ -524,7 +529,7 @@ class AsyncScheduler:
             self._closing.done()
             and (self._tasks or self._closing.cancelled() or self._closing.exception() is not None)
         ):
-            self._closing = asyncio.create_task(
+            self._closing = create_task_safely(
                 self._close_tasks(timeout), name="EventFlowSchedulerClose"
             )
         await finish_cleanup(self._closing)

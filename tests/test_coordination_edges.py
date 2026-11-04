@@ -986,6 +986,28 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(flight.stats().active, 0)
         self.assertEqual(await flight.run("key", lambda: self._value(7)), 7)
 
+    async def test_single_flight_closes_coroutine_when_task_creation_fails(self):
+        flight = SingleFlight[str]()
+        loop = asyncio.get_running_loop()
+        rejected = []
+
+        def reject_task(coroutine, *, name=None, context=None):
+            rejected.append(coroutine)
+            raise RuntimeError("task creation rejected")
+
+        async def factory():
+            return "ready"
+
+        with patch.object(loop, "create_task", side_effect=reject_task):
+            with self.assertRaisesRegex(RuntimeError, "creation rejected"):
+                await flight.run("key", factory)
+
+        self.assertEqual(len(rejected), 1)
+        self.assertIsNone(rejected[0].cr_frame)
+        self.assertEqual(flight.stats().active, 0)
+        self.assertEqual(await flight.run("key", factory), "ready")
+        await flight.aclose()
+
     async def test_cooldown_capacity_sync_and_cancellable_wait(self):
         now = [10.0]
         cooldowns = CooldownRegistry(max_entries=1, clock=lambda: now[0])
@@ -1114,6 +1136,65 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
         finish.set()
         await scope.aclose(1)
         self.assertTrue(handle.done)
+
+    async def test_task_scope_closes_both_coroutines_when_task_creation_fails(self):
+        scope = AsyncTaskScope()
+
+        async def operation():
+            return 1
+
+        supplied = operation()
+        loop = asyncio.get_running_loop()
+        rejected = []
+
+        def reject_task(coroutine, *, name=None, context=None):
+            rejected.append(coroutine)
+            raise RuntimeError("task creation rejected")
+
+        with patch.object(loop, "create_task", side_effect=reject_task):
+            with self.assertRaisesRegex(RuntimeError, "creation rejected"):
+                scope.start(supplied)
+
+        self.assertEqual(len(rejected), 1)
+        self.assertIsNone(rejected[0].cr_frame)
+        self.assertIsNone(supplied.cr_frame)
+        await scope.aclose()
+
+    async def test_task_scope_rejects_async_error_observer_and_reports_both_errors(self):
+        loop = asyncio.get_running_loop()
+        previous_handler = loop.get_exception_handler()
+        contexts = []
+        loop.set_exception_handler(lambda _loop, context: contexts.append(context))
+        observer_coroutines = []
+
+        async def async_observer(_handle, _error):
+            return None
+
+        def observer(handle, error):
+            coroutine = async_observer(handle, error)
+            observer_coroutines.append(coroutine)
+            return coroutine
+
+        scope = AsyncTaskScope(on_error=observer)
+
+        async def fail():
+            raise OSError("operation failed")
+
+        try:
+            task = scope.start(fail)
+            with self.assertRaisesRegex(OSError, "operation failed"):
+                await task.join(1)
+            await asyncio.sleep(0)
+            self.assertEqual(len(observer_coroutines), 1)
+            self.assertIsNone(observer_coroutines[0].cr_frame)
+            self.assertEqual(len(contexts), 1)
+            grouped = contexts[0]["exception"]
+            self.assertEqual(len(grouped.exceptions), 2)
+            self.assertIsInstance(grouped.exceptions[0], OSError)
+            self.assertIsInstance(grouped.exceptions[1], TypeError)
+        finally:
+            loop.set_exception_handler(previous_handler)
+            await scope.aclose()
 
     async def test_latest_task_reports_factory_failures_and_closes_cleanly(self):
         coordinator = LatestTaskCoordinator[str]()

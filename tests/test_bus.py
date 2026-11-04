@@ -1221,6 +1221,45 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
         result = await asyncio.wait_for(concurrent.publish(1), timeout=1.0)
         self.assertEqual(result.delivered, 2)
 
+    async def test_task_creation_rejection_closes_delivery_and_periodic_coroutines(self) -> None:
+        loop = asyncio.get_running_loop()
+        rejected = []
+
+        def reject_task(coroutine, *, name=None, context=None):
+            rejected.append(coroutine)
+            raise RuntimeError("task creation rejected")
+
+        concurrent = AsyncEventBus[int](
+            delivery_mode=DeliveryMode.CONCURRENT,
+            max_concurrency=2,
+        )
+        delivered = []
+
+        async def callback(event: int) -> None:
+            delivered.append(event)
+
+        for _ in range(3):
+            await concurrent.subscribe(callback)
+
+        with patch.object(loop, "create_task", side_effect=reject_task):
+            with self.assertRaisesRegex(RuntimeError, "creation rejected"):
+                await concurrent.publish(1)
+
+        self.assertEqual(len(rejected), 1)
+        self.assertIsNone(rejected[0].cr_frame)
+        self.assertEqual(delivered, [])
+        await concurrent.close()
+
+        periodic = AsyncEventBus[int]()
+        with patch.object(loop, "create_task", side_effect=reject_task):
+            with self.assertRaisesRegex(RuntimeError, "creation rejected"):
+                await periodic.publish_every(1, 1)
+
+        self.assertEqual(len(rejected), 2)
+        self.assertIsNone(rejected[1].cr_frame)
+        self.assertEqual(periodic._schedules, {})
+        await periodic.close()
+
     async def test_async_periodic_publish_rejects_boolean_interval(self) -> None:
         with self.assertRaises(ValueError):
             await AsyncEventBus[int]().publish_every(1, True)

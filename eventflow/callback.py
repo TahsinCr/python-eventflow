@@ -15,7 +15,7 @@ from typing import Any
 from ._callbacks import synchronous_result
 from .compatibility import ExceptionGroup
 from .errors import CallbackTimeoutError
-from ._lifecycle import finish_cleanup
+from ._lifecycle import ensure_future_safely, finish_cleanup
 from .subscription import Subscription
 
 
@@ -276,9 +276,9 @@ class CallbackSubscription(Subscription):
                     if inspect.iscoroutine(operation):
                         operation.close()
                     else:
-                        await _cancel_task(asyncio.ensure_future(operation))
+                        await _cancel_task(ensure_future_safely(operation))
                     raise CallbackTimeoutError("Callback exceeded its asynchronous time budget")
-                task = asyncio.ensure_future(operation)
+                task = ensure_future_safely(operation)
                 try:
                     done, _ = await asyncio.wait({task}, timeout=remaining)
                 except asyncio.CancelledError:

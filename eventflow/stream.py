@@ -7,7 +7,7 @@ import inspect
 from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
 from typing import Any, Generic, Literal, NoReturn, TypeVar, cast
 
-from ._lifecycle import bind_running_loop, finish_cleanup
+from ._lifecycle import bind_running_loop, create_task_safely, finish_cleanup
 from .base import validate_finite_duration, validate_positive_capacity
 
 T = TypeVar("T")
@@ -277,7 +277,7 @@ class AsyncStream(AsyncIterator[T], Generic[T]):
                     available.clear()
                     await available.wait()
 
-            producer = asyncio.create_task(produce(), name="EventFlowTimedBatchProducer")
+            producer = create_task_safely(produce(), name="EventFlowTimedBatchProducer")
             try:
                 while True:
                     item = await next_batch()
@@ -319,7 +319,7 @@ class AsyncStream(AsyncIterator[T], Generic[T]):
                     error = exc
                 await queue.put(end)
 
-            producer = asyncio.create_task(produce(), name="EventFlowStreamProducer")
+            producer = create_task_safely(produce(), name="EventFlowStreamProducer")
             try:
                 while True:
                     item = await queue.get()
@@ -372,7 +372,7 @@ class AsyncStream(AsyncIterator[T], Generic[T]):
             if reader is not None:
                 # Only external concurrent close needs a read-completion event.
                 self._read_finished = asyncio.Event()
-            self._cleanup = asyncio.create_task(
+            self._cleanup = create_task_safely(
                 self._shutdown(reader, self._read_finished),
                 name="EventFlowStreamCleanup",
             )
