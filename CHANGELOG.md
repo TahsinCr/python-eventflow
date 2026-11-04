@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [v1.3.1] - 2026-11-04
+
 ### Changed
 
 - Skip empty error-notification work on successful sync and async publications.
