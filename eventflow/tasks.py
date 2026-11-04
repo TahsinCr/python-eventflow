@@ -311,10 +311,9 @@ class LatestTaskCoordinator(Generic[K]):
         if not isinstance(cancel_previous, bool):
             raise TypeError("cancel_previous must be a bool")
         previous = self._tasks.get(key)
-        version = self._versions.get(key, 0) + 1
+        previous_version = self._versions.get(key, 0)
+        version = previous_version + 1
         self._versions[key] = version
-        if previous is not None and cancel_previous:
-            previous.cancel()
 
         async def run() -> None:
             try:
@@ -343,19 +342,48 @@ class LatestTaskCoordinator(Generic[K]):
                     raise
             finally:
                 current = asyncio.current_task()
-                if self._tasks.get(key) is current:
-                    self._tasks.pop(key, None)
-                outstanding = self._outstanding.get(key)
-                if outstanding is not None:
-                    outstanding.discard(cast(asyncio.Task[Any], current))
-                    if not outstanding:
-                        self._outstanding.pop(key, None)
-                        self._versions.pop(key, None)
+                if current is not None:
+                    self._task_finished(key, current)
 
-        task = loop.create_task(run(), name=name or f"EventFlowLatest:{key!s}")
-        self._tasks[key] = task
-        self._outstanding.setdefault(key, set()).add(task)
+        coroutine = run()
+        try:
+            task = loop.create_task(coroutine, name=name or f"EventFlowLatest:{key!s}")
+        except BaseException:
+            coroutine.close()
+            if self._versions.get(key) == version:
+                if previous_version:
+                    self._versions[key] = previous_version
+                else:
+                    self._versions.pop(key, None)
+            raise
+
+        if previous is not None and cancel_previous:
+            previous.cancel()
+
+        completed = task.done()
+        if self._versions.get(key) == version:
+            if completed:
+                self._tasks.pop(key, None)
+            else:
+                self._tasks[key] = task
+
+        if completed:
+            if not self._outstanding.get(key):
+                self._versions.pop(key, None)
+        else:
+            self._outstanding.setdefault(key, set()).add(task)
         return task
+
+    def _task_finished(self, key: K, task: asyncio.Task[Any]) -> None:
+        if self._tasks.get(key) is task:
+            self._tasks.pop(key, None)
+        outstanding = self._outstanding.get(key)
+        if outstanding is None:
+            return
+        outstanding.discard(task)
+        if not outstanding:
+            self._outstanding.pop(key, None)
+            self._versions.pop(key, None)
 
     def cancel(self, key: K) -> bool:
         self._bind_loop()

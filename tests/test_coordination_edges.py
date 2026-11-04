@@ -775,6 +775,49 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(coordinator.snapshot().discarded_results, 1)
         await coordinator.aclose()
 
+    async def test_latest_task_cancel_removes_only_the_current_entry(self):
+        coordinator = LatestTaskCoordinator[str]()
+        started = asyncio.Event()
+        blocker = asyncio.Event()
+
+        async def work():
+            started.set()
+            await blocker.wait()
+
+        task = coordinator.submit("key", work, lambda _value: None)
+        await started.wait()
+        self.assertTrue(coordinator.cancel("key"))
+        with self.assertRaises(asyncio.CancelledError):
+            await task
+        await asyncio.sleep(0)
+        self.assertFalse(coordinator.cancel("key"))
+        self.assertEqual(coordinator.snapshot().active, {})
+        await coordinator.aclose()
+
+    async def test_latest_task_close_timeout_keeps_cancellation_resistant_work_owned(self):
+        coordinator = LatestTaskCoordinator[str]()
+        started = asyncio.Event()
+        release = asyncio.Event()
+
+        async def cancellation_resistant():
+            started.set()
+            try:
+                await release.wait()
+            except asyncio.CancelledError:
+                await release.wait()
+            return "late"
+
+        task = coordinator.submit("key", cancellation_resistant, lambda _value: None)
+        await started.wait()
+        with self.assertRaises(TimeoutError):
+            await coordinator.aclose(0)
+        self.assertFalse(task.done())
+        release.set()
+        await task
+        await coordinator.aclose(1)
+        self.assertEqual(coordinator.snapshot().discarded_results, 1)
+        self.assertEqual(coordinator.snapshot().active, {})
+
     async def test_periodic_scheduler_caps_parallel_callbacks(self):
         observer = OperationStats()
         scheduler = AsyncScheduler(observer=observer)
@@ -1075,17 +1118,112 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
     async def test_latest_task_reports_factory_failures_and_closes_cleanly(self):
         coordinator = LatestTaskCoordinator[str]()
         errors = []
+        applied = []
 
         async def fail():
             raise OSError("latest failed")
 
-        task = coordinator.submit("key", fail, lambda _value: None, on_error=errors.append)
+        async def on_error(error):
+            errors.append(error)
+            await asyncio.sleep(0)
+
+        async def on_result(value):
+            applied.append(value)
+            await asyncio.sleep(0)
+
+        task = coordinator.submit("key", fail, lambda _value: None, on_error=on_error)
         await task
         self.assertEqual(len(errors), 1)
         self.assertIsInstance(errors[0], OSError)
+        await coordinator.submit("success", lambda: self._value("ok"), on_result)
+        self.assertEqual(applied, ["ok"])
         await coordinator.aclose()
         with self.assertRaises(RuntimeError):
             coordinator.submit("key", fail, lambda _value: None)
+
+    async def test_latest_task_creation_failure_preserves_previous_work(self):
+        coordinator = LatestTaskCoordinator[str]()
+        started = asyncio.Event()
+        release = asyncio.Event()
+        applied = []
+
+        async def original():
+            started.set()
+            await release.wait()
+            return "original"
+
+        previous = coordinator.submit("key", original, applied.append)
+        await started.wait()
+        loop = asyncio.get_running_loop()
+        rejected = []
+
+        def reject_task(coroutine, *, name=None, context=None):
+            rejected.append(coroutine)
+            raise RuntimeError("task creation rejected")
+
+        with patch.object(loop, "create_task", side_effect=reject_task):
+            with self.assertRaisesRegex(RuntimeError, "creation rejected"):
+                coordinator.submit("key", lambda: self._value("replacement"), applied.append)
+
+        self.assertEqual(len(rejected), 1)
+        self.assertIsNone(rejected[0].cr_frame)
+        self.assertFalse(previous.cancelled())
+        release.set()
+        await previous
+        self.assertEqual(applied, ["original"])
+        self.assertEqual(coordinator.snapshot().active, {})
+
+        with patch.object(loop, "create_task", side_effect=reject_task):
+            with self.assertRaisesRegex(RuntimeError, "creation rejected"):
+                coordinator.submit("fresh", lambda: self._value("retry"), applied.append)
+        self.assertEqual(len(rejected), 2)
+        self.assertIsNone(rejected[1].cr_frame)
+        self.assertNotIn("fresh", coordinator._versions)
+        retry = coordinator.submit("fresh", lambda: self._value("retry"), applied.append)
+        await retry
+        self.assertEqual(applied, ["original", "retry"])
+        await coordinator.aclose()
+
+    @unittest.skipUnless(hasattr(asyncio, "eager_task_factory"), "requires Python 3.12+")
+    async def test_latest_task_eager_completion_does_not_leave_active_entry(self):
+        coordinator = LatestTaskCoordinator[str]()
+        loop = asyncio.get_running_loop()
+        original_factory = loop.get_task_factory()
+        loop.set_task_factory(asyncio.eager_task_factory)
+        started = asyncio.Event()
+        release = asyncio.Event()
+        applied = []
+
+        async def old_work():
+            started.set()
+            await release.wait()
+            return "old"
+
+        try:
+            immediate = coordinator.submit(
+                "immediate", lambda: self._value("immediate"), applied.append
+            )
+            self.assertTrue(immediate.done())
+            await immediate
+            self.assertEqual(coordinator.snapshot().active, {})
+
+            old = coordinator.submit("key", old_work, applied.append, cancel_previous=False)
+            await started.wait()
+            current = coordinator.submit(
+                "key", lambda: self._value("current"), applied.append, cancel_previous=False
+            )
+            self.assertTrue(current.done())
+            await current
+            self.assertEqual(applied, ["immediate", "current"])
+            self.assertEqual(coordinator.snapshot().active, {})
+
+            release.set()
+            await old
+            self.assertEqual(applied, ["immediate", "current"])
+            self.assertEqual(coordinator.snapshot().active, {})
+        finally:
+            loop.set_task_factory(original_factory)
+            await coordinator.aclose()
 
     async def test_scheduler_reports_one_shot_failures_and_cancels_delayed_jobs(self):
         reported = []
