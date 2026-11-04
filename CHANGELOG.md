@@ -16,6 +16,15 @@ All notable changes to this project are documented in this file.
   cancellation routed through its owning event loop.
 - Reduce per-submission state allocation in `BoundedWorkPool` while preserving
   pending and running task accounting.
+- Paired local microbenchmarks measured lower median latency for synchronous
+  publish (3.3–6.0%), sequential async publish (5.4–10.0%), five-stage sync and
+  async pipelines (5.2–11.3% and 7.4–7.7%), one-attempt sync and async retries
+  without observers (45.6–52.4% and 52.0–60.2%), non-expiring cache hits
+  (16.9–24.3%), policy evaluation (14.8–17.0% with no rules; 12.0% with four
+  rules), and `LoopPortal.call()` (5.2–7.0%). `BoundedWorkPool` submit latency
+  varied by interpreter, so its entry records the allocation reduction without
+  claiming a speedup. Workloads and measurements are documented in the
+  [benchmark results](benchmarks/results/README.md#unreleased-micro-optimizations-2026-11-04).
 
 ### Fixed
 

@@ -167,6 +167,41 @@ Reproduce the optimized measurement with:
 python -m benchmarks.benchmark_keyed_limiter --waiters 100 1000 5000 --repeats 3 --output keyed_limiter.json
 ```
 
+## Unreleased micro-optimizations (2026-11-04)
+
+Paired local comparisons used Linux 7.2.11 x86_64 with CPython 3.10.22 and
+3.14.9. Each baseline and optimized source tree was loaded from its recorded
+Git revision in one process, then measured in alternating order. The table
+shows median per-operation latency across 13 timed batches after warm-up (up to
+1,000 calls per implementation). Sync cases used 5,000 operations per batch,
+async cases 800, and thread-handoff cases 500. Publish used one successful
+subscriber with no error callback; pipelines had five trivial stages with
+observers disabled; retries made one successful attempt without observers; the
+cache case hit one non-expiring entry; policy cases used either no rules or four
+abstaining rules. The portal returned an immediate coroutine and the work pool
+ran a completed no-op. Lower latency is better, so negative percentages mean
+latency fell. Percentages apply to these synthetic workloads on this machine;
+they are not production guarantees.
+
+| Workload | Baseline → optimized | Python 3.10.22, µs/op | Python 3.14.9, µs/op |
+| --- | --- | ---: | ---: |
+| Sync publish, one subscriber | `2b21a5a` → `3fa09f5` | 3.934 → 3.696 (-6.0%) | 2.420 → 2.340 (-3.3%) |
+| Sequential async publish, one subscriber | `2b21a5a` → `3fa09f5` | 3.462 → 3.274 (-5.4%) | 2.051 → 1.846 (-10.0%) |
+| Sync pipeline, five stages | `3fa09f5` → `84831bb` | 3.912 → 3.472 (-11.3%) | 1.923 → 1.823 (-5.2%) |
+| Async pipeline, five stages | `3fa09f5` → `84831bb` | 5.085 → 4.695 (-7.7%) | 2.838 → 2.629 (-7.4%) |
+| Sync retry, one attempt, no observer | `84831bb` → `37515e2` | 1.259 → 0.685 (-45.6%) | 0.878 → 0.418 (-52.4%) |
+| Async retry, one attempt, no observer | `84831bb` → `37515e2` | 1.030 → 0.494 (-52.0%) | 0.723 → 0.288 (-60.2%) |
+| Non-expiring cache hit | `37515e2` → `984ef59` | 0.547 → 0.414 (-24.3%) | 0.312 → 0.259 (-16.9%) |
+| Policy evaluation, no rules | `984ef59` → `c9fea34` | 0.882 → 0.751 (-14.8%) | 0.827 → 0.687 (-17.0%) |
+| Policy evaluation, four abstaining rules | `984ef59` → `c9fea34` | 1.657 → 1.458 (-12.0%) | 1.347 → 1.186 (-12.0%) |
+| `LoopPortal.call()`, immediate coroutine | `c9fea34` → `fe05ac5` | 81.873 → 77.615 (-5.2%) | 69.568 → 64.722 (-7.0%) |
+| `BoundedWorkPool.submit()`, completed no-op | `fe05ac5` → `b2db9ef` | 51.365 → 55.620 (+8.3%) | 46.523 → 45.193 (-2.9%) |
+
+The `BoundedWorkPool` timing varied in direction between interpreters, so no
+latency improvement is claimed for it; the code change removes one temporary
+one-item list per accepted submission. The bus, pipeline, retry, cache, policy
+and `LoopPortal` measurements showed lower medians on both tested interpreters.
+
 ## Reproduce
 
 ```bash
