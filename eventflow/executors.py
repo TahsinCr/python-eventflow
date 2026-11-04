@@ -71,11 +71,12 @@ class BoundedWorkPool:
                     self._observer.record("work_pool.submit", status="error", rejected=1)
                 raise RuntimeError("BoundedWorkPool capacity is full")
             self._pending += 1
-            state = [False]
+            started = False
 
             def run() -> T:
+                nonlocal started
                 with self._lock:
-                    state[0] = True
+                    started = True
                     self._pending -= 1
                     self._running += 1
                     self._worker_ids.add(threading.get_ident())
@@ -94,7 +95,7 @@ class BoundedWorkPool:
 
         def finished(_future: Future[T]) -> None:
             with self._lock:
-                if state[0]:
+                if started:
                     self._running -= 1
                 else:
                     self._pending -= 1
