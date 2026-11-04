@@ -31,7 +31,7 @@ class PolicyEvaluator:
         default: Literal["allow", "deny"] = "deny",
         observer: Callable[[PolicyDecision], None] | None = None,
     ) -> None:
-        if default not in ("allow", "deny"):
+        if type(default) is not str or default not in ("allow", "deny"):
             raise ValueError("default must be 'allow' or 'deny'")
         if observer is not None and not callable(observer):
             raise TypeError("observer must be callable")
@@ -73,7 +73,7 @@ class PolicyEvaluator:
     ) -> PolicyDecision:
         if not isinstance(action, str) or not action.strip():
             raise ValueError("action must be a non-empty string")
-        values = MappingProxyType(dict(context or {}))
+        values = MappingProxyType(dict(context) if context is not None else {})
         with self._lock:
             rules = self._rules_snapshot
             if rules is None:
@@ -88,11 +88,11 @@ class PolicyEvaluator:
         denied: list[str] = []
         for name, rule in rules:
             result = synchronous_result(rule(subject, action, resource, values))
-            if result is True or result == "allow":
+            if result is True or (type(result) is str and result == "allow"):
                 allowed.append(name)
-            elif result is False or result == "deny":
+            elif result is False or (type(result) is str and result == "deny"):
                 denied.append(name)
-            elif result is not None and result != "abstain":
+            elif result is not None and not (type(result) is str and result == "abstain"):
                 raise TypeError(
                     f"Policy rule {name!r} must return allow, deny, abstain, bool, or None"
                 )

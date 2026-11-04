@@ -262,6 +262,37 @@ class RegistryPolicyExecutorTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             PolicyEvaluator(observer=object())
 
+    def test_policy_preserves_falsey_context_for_explicit_denies(self):
+        class FalseyContext(dict):
+            def __bool__(self):
+                return False
+
+        policy = PolicyEvaluator(default="allow")
+        policy.add("blocked", lambda _s, _a, _r, context: "deny" if context["blocked"] else None)
+
+        decision = policy.evaluate(
+            subject="worker",
+            action="read",
+            resource="item",
+            context=FalseyContext(blocked=True),
+        )
+
+        self.assertFalse(decision.allowed)
+        self.assertEqual(decision.matched, ("blocked",))
+
+    def test_policy_rejects_outcomes_that_only_compare_equal_to_allow(self):
+        class AllowImpostor:
+            def __eq__(self, other):
+                return other == "allow"
+
+        with self.assertRaises(ValueError):
+            PolicyEvaluator(default=AllowImpostor())
+
+        policy = PolicyEvaluator()
+        policy.add("invalid", lambda *_: AllowImpostor())
+        with self.assertRaises(TypeError):
+            policy.evaluate(subject="worker", action="read", resource="item")
+
     def test_bounded_pool_rejection_cancellation_and_worker_shutdown_guard(self):
         with self.assertRaises(ValueError):
             BoundedWorkPool(max_workers=0, max_pending=0)
