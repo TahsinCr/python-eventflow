@@ -49,9 +49,10 @@ class AsyncPipeline(_PipelineBase[Stage[T], Middleware[T]], Generic[T]):
             result = synchronous_result(await operation)
         except BaseException as error:
             self._raise(error, self._observe(phase, name, started, error), name, phase, context)
-        diagnostic = self._observe(phase, name, started)
-        if diagnostic is not None:
-            self._raise(diagnostic, None, name, "observer", context)
+        if self._observer is not None:
+            diagnostic = self._observe(phase, name, started)
+            if diagnostic is not None:
+                self._raise(diagnostic, None, name, "observer", context)
         return result
 
     def _compile(self) -> None:
@@ -123,7 +124,8 @@ class AsyncPipeline(_PipelineBase[Stage[T], Middleware[T]], Generic[T]):
             result = await execute(context)
         except BaseException as error:
             self._raise(error, self._observe("run", None, started, error), None, "run", context)
-        diagnostic = self._observe("run", None, started)
-        if diagnostic is not None:
-            self._raise(diagnostic, None, None, "observer", context)
+        if self._observer is not None:
+            diagnostic = self._observe("run", None, started)
+            if diagnostic is not None:
+                self._raise(diagnostic, None, None, "observer", context)
         return result
