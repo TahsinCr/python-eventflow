@@ -124,7 +124,7 @@ class RetryPolicy:
         for attempt in range(1, self._attempts + 1):
             if deadline is not None and deadline.expired:
                 raise TimeoutError("Retry deadline expired before the next attempt")
-            started = time.monotonic()
+            started = time.monotonic() if self._observer is not None else 0.0
             try:
                 result = operation()
                 if inspect.isawaitable(result):
@@ -133,11 +133,13 @@ class RetryPolicy:
             except _UnexpectedAwaitable:
                 raise
             except Exception as error:
-                elapsed = time.monotonic() - started
+                elapsed = time.monotonic() - started if self._observer is not None else 0.0
                 retry = attempt < self._attempts and self._should_retry(should_retry, error)
-                self._observe(
-                    RetryObservation(attempt, elapsed, "retry" if retry else "error", error), error
-                )
+                if self._observer is not None:
+                    self._observe(
+                        RetryObservation(attempt, elapsed, "retry" if retry else "error", error),
+                        error,
+                    )
                 if not retry:
                     raise
                 delay = self._delay(attempt)
@@ -152,7 +154,8 @@ class RetryPolicy:
                         delay = min(delay, remaining)
                 time.sleep(delay)
             else:
-                self._observe(RetryObservation(attempt, time.monotonic() - started, "success"))
+                if self._observer is not None:
+                    self._observe(RetryObservation(attempt, time.monotonic() - started, "success"))
                 return result
         raise AssertionError("unreachable retry state")
 
@@ -175,7 +178,7 @@ class RetryPolicy:
         for attempt in range(1, self._attempts + 1):
             if deadline is not None and deadline.expired:
                 raise TimeoutError("Retry deadline expired before the next attempt")
-            started = time.monotonic()
+            started = time.monotonic() if self._observer is not None else 0.0
             try:
                 pending = operation()
                 if not inspect.isawaitable(pending):
@@ -186,17 +189,22 @@ class RetryPolicy:
             except _UnexpectedAwaitable:
                 raise
             except asyncio.CancelledError:
-                try:
-                    self._observe(RetryObservation(attempt, time.monotonic() - started, "error"))
-                except BaseException as observer_error:
-                    raise asyncio.CancelledError from observer_error
+                if self._observer is not None:
+                    try:
+                        self._observe(
+                            RetryObservation(attempt, time.monotonic() - started, "error")
+                        )
+                    except BaseException as observer_error:
+                        raise asyncio.CancelledError from observer_error
                 raise
             except Exception as error:
-                elapsed = time.monotonic() - started
+                elapsed = time.monotonic() - started if self._observer is not None else 0.0
                 retry = attempt < self._attempts and self._should_retry(should_retry, error)
-                self._observe(
-                    RetryObservation(attempt, elapsed, "retry" if retry else "error", error), error
-                )
+                if self._observer is not None:
+                    self._observe(
+                        RetryObservation(attempt, elapsed, "retry" if retry else "error", error),
+                        error,
+                    )
                 if not retry:
                     raise
                 delay = self._delay(attempt)
@@ -211,7 +219,8 @@ class RetryPolicy:
                         delay = min(delay, remaining)
                 await asyncio.sleep(delay)
             else:
-                self._observe(RetryObservation(attempt, time.monotonic() - started, "success"))
+                if self._observer is not None:
+                    self._observe(RetryObservation(attempt, time.monotonic() - started, "success"))
                 return result
         raise AssertionError("unreachable retry state")
 
