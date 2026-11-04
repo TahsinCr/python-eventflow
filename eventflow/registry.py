@@ -92,6 +92,17 @@ class ServiceRegistry:
         if self._observer is not None:
             synchronous_result(self._observer(change))
 
+    @staticmethod
+    def _cleanup_entry(entry: _ServiceEntry) -> None:
+        cleanup = entry.cleanup
+        if cleanup is None:
+            return
+        result = cleanup()
+        if inspect.isawaitable(result):
+            close_awaitable(result)
+            raise TypeError("ServiceRegistry only accepts synchronous cleanup")
+        synchronous_result(result)
+
     def resolve(self, name: str) -> Any:
         name = _normalize_name(name)
         with self._lock:
@@ -116,12 +127,7 @@ class ServiceRegistry:
                 raise PermissionError(f"Owner {owner!r} does not own service {name!r}")
             self._closing_owners.add(owner)
         try:
-            if entry.cleanup is not None:
-                result = entry.cleanup()
-                if inspect.isawaitable(result):
-                    close_awaitable(result)
-                    raise TypeError("ServiceRegistry only accepts synchronous cleanup")
-                synchronous_result(result)
+            self._cleanup_entry(entry)
         except BaseException as error:
             with self._lock:
                 self._closing_owners.discard(owner)
@@ -150,12 +156,7 @@ class ServiceRegistry:
         closed: list[tuple[str, _ServiceEntry]] = []
         for name, entry in pending:
             try:
-                if entry.cleanup is not None:
-                    result = entry.cleanup()
-                    if inspect.isawaitable(result):
-                        close_awaitable(result)
-                        raise TypeError("ServiceRegistry only accepts synchronous cleanup")
-                    synchronous_result(result)
+                self._cleanup_entry(entry)
             except BaseException as error:
                 errors.append(error)
             else:
