@@ -4,6 +4,34 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Skip empty error-notification work on successful sync and async publications.
+- Bypass disabled pipeline observers on successful runs and stages.
+- Skip retry timing and observation allocation when no retry observer is set.
+- Skip expiry-heap processing when a cache has no expiring entries.
+- Reuse immutable policy-rule snapshots between evaluations and return the
+  default decision directly when no rules are registered.
+- Reduce per-submission allocation in `LoopPortal` while keeping task
+  cancellation routed through its owning event loop.
+- Reduce per-submission state allocation in `BoundedWorkPool` while preserving
+  pending and running task accounting.
+
+### Fixed
+
+- Preserve explicitly supplied falsey filters, action configurations, cache
+  size callbacks and circuit-breaker classifiers instead of silently using
+  fallback defaults.
+- Preserve populated falsey policy contexts so explicit deny rules still see
+  their authorization attributes.
+- Reject policy defaults and rule outcomes that only compare equal to valid
+  decisions, keeping authorization decisions fail-closed.
+- Close unstarted coroutines when task creation is rejected across timed
+  callbacks, `SingleFlight`, managed cleanup, stream producers, scheduled jobs
+  and async bus delivery.
+- Preserve the current keyed task when replacement task creation fails, and
+  clean up eagerly completed tasks without leaving stale coordinator state.
+
 ## [v1.3.0] - 2026-11-02
 
 ### Added
