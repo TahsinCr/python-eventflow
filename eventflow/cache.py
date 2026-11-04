@@ -74,13 +74,15 @@ class VersionedCache(Generic[K, V]):
 
     def _expire(self, now: float) -> None:
         heap = self._expiry_heap
+        if not heap:
+            return
         while heap and heap[0][0] <= now:
             expires_at, token, key = heapq.heappop(heap)
             entry = self._entries.get(key)
             if entry is not None and entry.expiry_token == token and entry.expires_at == expires_at:
                 self._entries.pop(key)
                 self._bytes -= entry.size
-        if len(heap) > max(64, len(self._entries) * 2):
+        if len(heap) > 64 and len(heap) > len(self._entries) * 2:
             self._expiry_heap = [
                 (entry.expires_at, entry.expiry_token, key)
                 for key, entry in self._entries.items()
