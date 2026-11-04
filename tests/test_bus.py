@@ -13,6 +13,7 @@ from typing import cast
 from unittest.mock import patch
 
 from eventflow import (
+    AsyncEventEngine,
     AsyncEventBus,
     AsyncEventBusActions,
     BaseEventBus,
@@ -20,6 +21,7 @@ from eventflow import (
     ErrorPolicy,
     EventBus,
     EventBusActions,
+    EventEngine,
     EventBusClosedError,
     EventBusError,
     EventFilter,
@@ -63,6 +65,35 @@ class _RecordingQueryHistory(MemoryEventHistory[int]):
 
 
 class EventBusTests(unittest.TestCase):
+    def test_falsey_event_filter_is_preserved(self) -> None:
+        class FalseyFilter(EventFilter[int]):
+            def __bool__(self) -> bool:
+                return False
+
+        seen: list[int] = []
+        bus = EventBus[int]()
+        bus.subscribe(seen.append, event_filter=FalseyFilter(event_type=int))
+
+        result = bus.publish("not an int")  # type: ignore[arg-type]
+
+        self.assertEqual(result.matched, 0)
+        self.assertEqual(seen, [])
+
+    def test_falsey_actions_are_preserved_by_bus_and_engine(self) -> None:
+        class FalseyActions(EventBusActions[int]):
+            def __bool__(self) -> bool:
+                return False
+
+        seen: list[int] = []
+        actions = FalseyActions(on_before=seen.append)
+        bus = EventBus[int](actions=actions)
+        engine = EventEngine(actions=actions)
+
+        bus.publish(1)
+        engine.publish("channel", 2)
+
+        self.assertEqual(seen, [1, 2])
+
     def test_parametrized_event_contracts_construct(self) -> None:
         event_filter = EventFilter[int](predicate=lambda value: value > 0)
         error = EventErrorContext[int](1, RuntimeError("broken"))
@@ -1008,6 +1039,43 @@ class EventBusTests(unittest.TestCase):
 
 
 class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
+    async def test_falsey_event_filter_is_preserved(self) -> None:
+        class FalseyFilter(EventFilter[int]):
+            def __bool__(self) -> bool:
+                return False
+
+        seen: list[int] = []
+
+        async def receive(event: int) -> None:
+            seen.append(event)
+
+        bus = AsyncEventBus[int]()
+        await bus.subscribe(receive, event_filter=FalseyFilter(event_type=int))
+
+        result = await bus.publish("not an int")  # type: ignore[arg-type]
+
+        self.assertEqual(result.matched, 0)
+        self.assertEqual(seen, [])
+
+    async def test_falsey_actions_are_preserved_by_bus_and_engine(self) -> None:
+        class FalseyActions(AsyncEventBusActions[int]):
+            def __bool__(self) -> bool:
+                return False
+
+        seen: list[int] = []
+
+        async def on_before(event: int) -> None:
+            seen.append(event)
+
+        actions = FalseyActions(on_before=on_before)
+        bus = AsyncEventBus[int](actions=actions)
+        engine = AsyncEventEngine(actions=actions)
+
+        await bus.publish(1)
+        await engine.publish("channel", 2)
+
+        self.assertEqual(seen, [1, 2])
+
     async def test_async_bus_filters_once_and_tracks_results(self) -> None:
         bus = AsyncEventBus[int]()
         received: list[int] = []

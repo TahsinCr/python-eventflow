@@ -992,6 +992,18 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(ExceptionGroup):
             malformed.call(lambda: (_ for _ in ()).throw(OSError("original")))
 
+        class FalseyClassifier:
+            def __bool__(self):
+                return False
+
+            def __call__(self, _error):
+                return False
+
+        ignored = CircuitBreaker(failure_threshold=1, should_count=FalseyClassifier())
+        with self.assertRaises(OSError):
+            ignored.call(lambda: (_ for _ in ()).throw(OSError("ignored failure")))
+        self.assertEqual(ignored.state, "closed")
+
     async def test_resource_scope_and_task_scope_retry_after_failure_and_timeout(self):
         cleanup_calls = []
         resources = AsyncResourceScope()

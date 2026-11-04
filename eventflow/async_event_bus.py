@@ -98,11 +98,15 @@ class AsyncEventBus(BaseEventBus[T]):
         direct_actions = (on_before, on_after, on_error, on_timeout)
         if actions is not None and any(action is not None for action in direct_actions):
             raise ValueError("Use actions or direct on_* callbacks, not both")
-        self._actions = actions or AsyncEventBusActions(
-            on_before=on_before,
-            on_after=on_after,
-            on_error=on_error,
-            on_timeout=on_timeout,
+        self._actions = (
+            actions
+            if actions is not None
+            else AsyncEventBusActions(
+                on_before=on_before,
+                on_after=on_after,
+                on_error=on_error,
+                on_timeout=on_timeout,
+            )
         )
         for action in (
             self._actions.on_before,

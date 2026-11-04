@@ -63,7 +63,7 @@ class VersionedCache(Generic[K, V]):
             raise TypeError("clock must be callable")
         self._max_bytes = max_bytes
         self._ttl = ttl
-        self._getsizeof = getsizeof or (lambda _key, _value: 1)
+        self._getsizeof = getsizeof if getsizeof is not None else (lambda _key, _value: 1)
         self._clock = clock
         self._entries: OrderedDict[K, _Entry[V]] = OrderedDict()
         self._expiry_heap: list[tuple[float, int, K]] = []

@@ -54,4 +54,6 @@ def coerce_event_filter(
 ) -> EventFilter[T]:
     if event_filter is not None and (event_type is not None or predicate is not None):
         raise ValueError("Use event_filter or event_type/predicate, not both")
-    return event_filter or EventFilter(event_type=event_type, predicate=predicate)
+    if event_filter is not None:
+        return event_filter
+    return EventFilter(event_type=event_type, predicate=predicate)

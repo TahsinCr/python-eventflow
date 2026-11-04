@@ -166,6 +166,19 @@ class PrimitiveTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             VersionedCache(max_entries=1, max_bytes=2)
 
+    def test_versioned_cache_uses_falsey_size_callback_for_byte_limit(self):
+        class FalseySizer:
+            def __bool__(self):
+                return False
+
+            def __call__(self, _key, value):
+                return len(value)
+
+        cache = VersionedCache(max_entries=2, max_bytes=3, getsizeof=FalseySizer())
+
+        self.assertFalse(cache.put("large", "four", version=1))
+        self.assertTrue(cache.put("small", "ok", version=1))
+
     def test_versioned_cache_ignores_stale_expiry_records(self):
         now = [0.0]
         cache = VersionedCache(max_entries=2, clock=lambda: now[0])

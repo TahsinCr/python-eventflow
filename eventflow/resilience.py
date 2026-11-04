@@ -414,7 +414,7 @@ class CircuitBreaker:
             raise TypeError("observer must be callable")
         if not callable(clock):
             raise TypeError("clock must be callable")
-        self._should_count = should_count or (lambda _error: True)
+        self._should_count = should_count if should_count is not None else (lambda _error: True)
         self._observer = observer
         self._clock = clock
         self._lock = threading.Lock()
