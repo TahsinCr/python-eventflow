@@ -328,14 +328,13 @@ class LoopPortal:
             loop = self._loop
             future: concurrent.futures.Future[T] = concurrent.futures.Future()
             self._futures.add(future)
-            task_ref: list[asyncio.Task[T] | None] = [None]
+            task: asyncio.Task[T] | None = None
 
             def forget(completed: concurrent.futures.Future[T]) -> None:
                 with self._lock:
                     self._futures.discard(completed)
 
             def cancel_on_loop() -> None:
-                task = task_ref[0]
                 if task is not None and not task.done():
                     task.cancel()
 
@@ -354,6 +353,7 @@ class LoopPortal:
                     close_awaitable(operation)
 
             def schedule() -> None:
+                nonlocal task
                 if future.cancelled():
                     close_input()
                     return
@@ -376,7 +376,6 @@ class LoopPortal:
                     if not future.done():
                         future.set_exception(error)
                     return
-                task_ref[0] = task
                 if future.cancelled():
                     task.cancel()
 
