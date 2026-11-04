@@ -339,7 +339,8 @@ class EventBus(BaseEventBus[T]):
                 else:
                     delivered += 1
 
-        errors.extend(self._notify_errors(event, tuple(errors)))
+        if errors and self._actions.on_error is not None:
+            errors.extend(self._notify_errors(event, tuple(errors)))
         result = PublishResult(
             matched=len(matched),
             delivered=delivered,
