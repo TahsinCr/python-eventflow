@@ -26,22 +26,19 @@ from eventflow.stream import AsyncStream
 from eventflow.tasks import AsyncTaskScope, LatestTaskCoordinator
 from eventflow.timing import Deadline
 from eventflow import EventBus, ErrorPolicy
+from _support import ManualClock
 
 
 class PrimitiveTests(unittest.TestCase):
     def test_deadline_is_monotonic_and_child_cannot_extend_parent(self):
-        now = [10.0]
-
-        def clock():
-            return now[0]
-
+        clock = ManualClock(10.0)
         deadline = Deadline.after(5, clock=clock)
         child = deadline.child(2)
-        now[0] = 11.0
+        clock.set(11.0)
         self.assertEqual(deadline.remaining, 4.0)
         self.assertEqual(child.remaining, 1.0)
         self.assertEqual(child.child(20)._expires_at, 12.0)
-        now[0] = 13.0
+        clock.set(13.0)
         self.assertTrue(child.expired)
         self.assertIsNone(Deadline.after(None, clock=clock).remaining)
         for invalid in (-1, float("inf"), True, 10**1000):
@@ -145,13 +142,13 @@ class PrimitiveTests(unittest.TestCase):
         self.assertEqual(scope.pending_cleanup(), 0)
 
     def test_versioned_cache_lru_byte_limit_ttl_and_stale_write(self):
-        now = [5.0]
+        clock = ManualClock(5.0)
         cache = VersionedCache(
             max_entries=2,
             max_bytes=4,
             ttl=2,
             getsizeof=lambda _key, value: len(value),
-            clock=lambda: now[0],
+            clock=clock,
         )
         self.assertTrue(cache.put("a", "aa", version=1))
         self.assertTrue(cache.put("b", "bb", version=3))
@@ -160,7 +157,7 @@ class PrimitiveTests(unittest.TestCase):
         self.assertIsNone(cache.get("b"))
         self.assertFalse(cache.put("c", "old", version=0))
         self.assertEqual(cache.stats().stale_writes, 1)
-        now[0] += 2
+        clock.advance(2)
         self.assertEqual(cache.prune(), 2)
         self.assertEqual(cache.stats().bytes, 0)
         with self.assertRaises(ValueError):
@@ -180,14 +177,14 @@ class PrimitiveTests(unittest.TestCase):
         self.assertTrue(cache.put("small", "ok", version=1))
 
     def test_versioned_cache_ignores_stale_expiry_records(self):
-        now = [0.0]
-        cache = VersionedCache(max_entries=2, clock=lambda: now[0])
+        clock = ManualClock()
+        cache = VersionedCache(max_entries=2, clock=clock)
         cache.put("key", "old", version=1, ttl=2)
-        now[0] = 1
+        clock.set(1)
         cache.put("key", "new", version=2, ttl=5)
-        now[0] = 2
+        clock.set(2)
         self.assertEqual(cache.get("key"), "new")
-        now[0] = 6
+        clock.set(6)
         self.assertIsNone(cache.get("key"))
 
     def test_versioned_cache_forgets_versions_after_eviction(self):
@@ -205,17 +202,6 @@ class PrimitiveTests(unittest.TestCase):
 
         self.assertTrue(scope.closed)
         self.assertEqual(scope.pending_cleanup(), 0)
-
-    def test_retry_deadline_does_not_interrupt_started_sync_operation(self):
-        now = [0.0]
-        deadline = Deadline.after(1, clock=lambda: now[0])
-
-        def operation():
-            now[0] = 2.0
-            return "completed"
-
-        result = RetryPolicy(max_attempts=1).run(operation, deadline=deadline)
-        self.assertEqual(result, "completed")
 
     def test_service_registry_closes_owner_resources_in_reverse_order(self):
         calls = []
@@ -388,32 +374,32 @@ class PrimitiveTests(unittest.TestCase):
             pool.submit(lambda: async_result()).result(1)
         pool.close()
 
-        now = [0.0]
+        clock = ManualClock()
         breaker = CircuitBreaker(
             failure_threshold=1,
             recovery_timeout=5,
-            clock=lambda: now[0],
+            clock=clock,
         )
         with self.assertRaises(ValueError):
             breaker.call(lambda: (_ for _ in ()).throw(ValueError("failed")))
         self.assertEqual(breaker.state, "open")
         with self.assertRaises(RuntimeError):
             breaker.call(lambda: None)
-        now[0] = 5.0
+        clock.set(5.0)
         self.assertEqual(breaker.state, "half_open")
         self.assertEqual(breaker.call(lambda: "recovered"), "recovered")
         self.assertEqual(breaker.state, "closed")
 
     def test_cooldown_registry_uses_monotonic_deadlines_and_can_clear(self):
-        now = [1.0]
-        cooldowns = CooldownRegistry(clock=lambda: now[0])
+        clock = ManualClock(1.0)
+        cooldowns = CooldownRegistry(clock=clock)
         cooldowns.block("key", 4)
         self.assertEqual(cooldowns.remaining("key"), 4)
         cooldowns.block("key", 2)
         self.assertEqual(cooldowns.remaining("key"), 4)
         cooldowns.block("key", 2, extend=False)
         self.assertEqual(cooldowns.remaining("key"), 2)
-        now[0] += 2
+        clock.advance(2)
         self.assertFalse(cooldowns.is_blocked("key"))
         self.assertEqual(cooldowns.prune(), 0)
 
@@ -968,16 +954,16 @@ class AsyncPrimitiveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await breaker.call_async(lambda: self._value("ok")), "ok")
 
     async def test_circuit_breaker_ignores_stale_half_open_probe_results(self):
-        now = [0.0]
+        clock = ManualClock()
         breaker = CircuitBreaker(
             failure_threshold=1,
             recovery_timeout=1,
             half_open_max=2,
-            clock=lambda: now[0],
+            clock=clock,
         )
         with self.assertRaises(OSError):
             breaker.call(lambda: (_ for _ in ()).throw(OSError("initial")))
-        now[0] = 1.0
+        clock.set(1.0)
         ready = asyncio.Event()
         release_success = asyncio.Event()
         release_failure = asyncio.Event()

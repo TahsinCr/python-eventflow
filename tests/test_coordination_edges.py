@@ -24,22 +24,19 @@ from eventflow.scopes import AsyncResourceScope, ResourceScope
 from eventflow.state import StateMachine, StateTransitionError, VersionedValue
 from eventflow.tasks import AsyncTaskScope, LatestTaskCoordinator
 from eventflow.timing import Deadline
+from _support import ManualClock
 
 
 class TimingStateCacheTests(unittest.TestCase):
     def test_deadline_validation_and_unlimited_child(self):
-        now = [4.0]
-
-        def clock():
-            return now[0]
-
+        clock = ManualClock(4.0)
         deadline = Deadline.after(0, clock=clock)
         self.assertEqual(deadline.remaining, 0)
         self.assertTrue(deadline.expired)
         self.assertIs(deadline.child(None), deadline)
         absolute = Deadline.at(8, clock=clock)
         self.assertEqual(absolute.remaining, 4)
-        now[0] = 9
+        clock.set(9)
         self.assertEqual(absolute.remaining, 0)
         with self.assertRaises(ValueError):
             Deadline.after(10**1000)
@@ -822,7 +819,17 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
         observer = OperationStats()
         scheduler = AsyncScheduler(observer=observer)
         entered = asyncio.Event()
+        dropped = asyncio.Event()
         calls = 0
+
+        record = observer.record
+
+        def record_and_signal(*args, **kwargs):
+            record(*args, **kwargs)
+            if kwargs.get("dropped"):
+                dropped.set()
+
+        observer.record = record_and_signal  # type: ignore[method-assign]
 
         async def blocked_tick():
             nonlocal calls
@@ -838,7 +845,7 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
             max_parallel=1,
         )
         await entered.wait()
-        await asyncio.sleep(0.015)
+        await asyncio.wait_for(dropped.wait(), timeout=5)
         self.assertEqual(calls, 1)
         self.assertTrue(scheduler.cancel(handle))
         with self.assertRaises(asyncio.CancelledError):
@@ -1009,8 +1016,8 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
         await flight.aclose()
 
     async def test_cooldown_capacity_sync_and_cancellable_wait(self):
-        now = [10.0]
-        cooldowns = CooldownRegistry(max_entries=1, clock=lambda: now[0])
+        clock = ManualClock(10.0)
+        cooldowns = CooldownRegistry(max_entries=1, clock=clock)
         self.assertEqual(cooldowns.block("a", 5), 5)
         self.assertEqual(cooldowns.block("a", 2), 5)
         self.assertEqual(cooldowns.block("a", 2, extend=False), 2)
@@ -1018,7 +1025,7 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
             cooldowns.block("b", 1)
         self.assertFalse(cooldowns.wait("a", timeout=0))
         self.assertEqual(cooldowns.remaining("a"), 2)
-        now[0] = 13
+        clock.set(13)
         self.assertEqual(cooldowns.prune(), 1)
         self.assertTrue(cooldowns.wait("a", timeout=0))
         self.assertEqual(cooldowns.stats().keys, 0)
@@ -1052,23 +1059,35 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(TypeError):
             await policy.run_async(transient, should_retry=object())
 
-    async def test_retry_deadline_does_not_interrupt_started_async_operation(self):
-        now = [0.0]
-        deadline = Deadline.after(1, clock=lambda: now[0])
+    async def test_retry_deadline_does_not_interrupt_started_operations(self):
+        with self.subTest(mode="sync"):
+            clock = ManualClock()
+            deadline = Deadline.after(1, clock=clock)
 
-        async def operation():
-            now[0] = 2.0
-            return "completed"
+            def sync_operation():
+                clock.set(2.0)
+                return "completed"
 
-        result = await RetryPolicy(max_attempts=1).run_async(operation, deadline=deadline)
-        self.assertEqual(result, "completed")
+            result = RetryPolicy(max_attempts=1).run(sync_operation, deadline=deadline)
+            self.assertEqual(result, "completed")
+
+        with self.subTest(mode="async"):
+            clock = ManualClock()
+            deadline = Deadline.after(1, clock=clock)
+
+            async def async_operation():
+                clock.set(2.0)
+                return "completed"
+
+            result = await RetryPolicy(max_attempts=1).run_async(async_operation, deadline=deadline)
+            self.assertEqual(result, "completed")
 
     async def test_circuit_breaker_half_open_and_classifier_behavior(self):
-        now = [0.0]
+        clock = ManualClock()
         breaker = CircuitBreaker(
             failure_threshold=1,
             recovery_timeout=1,
-            clock=lambda: now[0],
+            clock=clock,
             should_count=lambda error: not isinstance(error, ValueError),
         )
         with self.assertRaises(ValueError):
@@ -1079,7 +1098,7 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(breaker.state, "open")
         with self.assertRaises(CircuitOpenError):
             breaker.call(lambda: 1)
-        now[0] = 2
+        clock.set(2)
         self.assertEqual(breaker.state, "half_open")
         self.assertEqual(breaker.call(lambda: 4), 4)
         self.assertEqual(breaker.state, "closed")
