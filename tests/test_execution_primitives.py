@@ -7,6 +7,7 @@ import contextvars
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 
 import eventflow
 from eventflow.bridges import AsyncEventQueue, LoopPortal
@@ -596,6 +597,46 @@ class AsyncPrimitiveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(queue.stats().dropped, 1)
         self.assertEqual(await queue.receive(), 1)
         await queue.aclose()
+        bus.close()
+
+    async def test_async_event_queue_rejects_a_second_consumer_task(self):
+        bus = EventBus[int]()
+        queue = AsyncEventQueue(bus)
+        first = asyncio.create_task(queue.receive())
+        await asyncio.sleep(0)
+
+        second = asyncio.create_task(queue.receive())
+        with self.assertRaisesRegex(RuntimeError, "one consumer task"):
+            await second
+
+        bus.publish(7)
+        self.assertEqual(await first, 7)
+        await queue.aclose()
+        bus.close()
+
+    async def test_async_event_queue_retries_failed_unsubscribe_on_close(self):
+        bus = EventBus[int]()
+        queue = AsyncEventQueue(bus)
+        subscription = queue._subscription
+        self.assertIsNotNone(subscription)
+        cancel = subscription.cancel
+        attempts = 0
+
+        def cancel_once_fails():
+            nonlocal attempts
+            attempts += 1
+            if attempts == 1:
+                raise RuntimeError("unsubscribe failed")
+            cancel()
+
+        with patch.object(subscription, "cancel", side_effect=cancel_once_fails):
+            with self.assertRaisesRegex(RuntimeError, "unsubscribe failed"):
+                await queue.aclose()
+            self.assertEqual(bus.subscriber_count, 1)
+            await queue.aclose()
+
+        self.assertEqual(attempts, 2)
+        self.assertEqual(bus.subscriber_count, 0)
         bus.close()
 
     async def test_keyed_concurrency_cancellation_and_key_cleanup(self):
