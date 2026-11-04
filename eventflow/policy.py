@@ -38,6 +38,7 @@ class PolicyEvaluator:
         self._default = default
         self._observer = observer
         self._rules: dict[str, Rule] = {}
+        self._rules_snapshot: tuple[tuple[str, Rule], ...] | None = None
         self._lock = threading.RLock()
 
     def add(self, name: str, rule: Rule) -> Rule:
@@ -49,11 +50,14 @@ class PolicyEvaluator:
             if name in self._rules:
                 raise KeyError(f"Policy rule {name!r} already exists")
             self._rules[name] = rule
+            self._rules_snapshot = None
         return rule
 
     def remove(self, name: str) -> Rule:
         with self._lock:
-            return self._rules.pop(name)
+            rule = self._rules.pop(name)
+            self._rules_snapshot = None
+            return rule
 
     def snapshot(self) -> Mapping[str, Rule]:
         with self._lock:
@@ -71,7 +75,15 @@ class PolicyEvaluator:
             raise ValueError("action must be a non-empty string")
         values = MappingProxyType(dict(context or {}))
         with self._lock:
-            rules = tuple(self._rules.items())
+            rules = self._rules_snapshot
+            if rules is None:
+                rules = tuple(self._rules.items())
+                self._rules_snapshot = rules
+        if not rules:
+            decision = PolicyDecision(self._default == "allow", "default policy", ())
+            if self._observer is not None:
+                synchronous_result(self._observer(decision))
+            return decision
         allowed: list[str] = []
         denied: list[str] = []
         for name, rule in rules:
