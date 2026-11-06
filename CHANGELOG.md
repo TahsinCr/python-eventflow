@@ -8,6 +8,8 @@ All notable changes to this project are documented in this file.
 
 - Ignore circuit-breaker outcomes from earlier generations after the circuit
   opens, recovers, or is reset.
+- Restore a callback subscription's final-call quota when automatic unsubscribe
+  fails, allowing a later delivery to retry cancellation.
 
 ## [v1.3.1] - 2026-11-04
 

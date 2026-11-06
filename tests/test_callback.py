@@ -70,6 +70,26 @@ class CallbackTests(unittest.TestCase):
         self.assertFalse(subscription.active)
         self.assertEqual(hooks, ["before", "success", "after"] * 2)
 
+    def test_failed_final_cancellation_restores_callback_quota(self):
+        calls = []
+        cancellations = 0
+
+        def cancel():
+            nonlocal cancellations
+            cancellations += 1
+            if cancellations == 1:
+                raise RuntimeError("unsubscribe failed")
+
+        subscription = CallbackSubscription(1, cancel, calls.append, max_calls=1)
+        with self.assertRaisesRegex(RuntimeError, "unsubscribe failed"):
+            subscription.invoke("rejected")
+
+        self.assertTrue(subscription.active)
+        self.assertIsNone(subscription.invoke("accepted"))
+        self.assertFalse(subscription.active)
+        self.assertEqual(calls, ["accepted"])
+        self.assertEqual(cancellations, 2)
+
     def test_error_and_observational_sync_timeout(self):
         hooks = []
         sub = CallbackSubscription(1, lambda: None, lambda item: 1 / 0)

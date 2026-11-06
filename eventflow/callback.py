@@ -160,11 +160,17 @@ class CallbackSubscription(Subscription):
                 return False
             if self._maximum is not None and self._calls >= self._maximum:
                 return False
+            previous_calls, previous_last = self._calls, self._last
             self._calls += 1
             self._last = now
             exhausted = self._calls == self._maximum
         if exhausted:
-            self.cancel()
+            try:
+                self.cancel()
+            except BaseException:
+                with self._policy_lock:
+                    self._calls, self._last = previous_calls, previous_last
+                raise
         return True
 
     def _snapshot(self, name: str) -> tuple[Callable, ...]:
