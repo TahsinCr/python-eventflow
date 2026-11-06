@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import heapq
 import inspect
 import math
 import threading
@@ -55,6 +56,7 @@ class CoalescerStats:
 class _Coalesced(Generic[T]):
     value: T
     deadline: float
+    sequence: int
 
 
 class KeyedCoalescer(Generic[K, T]):
@@ -90,6 +92,8 @@ class KeyedCoalescer(Generic[K, T]):
         self._observer = observer
         self._condition = threading.Condition()
         self._pending: dict[K, _Coalesced[T]] = {}
+        self._due_heap: list[tuple[float, int, K]] = []
+        self._sequence = 0
         self._closed = False
         self._flushing = False
         self._flush_requests = 0
@@ -116,7 +120,10 @@ class KeyedCoalescer(Generic[K, T]):
                 if not self._thread_started:
                     self._thread.start()
                     self._thread_started = True
-                self._pending[key] = _Coalesced(value, now + self._interval)
+                self._sequence += 1
+                entry = _Coalesced(value, now + self._interval, self._sequence)
+                self._pending[key] = entry
+                heapq.heappush(self._due_heap, (entry.deadline, entry.sequence, key))
                 self._submitted += 1
             else:
                 entry.value = synchronous_result(self._merge(entry.value, value))
@@ -127,16 +134,35 @@ class KeyedCoalescer(Generic[K, T]):
         if self._flushing and self._pending:
             key = next(iter(self._pending))
             entry = self._pending.pop(key)
+            self._compact_due_heap()
             return key, entry.value
         if not self._pending:
+            self._due_heap.clear()
             return None
-        key, entry = min(self._pending.items(), key=lambda pair: pair[1].deadline)
-        delay = entry.deadline - time.monotonic()
+        while self._due_heap:
+            deadline, sequence, key = self._due_heap[0]
+            entry = self._pending.get(key)
+            if entry is not None and entry.sequence == sequence:
+                break
+            heapq.heappop(self._due_heap)
+        else:
+            raise RuntimeError("KeyedCoalescer deadline index is inconsistent")
+        delay = deadline - time.monotonic()
         if delay > 0:
             self._condition.wait(delay)
             return None
+        heapq.heappop(self._due_heap)
         self._pending.pop(key)
         return key, entry.value
+
+    def _compact_due_heap(self) -> None:
+        if not self._pending:
+            self._due_heap.clear()
+        elif len(self._due_heap) > max(64, len(self._pending) * 2):
+            self._due_heap = [
+                (entry.deadline, entry.sequence, key) for key, entry in self._pending.items()
+            ]
+            heapq.heapify(self._due_heap)
 
     def _run(self) -> None:
         while True:
@@ -268,6 +294,7 @@ class KeyedCoalescer(Generic[K, T]):
                 if not flush:
                     self._discarded += len(self._pending)
                     self._pending.clear()
+                self._due_heap.clear()
             self._flushing = self._flush_requests > 0 or self._close_flush
             self._condition.notify_all()
         if self._thread_started:

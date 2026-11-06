@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Index pending `KeyedCoalescer` deadlines in a min-heap, so each due item is
+  selected in O(log K) time instead of scanning all K pending keys. Merged
+  updates keep the first value's deadline.
 - Clarify that `on_before` is not a delivery gate or authorization boundary,
   document `PolicyEvaluator`'s in-process security boundary, and explain how
   to bound work before publisher tasks are created.

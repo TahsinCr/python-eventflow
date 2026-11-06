@@ -4,7 +4,9 @@ from __future__ import annotations
 
 import asyncio
 import contextvars
+import heapq
 import threading
+import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
@@ -1399,6 +1401,34 @@ class ThreadBridgeTests(unittest.TestCase):
         coalescer.flush(1)
         coalescer.close()
         self.assertEqual(calls, [("key", 3)])
+
+    def test_keyed_coalescer_selects_due_deadlines_without_ordering_keys(self):
+        coalescer = KeyedCoalescer(
+            interval=60,
+            key=lambda item: item[0],
+            merge=lambda _first, second: second,
+            callback=lambda _item: None,
+            max_pending_keys=3,
+        )
+        keys = (object(), object(), object())
+        try:
+            for index, key in enumerate(keys):
+                coalescer.push((key, index))
+            with coalescer._condition:
+                first_deadline = time.monotonic() - 2
+                deadlines = (first_deadline, first_deadline, first_deadline - 1)
+                for key, deadline in zip(keys, deadlines, strict=True):
+                    coalescer._pending[key].deadline = deadline
+                coalescer._due_heap = [
+                    (deadline, coalescer._pending[key].sequence, key)
+                    for key, deadline in zip(keys, deadlines, strict=True)
+                ]
+                heapq.heapify(coalescer._due_heap)
+                self.assertEqual(coalescer._next_due(), (keys[2], (keys[2], 2)))
+                self.assertEqual(coalescer._next_due(), (keys[0], (keys[0], 0)))
+                self.assertEqual(coalescer._next_due(), (keys[1], (keys[1], 1)))
+        finally:
+            coalescer.close(flush=False, timeout=1)
 
     def test_keyed_coalescer_starts_lazily_and_serializes_parallel_merges(self):
         calls = []
