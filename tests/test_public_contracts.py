@@ -37,9 +37,9 @@ class PublicContractTests(unittest.TestCase):
                 timeout=20,
             )
 
-    def test_unreleased_execution_apis_match_the_reviewed_contract(self):
+    def test_released_execution_apis_match_the_reviewed_contract(self):
         contract = json.loads(
-            Path(__file__).with_name("api_unreleased.json").read_text(encoding="utf-8")
+            Path(__file__).with_name("api_v1_3_1.json").read_text(encoding="utf-8")
         )
         for name in contract["exports"]:
             self.assertIn(name, eventflow.__all__)

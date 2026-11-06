@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Expand the package summary to cover EventFlow's released pipeline and
+  coordination APIs, and name the frozen API contract for the v1.3.1 release.
 - Index pending `KeyedCoalescer` deadlines in a min-heap, so each due item is
   selected in O(log K) time instead of scanning all K pending keys. Merged
   updates keep the first value's deadline.
