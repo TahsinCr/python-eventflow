@@ -1140,9 +1140,12 @@ waiters for one key.
 
 `KeyedRateLimiter(rate, period, burst=...)` is a per-key token bucket.
 `await acquire(key)` waits cancellably for a token; `try_acquire(key)` returns
-immediately. `max_keys` bounds retained keys and `prune()` removes idle state;
-if the key table is full and no idle bucket can be pruned, a new key is
-rejected. It has loop ownership and should be closed with `aclose()`.
+immediately. While an `acquire(key)` is waiting, `try_acquire(key)` for that key
+returns `False` so new immediate calls cannot consume its next token. Waiting
+`acquire()` calls are not guaranteed strict FIFO order. `max_keys` bounds
+retained keys and `prune()` removes idle state; if the key table is full and no
+idle bucket can be pruned, a new key is rejected. It has loop ownership and
+should be closed with `aclose()`.
 
 `SingleFlight.run(key, factory)` shares one in-flight awaitable among callers
 with the same key. Different keys run independently, one waiter's cancellation

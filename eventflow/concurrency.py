@@ -461,7 +461,7 @@ class KeyedRateLimiter(Generic[K]):
                 self._observer.record("keyed_rate.try_acquire", status="error", rejected=1)
             return False
         entry = self._entry(key, loop.time())
-        if entry.tokens < 1.0:
+        if entry.waiters or entry.tokens < 1.0:
             self._prune(key, entry)
             if self._observer is not None:
                 self._observer.record("keyed_rate.try_acquire", status="error", rejected=1)

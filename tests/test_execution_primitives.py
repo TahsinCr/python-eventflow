@@ -906,6 +906,25 @@ class AsyncPrimitiveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(limiter.stats().waiters, 0)
         await limiter.aclose()
 
+    async def test_keyed_rate_limiter_try_acquire_does_not_bypass_waiters(self):
+        limiter = KeyedRateLimiter[str](rate=0.1, burst=1)
+        self.assertTrue(limiter.try_acquire("key"))
+        waiter = asyncio.create_task(limiter.acquire("key"))
+        await asyncio.sleep(0)
+        entry = limiter._entries["key"]
+        self.assertEqual(entry.waiters, 1)
+
+        entry.tokens = 1.0
+        entry.updated = asyncio.get_running_loop().time()
+        self.assertFalse(limiter.try_acquire("key"))
+        self.assertEqual(entry.tokens, 1.0)
+        for signal in tuple(entry.signals or ()):
+            signal.set()
+
+        await asyncio.wait_for(waiter, timeout=0.1)
+        self.assertEqual(entry.tokens, 0.0)
+        await limiter.aclose()
+
     async def test_keyed_rate_limiter_close_wakes_waiters(self):
         limiter = KeyedRateLimiter[str](rate=0.1, period=1, burst=1)
         self.assertTrue(limiter.try_acquire("x"))

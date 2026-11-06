@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Prevent `KeyedRateLimiter.try_acquire()` from consuming a token while an
+  asynchronous acquisition for the same key is waiting; waiting acquisitions
+  still have no strict FIFO guarantee.
+
 ### Fixed
 
 - Ignore circuit-breaker outcomes from earlier generations after the circuit

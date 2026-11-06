@@ -1159,10 +1159,12 @@ atlamaması için `False` döndürür. Başarılı çağrıda slot'u
 
 `KeyedRateLimiter(rate, period, burst=...)` her anahtar için token bucket
 uygular. `await acquire(key)` token'ı iptal edilebilir biçimde bekler;
-`try_acquire(key)` hemen sonuç döndürür. `max_keys` kayıt sayısını sınırlar;
-tablo doluysa ve temizlenecek boş bucket yoksa yeni anahtar reddedilir.
-`prune()` kullanılmayan kayıtları siler. Loop sahipliğine bağlıdır ve
-`aclose()` ile kapatılmalıdır.
+`try_acquire(key)` hemen sonuç döndürür. Aynı anahtar için `acquire()` beklerken
+yeni `try_acquire(key)` çağrısı sıradaki token'ı tüketmemesi için `False`
+döndürür. Bekleyen `acquire()` çağrıları arasında kesin FIFO sırası garanti
+edilmez. `max_keys` kayıt sayısını sınırlar; tablo doluysa ve temizlenecek boş
+bucket yoksa yeni anahtar reddedilir. `prune()` kullanılmayan kayıtları siler.
+Loop sahipliğine bağlıdır ve `aclose()` ile kapatılmalıdır.
 
 `SingleFlight.run(key, factory)` aynı anahtar için devam eden tek awaitable'ın
 sonucunu çağıranlarla paylaşır. Farklı anahtarlar birbirini beklemez; bir
