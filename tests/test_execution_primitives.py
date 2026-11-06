@@ -1038,6 +1038,41 @@ class AsyncPrimitiveTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(await success, "ok")
         self.assertEqual(breaker.state, "open")
 
+    async def test_circuit_breaker_ignores_stale_closed_call_results(self):
+        for stale_error in (False, True):
+            with self.subTest(stale_error=stale_error):
+                clock = ManualClock()
+                breaker = CircuitBreaker(failure_threshold=2, recovery_timeout=1, clock=clock)
+                started = asyncio.Event()
+                release = asyncio.Event()
+
+                async def old_operation():
+                    started.set()
+                    await release.wait()
+                    if stale_error:
+                        raise OSError("stale failure")
+                    return "stale success"
+
+                stale_call = asyncio.create_task(breaker.call_async(old_operation))
+                await asyncio.wait_for(started.wait(), 1)
+                for _ in range(2):
+                    with self.assertRaises(OSError):
+                        breaker.call(lambda: (_ for _ in ()).throw(OSError("opens circuit")))
+
+                clock.set(1.0)
+                self.assertEqual(await breaker.call_async(lambda: self._value("probe")), "probe")
+                with self.assertRaises(OSError):
+                    breaker.call(lambda: (_ for _ in ()).throw(OSError("new generation")))
+                self.assertEqual(breaker.stats().failures, 1)
+
+                release.set()
+                if stale_error:
+                    with self.assertRaisesRegex(OSError, "stale failure"):
+                        await stale_call
+                else:
+                    self.assertEqual(await stale_call, "stale success")
+                self.assertEqual(breaker.stats().failures, 1)
+
     async def test_async_scheduler_runs_once_and_periodic_then_closes(self):
         observer = OperationStats()
         scheduler = AsyncScheduler(observer=observer)

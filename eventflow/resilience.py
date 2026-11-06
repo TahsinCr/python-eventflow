@@ -422,7 +422,7 @@ class CircuitBreaker:
         self._failures = 0
         self._probes = 0
         self._opened_at = 0.0
-        self._probe_epoch = 0
+        self._generation = 0
         self._calls = 0
         self._rejected = 0
 
@@ -436,7 +436,7 @@ class CircuitBreaker:
         if self._state == "open" and self._clock() - self._opened_at >= self._recovery:
             self._state = "half_open"
             self._probes = 0
-            self._probe_epoch += 1
+            self._generation += 1
 
     def _enter(self) -> tuple[bool, int]:
         with self._lock:
@@ -450,7 +450,7 @@ class CircuitBreaker:
             probe = self._state == "half_open"
             if probe:
                 self._probes += 1
-            return probe, self._probe_epoch
+            return probe, self._generation
 
     def _finish(
         self,
@@ -474,7 +474,7 @@ class CircuitBreaker:
                 counted = True
                 classification_error = exc
         with self._lock:
-            if probe and epoch != self._probe_epoch:
+            if epoch != self._generation:
                 return
             if cancelled:
                 if probe:
@@ -487,16 +487,17 @@ class CircuitBreaker:
                     self._opened_at = self._clock()
                     self._failures = self._threshold
                     self._probes = 0
-                    self._probe_epoch += 1
+                    self._generation += 1
                 elif self._probes == 0:
                     self._state = "closed"
                     self._failures = 0
-                    self._probe_epoch += 1
+                    self._generation += 1
             elif self._state == "closed":
                 self._failures = self._failures + 1 if counted else 0
                 if self._failures >= self._threshold:
                     self._state = "open"
                     self._opened_at = self._clock()
+                    self._generation += 1
         try:
             self._notify()
         except Exception as observer_error:
@@ -529,7 +530,7 @@ class CircuitBreaker:
             self._state = "closed"
             self._failures = self._probes = 0
             self._opened_at = 0.0
-            self._probe_epoch += 1
+            self._generation += 1
         self._notify()
 
     def call(self, operation: Callable[[], T]) -> T:

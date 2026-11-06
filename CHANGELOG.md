@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Ignore circuit-breaker outcomes from earlier generations after the circuit
+  opens, recovers, or is reset.
+
 ## [v1.3.1] - 2026-11-04
 
 ### Changed
