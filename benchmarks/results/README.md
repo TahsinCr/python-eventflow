@@ -202,6 +202,28 @@ latency improvement is claimed for it; the code change removes one temporary
 one-item list per accepted submission. The bus, pipeline, retry, cache, policy
 and `LoopPortal` measurements showed lower medians on both tested interpreters.
 
+## CooldownRegistry existing-key update (2026-11-07)
+
+Compared baseline commit `f4b318e` with optimized commit `a72ae0f` on Linux
+7.2.14-arch1-1 x86_64. Each registry was filled with active 3,600-second
+deadlines, then repeatedly called `block(0, 3600)` with no waiters. Each run
+used 200 warm-up calls followed by nine timed batches; the median latency per
+call is shown below. Batch sizes vary to keep runtimes practical at larger
+registries. The two interpreter runs were separate executions on the same
+machine, not interleaved. These synthetic results describe the repeated-key
+path only and are not production guarantees.
+
+| Entries | Calls per batch | Python 3.10.18, µs/call | Python 3.14.9, µs/call |
+| ---: | ---: | ---: | ---: |
+| 10 | 5,000 | 3.335 → 2.447 (-26.6%) | 1.767 → 1.211 (-31.5%) |
+| 100 | 3,000 | 5.923 → 2.380 (-59.8%) | 3.741 → 1.200 (-67.9%) |
+| 1,000 | 1,000 | 29.717 → 2.353 (-92.1%) | 25.510 → 1.187 (-95.3%) |
+| 4,096 | 500 | 111.236 → 2.391 (-97.9%) | 100.599 → 1.190 (-98.8%) |
+
+Normal updates to a live key now inspect only that key. A full expiry prune
+still occurs when a new key needs space in a full registry; explicit `prune()`
+and `stats()` also retain their whole-registry scan behavior.
+
 ## Reproduce
 
 ```bash
