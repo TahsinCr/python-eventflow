@@ -9,6 +9,12 @@ All notable changes to this project are documented in this file.
 - Prevent `KeyedRateLimiter.try_acquire()` from consuming a token while an
   asynchronous acquisition for the same key is waiting; waiting acquisitions
   still have no strict FIFO guarantee.
+- Avoid scanning every cooldown key on ordinary `block()` updates; prune all
+  expired keys only when a new key needs capacity.
+- Repeated existing-key cooldown updates measured 26.6–97.9% lower median
+  latency on CPython 3.10.18 and 31.5–98.8% lower on 3.14.9 across 10–4,096
+  stored keys; exact results and workload details are in the
+  [benchmark report](benchmarks/results/README.md#cooldownregistry-existing-key-update-2026-11-07).
 
 ### Fixed
 

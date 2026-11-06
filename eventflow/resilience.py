@@ -278,11 +278,15 @@ class CooldownRegistry(Generic[K]):
             raise TypeError("extend must be a bool")
         now = self._clock()
         with self._condition:
-            self._prune_locked(now)
-            if key not in self._deadlines and len(self._deadlines) >= self._max_entries:
-                raise RuntimeError("CooldownRegistry entry capacity is full")
-            deadline = now + seconds
             current = self._deadlines.get(key)
+            if current is not None and current <= now:
+                self._deadlines.pop(key)
+                current = None
+            if current is None and len(self._deadlines) >= self._max_entries:
+                self._prune_locked(now)
+                if len(self._deadlines) >= self._max_entries:
+                    raise RuntimeError("CooldownRegistry entry capacity is full")
+            deadline = now + seconds
             if current is not None:
                 deadline = max(current, deadline) if extend else deadline
             if deadline <= now:

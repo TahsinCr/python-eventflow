@@ -404,6 +404,19 @@ class PrimitiveTests(unittest.TestCase):
         self.assertFalse(cooldowns.is_blocked("key"))
         self.assertEqual(cooldowns.prune(), 0)
 
+    def test_cooldown_prunes_other_expired_keys_only_when_capacity_requires_it(self):
+        clock = ManualClock(0.0)
+        cooldowns = CooldownRegistry(max_entries=2, clock=clock)
+        cooldowns.block("expired", 1)
+        cooldowns.block("active", 10)
+        clock.advance(1)
+
+        self.assertEqual(cooldowns.block("active", 2), 9)
+        self.assertEqual(cooldowns.block("new", 2), 2)
+        self.assertFalse(cooldowns.is_blocked("expired"))
+        self.assertTrue(cooldowns.is_blocked("active"))
+        self.assertTrue(cooldowns.is_blocked("new"))
+
     def test_all_new_exports_are_lazy_and_discoverable(self):
         self.assertIn("AsyncEventQueue", eventflow.__all__)
         self.assertIn("VersionedCache", dir(eventflow))
