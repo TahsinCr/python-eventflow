@@ -9,6 +9,10 @@ All notable changes to this project are documented in this file.
 - Index pending `KeyedCoalescer` deadlines in a min-heap, so each due item is
   selected in O(log K) time instead of scanning all K pending keys. Merged
   updates keep the first value's deadline.
+- Draining expired coalescer entries measured 87.1–99.9% lower median time
+  across 128–16,384 keys on Python 3.10.18 and 3.14.9; see the
+  [benchmark report](benchmarks/results/README.md#keyedcoalescer-due-item-drain-2026-11-07)
+  for the workload and sample counts.
 - Clarify that `on_before` is not a delivery gate or authorization boundary,
   document `PolicyEvaluator`'s in-process security boundary, and explain how
   to bound work before publisher tasks are created.

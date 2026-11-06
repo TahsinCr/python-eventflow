@@ -224,6 +224,29 @@ Normal updates to a live key now inspect only that key. A full expiry prune
 still occurs when a new key needs space in a full registry; explicit `prune()`
 and `stats()` also retain their whole-registry scan behavior.
 
+## KeyedCoalescer due-item drain (2026-11-07)
+
+Compared baseline commit `1ace5eb` with optimized commit `3edae1f` on Linux
+7.2.14-arch1-1 x86_64. Each sample filled an internal pending map with expired
+entries, then timed `_next_due()` until all entries had been selected. Setup,
+heap construction, worker-thread startup, and callback execution were excluded.
+The run used seven samples at 128 and 1,024 keys, five at 4,096 keys, and one
+at 16,384 keys; the table reports the median total drain time. Each interpreter
+was run separately on the same machine. This isolates due-item selection cost
+and is not an end-to-end or production guarantee.
+
+| Pending keys | Python 3.10.18, ms/drain | Python 3.14.9, ms/drain |
+| ---: | ---: | ---: |
+| 128 | 1.121 → 0.143 (-87.2%) | 0.619 → 0.080 (-87.1%) |
+| 1,024 | 62.191 → 1.197 (-98.1%) | 36.538 → 0.837 (-97.7%) |
+| 4,096 | 986.010 → 5.215 (-99.5%) | 556.092 → 3.636 (-99.3%) |
+| 16,384 | 15,640.381 → 22.651 (-99.9%) | 8,964.437 → 15.833 (-99.8%) |
+
+The previous minimum scan gave quadratic total work for a full drain. The
+deadline heap makes selection logarithmic per item; flush retains insertion
+order and compacts stale heap entries while draining. Keys are never compared,
+including when deadlines tie.
+
 ## Reproduce
 
 ```bash
