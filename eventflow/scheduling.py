@@ -92,6 +92,8 @@ class KeyedCoalescer(Generic[K, T]):
         self._pending: dict[K, _Coalesced[T]] = {}
         self._closed = False
         self._flushing = False
+        self._flush_requests = 0
+        self._close_flush = False
         self._active = 0
         self._submitted = self._merged = self._delivered = self._failures = self._rejected = 0
         self._errors: deque[BaseException] = deque(maxlen=32)
@@ -233,19 +235,26 @@ class KeyedCoalescer(Generic[K, T]):
         timeout = validate_nonnegative_timeout(timeout, name="coalescer flush timeout")
         end = None if timeout is None else time.monotonic() + timeout
         with self._condition:
+            discarded = self._discarded
+            self._flush_requests += 1
             self._flushing = True
             self._condition.notify_all()
-            while self._pending or self._active:
-                remaining = None if end is None else end - time.monotonic()
-                if remaining is not None and remaining <= 0:
-                    self._flushing = False
-                    raise TimeoutError("KeyedCoalescer flush did not finish before the timeout")
-                self._condition.wait(remaining)
-            self._flushing = False
+            try:
+                while self._pending or self._active:
+                    remaining = None if end is None else end - time.monotonic()
+                    if remaining is not None and remaining <= 0:
+                        raise TimeoutError("KeyedCoalescer flush did not finish before the timeout")
+                    self._condition.wait(remaining)
+                if self._discarded != discarded:
+                    raise RuntimeError("KeyedCoalescer closed and discarded pending values")
+            finally:
+                self._flush_requests -= 1
+                self._flushing = self._flush_requests > 0 or self._close_flush
+                self._condition.notify_all()
         self._raise_errors()
 
     def close(self, *, flush: bool = True, timeout: float | None = None) -> None:
-        """Reject new updates, then flush or discard pending values and stop the worker."""
+        """Reject updates and apply the first close call's flush/discard policy."""
         if not isinstance(flush, bool):
             raise TypeError("flush must be a bool")
         timeout = validate_nonnegative_timeout(timeout, name="coalescer close timeout")
@@ -253,11 +262,13 @@ class KeyedCoalescer(Generic[K, T]):
             raise RuntimeError("KeyedCoalescer worker cannot close itself")
         end = None if timeout is None else time.monotonic() + timeout
         with self._condition:
-            self._closed = True
-            self._flushing = flush
-            if not flush:
-                self._discarded += len(self._pending)
-                self._pending.clear()
+            if not self._closed:
+                self._closed = True
+                self._close_flush = flush
+                if not flush:
+                    self._discarded += len(self._pending)
+                    self._pending.clear()
+            self._flushing = self._flush_requests > 0 or self._close_flush
             self._condition.notify_all()
         if self._thread_started:
             remaining = None if end is None else max(0.0, end - time.monotonic())

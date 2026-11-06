@@ -1275,6 +1275,11 @@ ve yeniden giriş yapmayan fonksiyonlar olmalıdır. Teslimat callback'i worker'
 senkron çalışır. `flush()` bekleyen değerleri hemen işler;
 `close(flush=True)` önce flush eder, `close(flush=False)` bekleyenleri atar.
 Callback hataları `on_error` ve `stats()` üzerinden gözlemlenir.
+Eşzamanlı `flush()` çağrıları kendi taleplerini ayrı tutar; bir çağrının
+timeout'u diğerinin flush işlemini iptal etmez. İlk `close()` çağrısı flush/at
+kararını verir; sonraki çağrılar kapanışı beklemeyi yeniden deneyebilir ancak
+kararı değiştirmez. `close(flush=False)` etkin bir flush sürerken işleri atarsa
+bu flush `RuntimeError` üretir.
 
 ~~~python
 from eventflow import BoundedWorkPool

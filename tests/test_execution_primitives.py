@@ -1400,6 +1400,78 @@ class ThreadBridgeTests(unittest.TestCase):
         finally:
             coalescer.close(timeout=1)
 
+    def test_concurrent_coalescer_flush_timeout_keeps_other_flush_active(self):
+        started, release = threading.Event(), threading.Event()
+        calls = []
+
+        def deliver(value):
+            calls.append(value)
+            if value == "first":
+                started.set()
+                release.wait(timeout=2)
+
+        coalescer = KeyedCoalescer(
+            interval=60,
+            key=lambda value: value,
+            merge=lambda _first, second: second,
+            callback=deliver,
+            max_pending_keys=2,
+        )
+        with ThreadPoolExecutor(max_workers=2) as workers:
+            try:
+                coalescer.push("first")
+                short_flush = workers.submit(coalescer.flush, 0.5)
+                self.assertTrue(started.wait(timeout=1))
+                coalescer.push("second")
+                long_flush = workers.submit(coalescer.flush, 2)
+                with coalescer._condition:
+                    self.assertTrue(
+                        coalescer._condition.wait_for(
+                            lambda: coalescer._flush_requests == 2, timeout=1
+                        )
+                    )
+                with self.assertRaises(TimeoutError):
+                    short_flush.result(timeout=1)
+                self.assertTrue(coalescer._flushing)
+                release.set()
+                long_flush.result(timeout=1)
+                self.assertEqual(calls, ["first", "second"])
+            finally:
+                release.set()
+                coalescer.close(timeout=1)
+
+    def test_coalescer_timed_close_retry_keeps_first_flush_policy(self):
+        started, release = threading.Event(), threading.Event()
+        calls = []
+
+        def deliver(value):
+            calls.append(value)
+            if value == "first":
+                started.set()
+                release.wait(timeout=2)
+
+        coalescer = KeyedCoalescer(
+            interval=60,
+            key=lambda value: value,
+            merge=lambda _first, second: second,
+            callback=deliver,
+            max_pending_keys=2,
+        )
+        coalescer.push("first")
+        coalescer.push("second")
+        with ThreadPoolExecutor(max_workers=1) as workers:
+            try:
+                closing = workers.submit(coalescer.close, flush=True, timeout=2)
+                self.assertTrue(started.wait(timeout=1))
+                with self.assertRaises(TimeoutError):
+                    coalescer.close(flush=False, timeout=0)
+                release.set()
+                closing.result(timeout=1)
+                self.assertEqual(calls, ["first", "second"])
+            finally:
+                release.set()
+                coalescer.close(timeout=1)
+
     def test_coalescer_rejects_async_key_and_merge_functions(self):
         async def async_key(value):
             return value

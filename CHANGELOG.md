@@ -10,6 +10,8 @@ All notable changes to this project are documented in this file.
   opens, recovers, or is reset.
 - Restore a callback subscription's final-call quota when automatic unsubscribe
   fails, allowing a later delivery to retry cancellation.
+- Keep concurrent coalescer flush requests independent and make the first close
+  call's flush/discard policy stable across shutdown retries.
 
 ## [v1.3.1] - 2026-11-04
 
