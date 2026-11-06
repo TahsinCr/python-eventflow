@@ -62,36 +62,44 @@ class BoundedWorkPool:
             raise TypeError("operation must be callable")
         if is_async_callable(operation):
             raise TypeError("BoundedWorkPool accepts synchronous operations only")
+        future: Future[T] | None = None
         with self._lock:
             if self._closed:
                 raise RuntimeError("BoundedWorkPool is shut down")
             if not self._slots.acquire(blocking=False):
                 self._rejected += 1
-                if self._observer is not None:
-                    self._observer.record("work_pool.submit", status="error", rejected=1)
-                raise RuntimeError("BoundedWorkPool capacity is full")
-            self._pending += 1
-            started = False
+            else:
+                self._pending += 1
+                started = False
 
-            def run() -> T:
-                nonlocal started
-                with self._lock:
-                    started = True
-                    self._pending -= 1
-                    self._running += 1
-                    self._worker_ids.add(threading.get_ident())
-                try:
-                    return synchronous_result(operation(*args, **kwargs))
-                finally:
+                def run() -> T:
+                    nonlocal started
                     with self._lock:
-                        self._worker_ids.discard(threading.get_ident())
+                        started = True
+                        self._pending -= 1
+                        self._running += 1
+                        self._worker_ids.add(threading.get_ident())
+                    try:
+                        return synchronous_result(operation(*args, **kwargs))
+                    finally:
+                        with self._lock:
+                            self._worker_ids.discard(threading.get_ident())
 
-            try:
-                future = self._executor.submit(run)
-            except BaseException:
-                self._pending -= 1
-                self._slots.release()
-                raise
+                try:
+                    future = self._executor.submit(run)
+                except BaseException:
+                    self._pending -= 1
+                    self._slots.release()
+                    raise
+
+        if future is None:
+            capacity_error = RuntimeError("BoundedWorkPool capacity is full")
+            if self._observer is not None:
+                try:
+                    self._observer.record("work_pool.submit", status="error", rejected=1)
+                except BaseException as observer_error:
+                    raise capacity_error from observer_error
+            raise capacity_error
 
         def finished(_future: Future[T]) -> None:
             with self._lock:

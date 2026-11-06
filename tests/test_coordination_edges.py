@@ -320,6 +320,53 @@ class RegistryPolicyExecutorTests(unittest.TestCase):
         self.assertTrue(pending.cancelled())
         pool.shutdown()
 
+    def test_bounded_pool_rejection_observer_runs_outside_lock_and_keeps_error(self):
+        from eventflow.observability import OperationStats
+
+        pool_ref = {}
+        inspected = threading.Event()
+        observer_threads = []
+        observer = OperationStats()
+        original_record = observer.record
+
+        def record(operation, **metrics):
+            if operation != "work_pool.submit":
+                return original_record(operation, **metrics)
+
+            def inspect_pool():
+                pool_ref["pool"].stats()
+                inspected.set()
+
+            thread = threading.Thread(target=inspect_pool, daemon=True)
+            observer_threads.append(thread)
+            thread.start()
+            if not inspected.wait(timeout=0.5):
+                raise ValueError("reentrant stats call was blocked")
+            raise LookupError("observer failed")
+
+        observer.record = record  # type: ignore[method-assign]
+        pool = BoundedWorkPool(max_workers=1, max_pending=0, observer=observer)
+        pool_ref["pool"] = pool
+        release, started = threading.Event(), threading.Event()
+
+        def blocking_work():
+            started.set()
+            release.wait(timeout=2)
+
+        try:
+            pool.submit(blocking_work)
+            self.assertTrue(started.wait(timeout=1))
+            with self.assertRaisesRegex(RuntimeError, "capacity is full") as caught:
+                pool.submit(lambda: None)
+            self.assertIsInstance(caught.exception.__cause__, LookupError)
+            self.assertTrue(inspected.is_set())
+            for thread in observer_threads:
+                thread.join(timeout=1)
+                self.assertFalse(thread.is_alive())
+        finally:
+            release.set()
+            pool.shutdown()
+
     def test_work_pool_cleans_awaitables_and_rejects_worker_self_wait(self):
         pool = BoundedWorkPool(max_workers=1, max_pending=0)
 

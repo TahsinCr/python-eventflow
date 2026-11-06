@@ -18,6 +18,8 @@ All notable changes to this project are documented in this file.
   fails, allowing a later delivery to retry cancellation.
 - Keep concurrent coalescer flush requests independent and make the first close
   call's flush/discard policy stable across shutdown retries.
+- Notify work-pool capacity observers outside the pool lock and preserve the
+  capacity error if observer reporting fails.
 
 ## [v1.3.1] - 2026-11-04
 
