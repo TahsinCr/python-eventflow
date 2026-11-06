@@ -263,6 +263,18 @@ class EventBusTests(unittest.TestCase):
         with self.assertRaises(ExceptionGroup):
             raising.publish(3)
 
+    def test_before_hook_failure_does_not_gate_sync_delivery(self) -> None:
+        delivered: list[int] = []
+
+        def reject(_event: int) -> None:
+            raise PermissionError("not authorized")
+
+        with EventBus[int](on_before=reject, error_policy=ErrorPolicy.RAISE) as bus:
+            bus.subscribe(delivered.append)
+            with self.assertRaises(ExceptionGroup):
+                bus.publish(7)
+        self.assertEqual(delivered, [7])
+
     def test_bounded_history_query_latest_and_replay(self) -> None:
         history = MemoryEventHistory[int](capacity=3)
         bus = EventBus[int](history=history)
@@ -1556,6 +1568,24 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bus.subscriber_count, 0)
         self.assertEqual(bus._waiters, set())
         await bus.close()
+
+    async def test_before_hook_failure_does_not_gate_async_delivery(self) -> None:
+        delivered: list[int] = []
+
+        async def reject(_event: int) -> None:
+            raise PermissionError("not authorized")
+
+        async def receive(event: int) -> None:
+            delivered.append(event)
+
+        async with AsyncEventBus[int](
+            on_before=reject,
+            error_policy=ErrorPolicy.RAISE,
+        ) as bus:
+            await bus.subscribe(receive)
+            with self.assertRaises(ExceptionGroup):
+                await bus.publish(7)
+        self.assertEqual(delivered, [7])
 
     async def test_async_error_and_timeout_actions(self) -> None:
         errors: list[tuple[int, str]] = []

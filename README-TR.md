@@ -516,7 +516,10 @@ yuva, sabit grubun diğer callback'lerini beklemeden sıradaki aboneye verilir.
 Çakışan publish çağrılarının her biri kendi sınırına sahiptir; bu seçenek
 uygulamanın oluşturduğu publish çağrılarının toplamını sınırlamaz. Tek bir
 event'in fan-out'u çok sayıda task veya harici kaynak tüketebilecekse sonlu bir
-değer belirleyin.
+değer belirleyin. Bu sınır bekleyen publisher task'larının sayısını sınırlamaz.
+Yüksek hacimli veya güvenilmeyen bir kaynaktan gelen işlerde, bu task'ları
+oluşturmadan önce sınırlı bir uygulama kuyruğu ve sabit sayıda worker ile
+backpressure uygulayın.
 
 ~~~python
 import asyncio
@@ -1177,6 +1180,11 @@ kapanışın tamamlanması için factory işlevlerinin iptal isteğine yanıt ve
 gerekir. Bir factory, kendisini çalıştıran `SingleFlight` örneğini kapatamaz;
 bu deneme `RuntimeError` üretir. `stats()` örneğin sahibi olan event loop
 içinden çağrılmalıdır.
+`SingleFlight.aclose()` bekleyen task iptal edilirse iptal çağırana hemen
+iletilir; shield edilen kapatma işi örnek tarafından sahiplenilmeye devam eder
+ve sonraki `aclose()` çağrısı onu bekleyebilir. `AsyncTaskScope` ve
+`AsyncResourceScope` ise caller cancellation'ı yeniden yükseltmeden önce cleanup
+işini tamamlar.
 `LatestTaskCoordinator.submit(key, factory, on_result)` varsayılan olarak
 önceki işi iptal eder ve yalnızca en yeni gönderimin sonucunu uygular. İptale
 direnen eski task da generation kontrolü sayesinde eski sonuç yayımlayamaz.
@@ -1353,8 +1361,10 @@ hatası tamamlanmış değişikliği geri almaz. Servis oluşturmaz ve dependenc
 `PolicyEvaluator`, isimli senkron kuralları kayıt sırasıyla değerlendirir.
 Kural `"allow"`, `"deny"`, `"abstain"`, `True`, `False` veya `None` döndürür. Açık deny önceliklidir;
 ardından allow, en son ayarlanmış varsayılan karar (varsayılan deny) gelir.
-`PolicyDecision` sonucu ve eşleşen kural bilgisini taşır. Bu, kimlik sağlayıcı
-veya policy dili değil; küçük, süreç içi bir kural birleştiricisidir.
+`PolicyDecision` sonucu ve eşleşen kural bilgisini taşır. Bu, kimlik sağlayıcı,
+policy dili, yetkilendirme sınırı veya sandbox değil; küçük, süreç içi bir kural
+birleştiricisidir. Kararı korunan işlem noktasında uygulayın; güvenilmeyen kodu
+işletim sistemi izinleriyle izole edin.
 
 ~~~python
 from eventflow import StateMachine, VersionedValue
@@ -1402,6 +1412,10 @@ sandbox etmez; böyle bir kodu ayrı işletim sistemi süreci veya container iç
 açık izinler ve kaynak sınırlarıyla çalıştırın. Async cancellation ve callback
 timeout'ları işbirliğine dayalıdır; cancellation'ı bastıran veya event loop'u
 bloklayan kod için kesin süre sınırı sağlamaz.
+Bus üzerindeki `on_before` hook'u yetkilendirme veya doğrulama kapısı değildir:
+ürettiği hata kaydedilir ve `ErrorPolicy.RAISE` kullanılsa bile seçilen
+abonelere teslimat yapılır. İzin denetimini `publish()` çağrısından önce veya
+korunan işlem noktasında gerçekleştirin.
 
 `PipelineExecutionError.context` ve observer hataları hassas veri içeren
 uygulama nesnelerine referans verebilir. Bu nesneleri olduğu gibi loglamayın;

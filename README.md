@@ -535,6 +535,9 @@ the next subscriber instead of waiting for the rest of a fixed group. Overlappin
 publish calls each have their own limit; this does not bound how many publish
 calls the application creates. Choose a finite value when one event's fan-out
 could otherwise create too many tasks or use too many external resources.
+This still does not bound the number of waiting publisher tasks. For a
+high-volume or untrusted input source, apply backpressure before creating those
+tasks, for example with a bounded application queue and a fixed worker set.
 
 ~~~python
 import asyncio
@@ -1154,9 +1157,13 @@ failure. The result is not cached after completion. Shared work continues if
 all waiters leave; it remains owned and visible through `stats().active` until
 completion. Call `await flight.aclose()` when the instance is no longer needed;
 it cancels and drains active work, then rejects new calls. Factories must
-cooperate with cancellation for shutdown to finish. A factory cannot close its
-own `SingleFlight` instance; that call raises `RuntimeError`. `stats()` must be
-called from the instance's owning event loop.
+cooperate with cancellation for shutdown to finish. If the task awaiting
+`SingleFlight.aclose()` is cancelled, cancellation propagates while the
+shielded shutdown task remains owned; a later `aclose()` can await it. In
+contrast, `AsyncTaskScope` and `AsyncResourceScope` finish cleanup before
+re-raising caller cancellation. A factory cannot close its own `SingleFlight`
+instance; that call raises `RuntimeError`. `stats()` must be called from the
+instance's owning event loop.
 `LatestTaskCoordinator.submit(key, factory, on_result)` cancels prior work by
 default and applies a result only if that submission is still the newest for
 the key. Generation checks also prevent a cancellation-resistant old task
@@ -1338,7 +1345,9 @@ A rule returns `"allow"`, `"deny"`, `"abstain"`, `True`, `False` or `None`;
 an explicit deny takes priority, then an allow applies, followed by the
 configured default (deny by default).
 Its `PolicyDecision` carries the decision and matching rule details. It is a
-small in-process rule combiner, not an identity provider or policy language.
+small in-process rule combiner, not an identity provider, policy language,
+authorization boundary, or sandbox. Enforce decisions at the protected
+operation and isolate untrusted code with operating-system permissions.
 
 ~~~python
 from eventflow import StateMachine, VersionedValue
@@ -1385,6 +1394,9 @@ untrusted plugins; isolate such code with an operating-system process or
 container boundary and explicit permissions and resource limits. Async
 cancellation and callback timeouts are cooperative and do not provide a hard
 deadline for code that suppresses cancellation or blocks the event loop.
+The bus `on_before` hook is not an authorization or validation gate: its errors
+are recorded, and even `ErrorPolicy.RAISE` is applied after selected subscribers
+run. Check permission before calling `publish()` or at the protected operation.
 
 `PipelineExecutionError.context` and observer errors may reference application
 objects, including sensitive data. Avoid logging these objects wholesale;

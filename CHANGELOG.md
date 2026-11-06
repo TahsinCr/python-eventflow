@@ -6,6 +6,12 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Clarify that `on_before` is not a delivery gate or authorization boundary,
+  document `PolicyEvaluator`'s in-process security boundary, and explain how
+  to bound work before publisher tasks are created.
+- Document that cancelling a `SingleFlight.aclose()` caller leaves its owned
+  shutdown running, while task and resource scopes finish cleanup before
+  re-raising caller cancellation.
 - Prevent `KeyedRateLimiter.try_acquire()` from consuming a token while an
   asynchronous acquisition for the same key is waiting; waiting acquisitions
   still have no strict FIFO guarantee.
