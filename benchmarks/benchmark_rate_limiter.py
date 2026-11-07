@@ -67,7 +67,7 @@ def _percentile(values: list[float], fraction: float) -> float:
     return ordered[max(0, math.ceil(fraction * len(ordered)) - 1)]
 
 
-async def _sample(workers: int, acquisitions: int, rate: float, cancel_fraction: float) -> _Sample:
+async def _sample(workers: int, acquisitions: int, rate: float, cancel_count: int) -> _Sample:
     limiter = KeyedRateLimiter[str](rate=rate, period=1, burst=1)
     if not limiter.try_acquire("shared"):
         raise RuntimeError("could not reserve the initial rate-limit token")
@@ -98,7 +98,6 @@ async def _sample(workers: int, acquisitions: int, rate: float, cancel_fraction:
                 raise TimeoutError("rate-limiter workers did not all reach the wait queue")
             await asyncio.sleep(0)
 
-        cancel_count = min(workers - 1, int(workers * cancel_fraction))
         for task in tasks[-cancel_count:] if cancel_count else ():
             task.cancel()
         outcomes = await asyncio.gather(*tasks, return_exceptions=True)
@@ -136,7 +135,14 @@ async def _run(
     repeats: int,
     cancel_fraction: float,
 ) -> dict[str, object]:
-    samples = [await _sample(workers, acquisitions, rate, cancel_fraction) for _ in range(repeats)]
+    total_cancelled = min(round(workers * repeats * cancel_fraction), (workers - 1) * repeats)
+    cancellations_per_sample = [
+        total_cancelled // repeats + (index < total_cancelled % repeats) for index in range(repeats)
+    ]
+    samples = [
+        await _sample(workers, acquisitions, rate, cancel_count)
+        for cancel_count in cancellations_per_sample
+    ]
     waits = [
         value
         for sample in samples
@@ -177,6 +183,7 @@ async def _run(
             "max_to_median_ratio": max(worker_times) / median(worker_times),
         },
         "sample_completed_acquisitions": [sample["completed_acquisitions"] for sample in samples],
+        "sample_cancelled_workers": [sample["cancelled_workers"] for sample in samples],
     }
 
 
@@ -185,7 +192,7 @@ def main() -> None:
     parser.add_argument("--workers", type=_positive_int, default=32)
     parser.add_argument("--acquisitions", type=_positive_int, default=16)
     parser.add_argument("--rate", type=_rate, default=1000.0)
-    parser.add_argument("--repeats", type=_positive_int, default=3)
+    parser.add_argument("--repeats", type=_positive_int, default=5)
     parser.add_argument("--cancel-fraction", type=_cancellation_fraction, default=0.05)
     parser.add_argument("--output", type=Path)
     args = parser.parse_args()
