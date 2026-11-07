@@ -2,6 +2,15 @@
 
 Measured on 2026-10-28. Baseline source: `14fe966`; final runtime source: `e033f1a`. No remote service is involved.
 
+New benchmark JSON reports record the Git revision, whether EventFlow or
+benchmark source files differ from that revision, and a SHA-256 fingerprint of
+the runtime package, benchmark Python files and `pyproject.toml`. Generated
+result files are excluded from the fingerprint. Reports also record whether
+the interpreter has the GIL enabled when that information is available.
+`benchmark_compare` stores this metadata for both the candidate and its
+baseline. Metadata collection runs after the timed samples. Existing historical
+JSON records are left as they were measured.
+
 ## Method
 
 - Python: 3.10.18 (main, Aug 13 2026, 01:16:48) [GCC 16.1.1 20260728]
@@ -276,6 +285,7 @@ including when deadlines tie.
 ```bash
 python -m benchmarks.benchmark_publish --iterations 2000 --output publish.json
 python -m benchmarks.benchmark_compare --baseline /path/to/v1.1-checkout --iterations 250 --samples 9 --output comparison.json
+python -m benchmarks.benchmark_bridge_publishers --publishers 2 4 8 16 --iterations 1000 --repeats 5 --output bridge-publishers.json
 python -m benchmarks.benchmark_pipeline --iterations 5000 --output pipeline.json
 python -m benchmarks.benchmark_stream --iterations 100 --items 1000 --output stream.json
 python -m benchmarks.benchmark_runtime --iterations 200 --samples 5 --soak-operations 100000 --output runtime.json
@@ -318,10 +328,11 @@ optimized order for each Python version. The table reports the median of the
 seven per-process percentile values. Full per-run data and the exact workload
 are in [`bridge_waiter_handoff_2026-11-07.json`](bridge_waiter_handoff_2026-11-07.json).
 
-Keep existing measurement records unchanged. For future before/after results,
-record both source revisions. If the candidate is an uncommitted working tree,
-include a hash-identified patch containing the measured changes, including any
-untracked source files.
+Keep existing measurement records unchanged. Future benchmark output records
+both the base revision and a fingerprint of the exact source tree used. For
+before/after runs, use `baseline_source` and `source` in the comparison JSON to
+identify each tree; the source-only dirty flag does not count result files or
+documentation edits.
 
 | Python | Case | Before P50 (us) | After P50 (us) | Change | Before P95 (us) | After P95 (us) |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |

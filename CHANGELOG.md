@@ -8,6 +8,8 @@ All notable changes to this project are documented in this file.
 
 - Run the full suite on GIL-disabled CPython 3.14t and 3.15t on Windows and
   macOS as well as the existing Ubuntu jobs.
+- Measure synchronous-to-async bridge throughput and round-trip latency with
+  2, 4, 8, and 16 concurrent publisher threads, including process CPU use.
 - Add focused `LoopPortal` tests for retrying a failed thread start and releasing
   the loop thread after startup failure.
 - Run the full unit suite on Ubuntu with the GIL explicitly disabled on CPython
@@ -23,6 +25,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Include the source revision, source-only working-tree status, a deterministic
+  source fingerprint, and the interpreter's GIL mode in benchmark JSON reports.
+  Comparison reports also identify the baseline source independently.
 - Run each synchronous executor callback in a fresh copy of the context active
   during `publish()`, keeping `ContextVar` behavior consistent across GIL modes.
 - Record a matched CPython 3.15.2 GIL-on/free-threaded bridge comparison: local

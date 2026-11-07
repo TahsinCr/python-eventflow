@@ -1584,6 +1584,22 @@ RSS, and include event history when configured. Local microbenchmarks are not
 deployment guarantees. Recorded results and methodology live under
 `benchmarks/results`.
 
+To measure synchronous publishers handing events to an asyncio consumer, run
+`python -m benchmarks.benchmark_bridge_publishers`. It compares 2, 4, 8 and 16
+publisher threads. Each publisher waits for the consumer to acknowledge its
+event before sending another, so the bounded queue measures concurrent handoff
+contention without silently dropping work. Use `--iterations`, `--repeats`,
+`--publishers` and `--output` to adjust the run.
+Each sample also reports process CPU time and utilization as a percentage of
+one core's wall-clock capacity; free-threaded runs can exceed 100% when multiple
+threads execute simultaneously.
+
+Benchmark JSON reports include the active GIL mode where Python exposes it,
+the Git revision, a source-only dirty flag, and a SHA-256 fingerprint of the
+EventFlow package, benchmark Python files and `pyproject.toml`. The fingerprint
+does not include generated results. The comparison benchmark also records the
+baseline source separately. Provenance is collected outside the timed samples.
+
 Copyright © 2026 TahsinCr. EventFlow is licensed under the MIT License.
 See [LICENSE](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE) and
 [CHANGELOG](https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md).

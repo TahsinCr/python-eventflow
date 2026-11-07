@@ -17,6 +17,8 @@ from time import perf_counter
 
 from eventflow import KeyedCoalescer
 
+from ._measure import benchmark_metadata
+
 
 def _positive(value: str) -> int:
     try:
@@ -181,6 +183,7 @@ def main() -> None:
     args = parser.parse_args()
 
     result = _run(args.key_counts, args.samples, args.producers, args.merge_updates)
+    result.update(benchmark_metadata())
     rendered = json.dumps(result, indent=2) + "\n"
     if args.output is None:
         print(rendered, end="")

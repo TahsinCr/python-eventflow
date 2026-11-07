@@ -1606,6 +1606,23 @@ tüketilen bir stream'deki öğe sayısına göredir. Runtime bellek ölçümler
 Yerel mikrobenchmark dağıtım performansı garantisi vermez. Ölçüm sonuçları ve
 yöntem `benchmarks/results` altında tutulur.
 
+Senkron yayıncıların event'leri asyncio tüketicisine aktarma performansını
+ölçmek için `python -m benchmarks.benchmark_bridge_publishers` komutunu
+çalıştırın. Araç 2, 4, 8 ve 16 yayıncı thread'ini karşılaştırır. Her yayıncı,
+yenisini göndermeden önce tüketicinin onayını bekler; sınırlı kuyruk böylece
+event kaybetmeden eşzamanlı aktarım rekabetini ölçer. İş yükünü `--iterations`,
+`--repeats`, `--publishers` ve `--output` seçenekleriyle ayarlayabilirsiniz.
+Her örnek ayrıca process CPU süresini ve bir çekirdeğin duvar saati kapasitesine
+göre CPU kullanım yüzdesini verir. GIL'siz çalışmada birden fazla thread aynı
+anda çalışabildiğinden bu değer yüzde 100'ü aşabilir.
+
+Benchmark JSON raporları Python sunuyorsa GIL durumunu, Git revision'ını,
+yalnızca kaynak dosyalarını kapsayan bir değişiklik bilgisini ve EventFlow
+paketi, benchmark Python dosyaları ile `pyproject.toml` üzerinden üretilen
+SHA-256 parmak izini içerir. Bu parmak izi oluşturulmuş sonuç dosyalarını
+kapsamaz. Karşılaştırma benchmark'ı baseline kaynağını ayrıca kaydeder.
+Provenance bilgisi süre ölçümleri tamamlandıktan sonra üretilir.
+
 Copyright © 2026 TahsinCr. EventFlow, MIT Lisansı ile lisanslanmıştır.
 [LICENSE](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE) ve
 [CHANGELOG](https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md)

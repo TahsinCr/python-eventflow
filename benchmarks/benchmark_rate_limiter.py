@@ -18,6 +18,8 @@ from typing import TypedDict
 
 from eventflow import KeyedRateLimiter
 
+from ._measure import benchmark_metadata
+
 
 class _WorkerResult(TypedDict):
     elapsed_seconds: float
@@ -226,6 +228,7 @@ def main() -> None:
     result = asyncio.run(
         _run(args.workers, args.acquisitions, args.rate, args.repeats, args.cancel_fraction)
     )
+    result.update(benchmark_metadata())
     rendered = json.dumps(result, indent=2) + "\n"
     if args.output is None:
         print(rendered, end="")

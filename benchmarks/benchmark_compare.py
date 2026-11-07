@@ -20,6 +20,8 @@ from typing import Any
 
 import eventflow
 
+from ._measure import benchmark_metadata, source_provenance
+
 
 def load_baseline(root: Path) -> Any:
     package = root.resolve() / "eventflow"
@@ -132,6 +134,8 @@ def main() -> None:
             {
                 "python": sys.version,
                 "platform": platform.platform(),
+                **benchmark_metadata(),
+                "baseline_source": source_provenance(args.baseline),
                 "iterations_per_sample": args.iterations,
                 "samples": args.samples,
                 "results": results,

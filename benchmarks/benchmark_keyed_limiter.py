@@ -17,6 +17,8 @@ from time import perf_counter
 
 from eventflow import KeyedConcurrencyLimiter
 
+from ._measure import benchmark_metadata
+
 
 async def _sample(waiter_count: int) -> float:
     limiter = KeyedConcurrencyLimiter[str](1)
@@ -85,6 +87,7 @@ def main() -> None:
         parser.error("waiter counts and repeats must be positive")
 
     report = asyncio.run(_run(args.waiters, args.repeats))
+    report.update(benchmark_metadata())
     rendered = json.dumps(report, indent=2) + "\n"
     if args.output is None:
         print(rendered, end="")
