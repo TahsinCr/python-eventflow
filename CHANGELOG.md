@@ -28,6 +28,8 @@ All notable changes to this project are documented in this file.
 - Include the source revision, source-only working-tree status, a deterministic
   source fingerprint, and the interpreter's GIL mode in benchmark JSON reports.
   Comparison reports also identify the baseline source independently.
+- Define bridge benchmark CPU utilization as process CPU time normalized to one
+  core; concurrent process threads can make it exceed 100%.
 - Run each synchronous executor callback in a fresh copy of the context active
   during `publish()`, keeping `ContextVar` behavior consistent across GIL modes.
 - Record a matched CPython 3.15.2 GIL-on/free-threaded bridge comparison: local

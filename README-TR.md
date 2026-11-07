@@ -1613,8 +1613,9 @@ yenisini göndermeden önce tüketicinin onayını bekler; sınırlı kuyruk bö
 event kaybetmeden eşzamanlı aktarım rekabetini ölçer. İş yükünü `--iterations`,
 `--repeats`, `--publishers` ve `--output` seçenekleriyle ayarlayabilirsiniz.
 Her örnek ayrıca process CPU süresini ve bir çekirdeğin duvar saati kapasitesine
-göre CPU kullanım yüzdesini verir. GIL'siz çalışmada birden fazla thread aynı
-anda çalışabildiğinden bu değer yüzde 100'ü aşabilir.
+göre CPU kullanım yüzdesini verir. Process içindeki thread'lerin CPU süreleri
+toplandığı için, native kod GIL'i bırakırken thread'ler eşzamanlı çalışırsa bu
+değer yüzde 100'ü aşabilir.
 
 Benchmark JSON raporları Python sunuyorsa GIL durumunu, Git revision'ını,
 yalnızca kaynak dosyalarını kapsayan bir değişiklik bilgisini ve EventFlow

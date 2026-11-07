@@ -1591,8 +1591,9 @@ event before sending another, so the bounded queue measures concurrent handoff
 contention without silently dropping work. Use `--iterations`, `--repeats`,
 `--publishers` and `--output` to adjust the run.
 Each sample also reports process CPU time and utilization as a percentage of
-one core's wall-clock capacity; free-threaded runs can exceed 100% when multiple
-threads execute simultaneously.
+one core's wall-clock capacity. Since it sums CPU time across process threads,
+it can exceed 100% when threads consume CPU concurrently, including while
+native code releases the GIL.
 
 Benchmark JSON reports include the active GIL mode where Python exposes it,
 the Git revision, a source-only dirty flag, and a SHA-256 fingerprint of the
