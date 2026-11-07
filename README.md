@@ -944,9 +944,12 @@ print(stats.snapshot.runs.successful)  # 1
 `correlation_context(id)` is a normal context manager, usable in async functions
 too. `current_correlation_id()` reads the current identifier. An envelope uses
 an explicit correlation ID, then the bound context, then its own ID. Context
-is isolated across asyncio tasks and reset on exit. New threads and the bus
-executor do not automatically inherit it; use `contextvars.copy_context` in
-application code when propagation is required.
+is isolated across asyncio tasks and reset on exit. Each synchronous callback
+submitted to an `EventBus` executor receives its own snapshot of the context
+active during `publish()`. Context changes made by a callback stay within that
+delivery and do not leak to the publisher or a later callback. This behavior is
+consistent across GIL-enabled and free-threaded Python builds. `LoopPortal`
+also copies the submitting context for each call.
 
 Pass `observer=PipelineStats()` or a synchronous `PipelineObserver` callable to
 either pipeline. Each completed run, stage and middleware produces a

@@ -965,8 +965,12 @@ print(stats.snapshot.runs.successful)  # 1
 context manager'dır. `current_correlation_id()` etkin kimliği döndürür. Zarf
 önce açıkça verilen correlation ID'yi, ardından bağlı context'i, son olarak
 kendi ID'sini kullanır. Context asyncio task'ları arasında izoledir ve çıkışta
-eski değerine döner. Yeni thread'ler ve mevcut bus executor'ı context'i otomatik
-devralmaz; gerektiğinde uygulama tarafında `contextvars.copy_context` kullanın.
+eski değerine döner. `EventBus` executor'ına gönderilen her senkron callback,
+`publish()` sırasında etkin olan context'in ayrı bir kopyasında çalışır.
+Callback'in değiştirdiği context yalnız o teslimat içinde kalır; yayınlayan
+thread'e veya sonraki callback'lere sızmaz. Davranış GIL açık ve GIL kapalı
+Python derlemelerinde aynıdır. `LoopPortal` da her çağrıda gönderen context'ini
+kopyalar.
 
 İki pipeline türüne de `observer=PipelineStats()` veya senkron bir
 `PipelineObserver` callable verilebilir. Tamamlanan run, stage ve middleware

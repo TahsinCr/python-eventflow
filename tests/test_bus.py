@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import contextvars
 import gc
 import threading
 import unittest
@@ -31,11 +32,35 @@ from eventflow import (
     InvalidEventHandlerError,
     MemoryEventHistory,
     PublishResult,
+    correlation_context,
+    current_correlation_id,
 )
 from eventflow.compatibility import ExceptionGroup
 
 
 class EventBusTests(unittest.TestCase):
+    def test_executor_callbacks_receive_isolated_publish_contexts(self) -> None:
+        marker = contextvars.ContextVar("executor-callback-marker", default=None)
+        seen: list[tuple[int, str | None, str | None]] = []
+
+        def callback(event: int) -> None:
+            seen.append((event, current_correlation_id(), marker.get()))
+            marker.set("worker-local")
+
+        with ThreadPoolExecutor(max_workers=1) as executor:
+            bus = EventBus[int](executor=executor)
+            bus.subscribe(callback)
+            try:
+                with correlation_context("request-one"):
+                    bus.publish(1)
+                with correlation_context("request-two"):
+                    bus.publish(2)
+            finally:
+                bus.close()
+
+        self.assertEqual(seen, [(1, "request-one", None), (2, "request-two", None)])
+        self.assertIsNone(marker.get())
+
     def test_falsey_event_filter_is_preserved(self) -> None:
         class FalseyFilter(EventFilter[int]):
             def __bool__(self) -> bool:

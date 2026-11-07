@@ -8,6 +8,7 @@ import time
 from collections import deque
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
+from contextvars import copy_context
 from dataclasses import dataclass, field
 from typing import Generic, TypeVar
 
@@ -312,12 +313,14 @@ class EventBus(BaseEventBus[T]):
                     errors.append(error)
         else:
             futures: list[tuple[_Subscriber[T], Future[None]]] = []
+            dispatch_context = copy_context()
             for subscriber in matched:
                 claimed, final = subscriber.claim()
                 if not claimed:
                     continue
                 try:
                     future = self._executor.submit(
+                        dispatch_context.copy().run,
                         self._invoke_executor_callback,
                         subscriber,
                         event,

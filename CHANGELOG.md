@@ -19,6 +19,8 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Run each synchronous executor callback in a fresh copy of the context active
+  during `publish()`, keeping `ContextVar` behavior consistent across GIL modes.
 - Record a matched CPython 3.15.2 GIL-on/free-threaded bridge comparison: local
   cross-thread P50 was 18.6% lower without the GIL, while same-thread P50 was
   11.7% higher. See the
