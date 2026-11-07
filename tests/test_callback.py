@@ -139,9 +139,7 @@ class AsyncCallbackTests(unittest.IsolatedAsyncioTestCase):
         async def callback(event):
             calls.append(event)
 
-        subscription = CallbackSubscription(
-            1, cancel, callback, asynchronous=True, max_calls=1
-        )
+        subscription = CallbackSubscription(1, cancel, callback, asynchronous=True, max_calls=1)
         with self.assertRaisesRegex(RuntimeError, "unsubscribe failed"):
             await subscription.invoke_async("rejected")
 
