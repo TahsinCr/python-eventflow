@@ -24,7 +24,6 @@ All notable changes to this project are documented in this file.
   distributions, worker completion spread, and observed waiter cancellations.
 
 ### Changed
-
 - Include the source revision, source-only working-tree status, a deterministic
   source fingerprint, and the interpreter's GIL mode in benchmark JSON reports.
   Comparison reports also identify the baseline source independently.
@@ -84,6 +83,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserve the published lowercase string values for `ErrorPolicy` and
+  `DeliveryMode`, keeping string-based configuration valid.
 - Keep short bridge benchmark smoke tests valid when CPU timers report zero by
   checking that the reported CPU metrics are finite and non-negative.
 - Run free-threaded GIL checks with a shell-independent Python command on

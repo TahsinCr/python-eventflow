@@ -15,6 +15,8 @@ from eventflow import (
     AsyncEventBus,
     AsyncEventEngine,
     CallbackSubscription,
+    DeliveryMode,
+    ErrorPolicy,
     EventBus,
     Subscription,
 )
@@ -25,6 +27,12 @@ _MODULE_ONLY_EXPORTS = {
 
 
 class PublicContractTests(unittest.TestCase):
+    def test_enum_values_preserve_published_string_configuration(self):
+        self.assertIs(ErrorPolicy("isolate"), ErrorPolicy.ISOLATE)
+        self.assertIs(ErrorPolicy("raise"), ErrorPolicy.RAISE)
+        self.assertIs(DeliveryMode("sequential"), DeliveryMode.SEQUENTIAL)
+        self.assertIs(DeliveryMode("concurrent"), DeliveryMode.CONCURRENT)
+
     def test_readme_examples_before_integrated_section_execute(self):
         root = Path(__file__).resolve().parents[1]
         for name in ("README.md", "README-TR.md"):
