@@ -203,7 +203,7 @@ class ThreadBridgeTests(unittest.TestCase):
 
         def blocking_work():
             worker_started.set()
-            release_worker.wait(2)
+            release_worker.wait(5)
 
         async def operation():
             await asyncio.to_thread(blocking_work)
@@ -212,7 +212,7 @@ class ThreadBridgeTests(unittest.TestCase):
         try:
             self.assertTrue(worker_started.wait(1))
             with self.assertRaises(TimeoutError):
-                portal.close(timeout=0.01)
+                portal.close(timeout=1)
             self.assertFalse(portal.running)
         finally:
             release_worker.set()

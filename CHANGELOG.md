@@ -88,6 +88,8 @@ All notable changes to this project are documented in this file.
   checking that the reported CPU metrics are finite and non-negative.
 - Run free-threaded GIL checks with a shell-independent Python command on
   Windows.
+- Give the `LoopPortal` executor-shutdown test enough time to reach its
+  stopping phase on Windows runners.
 - Resolve strict Pyright diagnostics in the publish/runtime benchmarks by typing
   their sample collections and initializing memory-soak midpoint snapshots.
 - Make rate-limiter benchmark cancellation setup independent of the measured
