@@ -73,9 +73,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Keep the rate-limiter benchmark smoke test stable on slower runners by
-  allowing all workers to queue before the first refill, and include captured
-  benchmark output when a subprocess fails.
+- Make rate-limiter benchmark cancellation setup independent of the measured
+  token refill rate, and include captured output when a benchmark subprocess
+  fails.
+- Require baseline and candidate source provenance in new before/after
+  benchmark records while preserving existing historical results.
 - Synchronize the synchronous `EventBus.wait_for()` test on subscription
   registration instead of waiting on a condition that receives no notification.
 - Preserve upstream `AsyncStream.__anext__()` overrides in fused `map()` and

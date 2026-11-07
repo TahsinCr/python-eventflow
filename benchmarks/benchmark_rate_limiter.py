@@ -68,19 +68,21 @@ def _percentile(values: list[float], fraction: float) -> float:
 
 
 async def _sample(workers: int, acquisitions: int, rate: float, cancel_count: int) -> _Sample:
+    cancelled = await _cancel_waiters(cancel_count)
     limiter = KeyedRateLimiter[str](rate=rate, period=1, burst=1)
     if not limiter.try_acquire("shared"):
         raise RuntimeError("could not reserve the initial rate-limit token")
 
+    active_workers = workers - cancel_count
     arrivals = 0
-    all_arrived = asyncio.Event()
-    loop = asyncio.get_running_loop()
+    start = asyncio.Event()
 
     async def worker() -> _WorkerResult:
         nonlocal arrivals
         arrivals += 1
-        if arrivals == workers:
-            all_arrived.set()
+        if arrivals == active_workers:
+            start.set()
+        await start.wait()
         wait_times = []
         started = perf_counter()
         for _ in range(acquisitions):
@@ -89,26 +91,17 @@ async def _sample(workers: int, acquisitions: int, rate: float, cancel_count: in
             wait_times.append(perf_counter() - wait_started)
         return {"elapsed_seconds": perf_counter() - started, "wait_seconds": wait_times}
 
-    tasks = [asyncio.create_task(worker()) for _ in range(workers)]
+    tasks = [asyncio.create_task(worker()) for _ in range(active_workers)]
     try:
-        await asyncio.wait_for(all_arrived.wait(), timeout=10)
-        deadline = loop.time() + 10
-        while limiter.stats().waiters < workers:
-            if loop.time() >= deadline:
-                raise TimeoutError("rate-limiter workers did not all reach the wait queue")
-            await asyncio.sleep(0)
-
-        for task in tasks[-cancel_count:] if cancel_count else ():
-            task.cancel()
         outcomes = await asyncio.gather(*tasks, return_exceptions=True)
         completed = []
         for outcome in outcomes:
             if isinstance(outcome, BaseException):
                 if not isinstance(outcome, asyncio.CancelledError):
                     raise RuntimeError(f"rate-limiter worker failed: {outcome!r}")
+                raise RuntimeError("rate-limiter measurement worker was cancelled")
             else:
                 completed.append(outcome)
-        cancelled = sum(isinstance(outcome, asyncio.CancelledError) for outcome in outcomes)
         wait_times = [wait for outcome in completed for wait in outcome["wait_seconds"]]
         worker_times = [outcome["elapsed_seconds"] for outcome in completed]
         if not wait_times or not worker_times:
@@ -120,6 +113,36 @@ async def _sample(workers: int, acquisitions: int, rate: float, cancel_count: in
             "acquisition_wait_seconds": wait_times,
             "worker_completion_seconds": worker_times,
         }
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await limiter.aclose()
+
+
+async def _cancel_waiters(count: int) -> int:
+    if count == 0:
+        return 0
+
+    limiter = KeyedRateLimiter[str](rate=1, period=3_600, burst=1)
+    if not limiter.try_acquire("shared"):
+        raise RuntimeError("could not reserve the cancellation probe token")
+    tasks = [asyncio.create_task(limiter.acquire("shared")) for _ in range(count)]
+    try:
+        loop = asyncio.get_running_loop()
+        deadline = loop.time() + 10
+        while limiter.stats().waiters < count:
+            if loop.time() >= deadline:
+                raise TimeoutError("cancellation probe workers did not reach the wait queue")
+            await asyncio.sleep(0)
+
+        for task in tasks:
+            task.cancel()
+        outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+        if any(not isinstance(outcome, asyncio.CancelledError) for outcome in outcomes):
+            raise RuntimeError("cancellation probe did not cancel every queued worker")
+        return len(outcomes)
     finally:
         for task in tasks:
             if not task.done():
@@ -161,7 +184,10 @@ async def _run(
         "benchmark": "keyed-rate-limiter-wait-fairness",
         "python": platform.python_version(),
         "platform": platform.platform(),
-        "workload": "same key; one reserved token; each surviving worker reacquires repeatedly",
+        "workload": (
+            "same key; one reserved token; active workers reacquire repeatedly; "
+            "cancellation waiters are measured in a separate probe"
+        ),
         "workers_per_sample": workers,
         "acquisitions_per_worker": acquisitions,
         "rate_per_second": rate,

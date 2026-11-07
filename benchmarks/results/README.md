@@ -318,6 +318,11 @@ optimized order for each Python version. The table reports the median of the
 seven per-process percentile values. Full per-run data and the exact workload
 are in [`bridge_waiter_handoff_2026-11-07.json`](bridge_waiter_handoff_2026-11-07.json).
 
+Keep existing measurement records unchanged. For future before/after results,
+record both source revisions. If the candidate is an uncommitted working tree,
+include a hash-identified patch containing the measured changes, including any
+untracked source files.
+
 | Python | Case | Before P50 (us) | After P50 (us) | Change | Before P95 (us) | After P95 (us) |
 | --- | --- | ---: | ---: | ---: | ---: | ---: |
 | 3.10.18 | same-thread waiting consumer | 31.796 | 21.892 | -31.1% | 33.845 | 22.635 |

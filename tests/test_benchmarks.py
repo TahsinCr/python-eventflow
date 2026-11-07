@@ -141,7 +141,7 @@ class BenchmarkTests(unittest.TestCase):
                 "--acquisitions",
                 "2",
                 "--rate",
-                "2",
+                "10000",
                 "--repeats",
                 "1",
                 "--cancel-fraction",
