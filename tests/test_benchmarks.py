@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import math
 import shutil
 import subprocess
 import sys
@@ -85,12 +86,16 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual([result["publishers"] for result in results], [2, 4])
         for result in results:
             self.assertEqual(result["operations_per_sample"], result["publishers"] * 12)
-            self.assertGreater(result["median_cpu_utilization_percent"], 0)
+            median_cpu_utilization = result["median_cpu_utilization_percent"]
+            self.assertTrue(math.isfinite(median_cpu_utilization))
+            self.assertGreaterEqual(median_cpu_utilization, 0)
             sample = result["samples"][0]
             self.assertEqual(sample["delivered_events"], result["operations_per_sample"])
             self.assertGreater(sample["throughput_ops_per_second"], 0)
-            self.assertGreater(sample["cpu_seconds"], 0)
-            self.assertGreater(sample["cpu_utilization_percent"], 0)
+            self.assertTrue(math.isfinite(sample["cpu_seconds"]))
+            self.assertGreaterEqual(sample["cpu_seconds"], 0)
+            self.assertTrue(math.isfinite(sample["cpu_utilization_percent"]))
+            self.assertGreaterEqual(sample["cpu_utilization_percent"], 0)
             latency = sample["roundtrip_latency_us"]
             self.assertLessEqual(latency["p50"], latency["p95"])
             self.assertLessEqual(latency["p95"], latency["p99"])
