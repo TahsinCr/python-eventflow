@@ -101,6 +101,32 @@ class BenchmarkTests(unittest.TestCase):
         self.assertEqual([result["waiters"] for result in report["results"]], [8, 16])
         self.assertTrue(all(result["p50_seconds"] > 0 for result in report["results"]))
 
+    def test_rate_limiter_benchmark_reports_wait_and_cancellation_distributions(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "rate-limiter.json"
+            _run_benchmark(
+                "benchmarks.benchmark_rate_limiter",
+                "--workers",
+                "4",
+                "--acquisitions",
+                "2",
+                "--rate",
+                "10000",
+                "--repeats",
+                "1",
+                "--cancel-fraction",
+                "0.25",
+                "--output",
+                str(output),
+            )
+            report = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual(report["benchmark"], "keyed-rate-limiter-wait-fairness")
+        self.assertEqual(report["completed_acquisitions"], 6)
+        self.assertEqual(report["observed_cancel_fraction"], 0.25)
+        self.assertGreater(report["acquisition_wait_seconds"]["p99"], 0)
+        self.assertGreater(report["worker_completion_seconds"]["max_to_median_ratio"], 0)
+
     def test_publish_and_pipeline_reports_include_error_and_middleware_cases(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             callback_output = Path(temporary_directory) / "callbacks.json"

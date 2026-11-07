@@ -9,6 +9,8 @@ All notable changes to this project are documented in this file.
 - Add a worker-backed `KeyedCoalescer` benchmark for single and concurrent
   producers, merged updates, and concurrent flushes across configurable key
   counts, with repeated end-to-end timing samples.
+- Add a same-key `KeyedRateLimiter` benchmark that reports acquisition wait
+  distributions, worker completion spread, and observed waiter cancellations.
 
 ### Changed
 
@@ -43,6 +45,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Keep Python 3.10 rate-limiter acquisitions waiting after `asyncio.wait_for()`
+  reaches its token-refill timeout.
 - Ignore circuit-breaker outcomes from earlier generations after the circuit
   opens, recovers, or is reset.
 - Restore a callback subscription's final-call quota when automatic unsubscribe

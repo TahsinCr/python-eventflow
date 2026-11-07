@@ -444,7 +444,7 @@ class KeyedRateLimiter(Generic[K]):
                 entry.signals.add(changed)
                 try:
                     await asyncio.wait_for(changed.wait(), timeout=delay)
-                except TimeoutError:
+                except asyncio.TimeoutError:
                     pass
                 finally:
                     entry.signals.discard(changed)
