@@ -11,7 +11,6 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
-import eventflow
 from eventflow.bridges import AsyncEventQueue, LoopPortal
 from eventflow.cache import VersionedCache
 from eventflow.compatibility import ExceptionGroup
@@ -418,10 +417,6 @@ class PrimitiveTests(unittest.TestCase):
         self.assertFalse(cooldowns.is_blocked("expired"))
         self.assertTrue(cooldowns.is_blocked("active"))
         self.assertTrue(cooldowns.is_blocked("new"))
-
-    def test_all_new_exports_are_lazy_and_discoverable(self):
-        self.assertIn("AsyncEventQueue", eventflow.__all__)
-        self.assertIn("VersionedCache", dir(eventflow))
 
     def test_operation_observers_are_validated_at_construction(self):
         bus = EventBus[int]()

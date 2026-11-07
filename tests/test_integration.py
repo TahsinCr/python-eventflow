@@ -5,6 +5,7 @@ import unittest
 from dataclasses import replace
 from pathlib import Path
 
+import eventflow
 from eventflow import (
     AsyncEventBus,
     AsyncPipeline,
@@ -21,21 +22,25 @@ from eventflow import (
 
 
 class IntegrationTests(unittest.TestCase):
-    def test_package_import_keeps_execution_components_lazy(self):
-        source = (
-            "import sys, eventflow; "
-            "assert 'eventflow.pipeline' not in sys.modules; "
-            "assert 'eventflow.stream' not in sys.modules; "
-            "assert 'eventflow.context' not in sys.modules; "
-            "assert 'Pipeline' in dir(eventflow); "
-            "assert eventflow.Pipeline is eventflow.Pipeline; "
-            "assert 'eventflow.pipeline' in sys.modules"
-        )
+    def test_optional_exports_load_modules_on_first_access(self):
+        source = """
+import sys
+import eventflow
+
+modules = {f"eventflow{name}" for name in eventflow._OPTIONAL_EXPORTS.values()}
+assert not modules.intersection(sys.modules)
+loaded = set()
+for name, module in eventflow._OPTIONAL_EXPORTS.items():
+    full_name = f"eventflow{module}"
+    if full_name not in loaded:
+        assert name in dir(eventflow)
+        getattr(eventflow, name)
+        assert full_name in sys.modules
+        loaded.add(full_name)
+"""
         subprocess.run(
             [sys.executable, "-c", source], check=True, cwd=Path(__file__).resolve().parents[1]
         )
-        import eventflow
-
         with self.assertRaises(AttributeError):
             _ = eventflow.missing_export
 

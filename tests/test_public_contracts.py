@@ -1,6 +1,7 @@
 """Frozen public signatures and real decorator/context-manager contracts."""
 
 import ast
+from importlib import import_module
 import inspect
 import json
 import re
@@ -55,21 +56,29 @@ class PublicContractTests(unittest.TestCase):
                     f"{name}.{method}",
                 )
 
-    def test_coordination_modules_remain_lazy_on_package_import(self):
-        source = (
-            "import eventflow, sys; "
-            "assert not any(name in sys.modules for name in ("
-            "'eventflow.bridges', 'eventflow.cache', 'eventflow.concurrency', "
-            "'eventflow.executors', 'eventflow.policy', 'eventflow.registry', "
-            "'eventflow.resilience', 'eventflow.scheduling', 'eventflow.state', "
-            "'eventflow.tasks', 'eventflow.timing'))"
-        )
-        subprocess.run(
-            [sys.executable, "-c", source],
-            check=True,
-            capture_output=True,
-            timeout=10,
-        )
+    def test_public_exports_match_the_lazy_module_inventory(self):
+        exports = eventflow.__all__
+        optional_exports = eventflow._OPTIONAL_EXPORTS
+
+        self.assertEqual(len(exports), len(set(exports)))
+        self.assertTrue(set(exports).issubset(dir(eventflow)))
+        self.assertTrue(set(optional_exports).issubset(exports))
+
+        module_exports = {}
+        exports_by_module = {}
+        for name, module_name in optional_exports.items():
+            module = module_exports.get(module_name)
+            if module is None:
+                module = import_module(module_name, eventflow.__name__)
+                module_exports[module_name] = module
+            exports_by_module.setdefault(module_name, set()).add(name)
+
+        for module_name, module in module_exports.items():
+            module_public_exports = set(getattr(module, "__all__", ())) & set(exports)
+            self.assertEqual(module_public_exports, exports_by_module[module_name])
+
+        for name in exports:
+            self.assertIsNotNone(getattr(eventflow, name), name)
 
     def test_async_delivery_limit_is_keyword_only_and_opt_in(self):
         for item in (AsyncEventBus, AsyncEventEngine):
