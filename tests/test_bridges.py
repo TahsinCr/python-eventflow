@@ -7,10 +7,13 @@ import concurrent.futures
 import contextvars
 import threading
 import unittest
+from unittest.mock import patch
 
-from eventflow import EventBus
+from eventflow import ErrorPolicy, EventBus
 from eventflow.bridges import AsyncEventQueue, LoopPortal
+from eventflow.compatibility import ExceptionGroup
 from eventflow.errors import EventQueueClosedError, LoopPortalClosedError
+from eventflow.observability import OperationStats
 
 
 class ThreadBridgeTests(unittest.TestCase):
@@ -188,6 +191,22 @@ class ThreadBridgeTests(unittest.TestCase):
 
 
 class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_event_queue_wakes_waiter_when_observer_raises(self):
+        bus = EventBus[int](error_policy=ErrorPolicy.RAISE)
+        observer = OperationStats()
+        queue = AsyncEventQueue(bus, observer=observer)
+        consumer = asyncio.create_task(queue.receive())
+        await asyncio.sleep(0)
+
+        try:
+            with patch.object(observer, "record", side_effect=RuntimeError("observer")):
+                with self.assertRaises(ExceptionGroup):
+                    bus.publish(7)
+            self.assertEqual(await asyncio.wait_for(consumer, timeout=1), 7)
+        finally:
+            await queue.aclose()
+            bus.close()
+
     async def test_event_queue_rejects_second_consumer_and_other_loop(self):
         bus = EventBus[int]()
         queue = AsyncEventQueue(bus)

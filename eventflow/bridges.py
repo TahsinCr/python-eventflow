@@ -106,24 +106,27 @@ class AsyncEventQueue(Generic[T]):
             waiter, self._waiter = self._waiter, None
             loop = self._loop
             depth = len(self._events)
-        if self._observer is not None:
-            self._observer.record(
-                "event_queue.publish",
-                status="error" if overflow_error else "success",
-                dropped=dropped,
-                rejected=int(overflow_error),
-                queue_depth=depth,
-            )
+        try:
+            if self._observer is not None:
+                self._observer.record(
+                    "event_queue.publish",
+                    status="error" if overflow_error else "success",
+                    dropped=dropped,
+                    rejected=int(overflow_error),
+                    queue_depth=depth,
+                )
+        finally:
+            accepted = not overflow_error and not (dropped and self._overflow == "drop_newest")
+            if accepted and waiter is not None and loop is not None:
+                try:
+                    loop.call_soon_threadsafe(self._wake, waiter)
+                except RuntimeError:
+                    # A closing loop no longer has a consumer; accepted data stays queued.
+                    pass
         if overflow_error:
             raise QueueOverflowError("AsyncEventQueue capacity is full")
         if dropped and self._overflow == "drop_newest":
             return
-        if waiter is not None and loop is not None:
-            try:
-                loop.call_soon_threadsafe(self._wake, waiter)
-            except RuntimeError:
-                # A closing loop no longer has a consumer; accepted data stays queued.
-                pass
 
     @staticmethod
     def _wake(waiter: asyncio.Future[None]) -> None:

@@ -47,6 +47,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Wake waiting `AsyncEventQueue` consumers for accepted events even when
+  observer reporting raises.
 - Keep Python 3.10 rate-limiter acquisitions waiting after `asyncio.wait_for()`
   reaches its token-refill timeout.
 - Read `BoundedWorkPool` worker identities under the same lock used to update
