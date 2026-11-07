@@ -17,6 +17,35 @@ from eventflow.observability import OperationStats
 
 
 class ThreadBridgeTests(unittest.TestCase):
+    def test_loop_portal_recovers_after_thread_start_failure(self):
+        portal = LoopPortal()
+
+        with patch("threading.Thread.start", side_effect=RuntimeError("thread start failed")):
+            with self.assertRaisesRegex(RuntimeError, "thread start failed"):
+                portal.start()
+
+        self.assertIs(portal.start(), portal)
+        portal.close()
+
+    def test_loop_portal_releases_thread_after_loop_factory_failure(self):
+        portal = LoopPortal(name="eventflow-startup-failure")
+
+        with patch("asyncio.new_event_loop", side_effect=RuntimeError("loop creation failed")):
+            with self.assertRaises(LoopPortalClosedError) as start_error:
+                portal.start()
+            self.assertIsInstance(start_error.exception.__cause__, RuntimeError)
+
+            thread = portal._thread
+            assert thread is not None
+            with self.assertRaises(LoopPortalClosedError) as close_error:
+                portal.close()
+
+        self.assertIsInstance(close_error.exception.__cause__, RuntimeError)
+        self.assertFalse(thread.is_alive())
+        self.assertIsNone(portal._thread)
+        self.assertIsNone(portal._loop)
+        portal.close()
+
     def test_loop_portal_call_context_and_owned_task_shutdown(self):
         value = contextvars.ContextVar("portal-test", default="missing")
         portal = LoopPortal()

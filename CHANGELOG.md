@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Add focused `LoopPortal` tests for retrying a failed thread start and releasing
+  the loop thread after startup failure.
 - Run the full unit suite on Ubuntu with the GIL explicitly disabled on CPython
   3.14t and 3.15t, and verify the interpreter mode before testing.
 - Add a bridge benchmark for direct async calls, `LoopPortal` round-trips, and
