@@ -136,9 +136,9 @@ class BoundedWorkPool:
         """Reject new jobs and optionally wait for accepted work to finish."""
         if not isinstance(wait, bool) or not isinstance(cancel_futures, bool):
             raise TypeError("wait and cancel_futures must be bools")
-        if wait and threading.get_ident() in self._worker_ids:
-            raise RuntimeError("A BoundedWorkPool worker cannot wait for its own shutdown")
         with self._lock:
+            if wait and threading.get_ident() in self._worker_ids:
+                raise RuntimeError("A BoundedWorkPool worker cannot wait for its own shutdown")
             self._closed = True
         self._executor.shutdown(wait=wait, cancel_futures=cancel_futures)
 

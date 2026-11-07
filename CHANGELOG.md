@@ -47,6 +47,8 @@ All notable changes to this project are documented in this file.
 
 - Keep Python 3.10 rate-limiter acquisitions waiting after `asyncio.wait_for()`
   reaches its token-refill timeout.
+- Read `BoundedWorkPool` worker identities under the same lock used to update
+  them before checking for a self-waiting shutdown.
 - Ignore circuit-breaker outcomes from earlier generations after the circuit
   opens, recovers, or is reset.
 - Restore a callback subscription's final-call quota when automatic unsubscribe

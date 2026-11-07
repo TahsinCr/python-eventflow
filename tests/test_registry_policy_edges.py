@@ -248,6 +248,7 @@ class RegistryPolicyExecutorTests(unittest.TestCase):
         self_wait = pool.submit(pool.shutdown)
         with self.assertRaises(RuntimeError):
             self_wait.result(1)
+        self.assertFalse(pool.stats().closed)
         pool.shutdown()
         pool.shutdown()
         self.assertTrue(pool.stats().closed)
