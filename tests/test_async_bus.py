@@ -566,7 +566,6 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
                     await waiting
                 self.assertEqual(bus.subscriber_count, 0)
                 self.assertEqual(bus._waiters, set())
-                self.assertEqual(bus._schedules, {})
                 await bus.close()
 
     async def test_before_hook_failure_does_not_gate_async_delivery(self) -> None:

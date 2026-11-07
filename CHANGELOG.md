@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [v1.3.2] - 2026-11-08
+
 ### Added
 
 - Run the full suite on GIL-disabled CPython 3.14t and 3.15t on Windows and
@@ -22,6 +24,8 @@ All notable changes to this project are documented in this file.
   counts, with repeated end-to-end timing samples.
 - Add a same-key `KeyedRateLimiter` benchmark that reports acquisition wait
   distributions, worker completion spread, and observed waiter cancellations.
+- Add public contract coverage for the published lowercase string values of
+  `ErrorPolicy` and `DeliveryMode`.
 
 ### Changed
 
@@ -88,8 +92,6 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Preserve the published lowercase string values for `ErrorPolicy` and
-  `DeliveryMode`, keeping string-based configuration valid.
 - Keep short bridge benchmark smoke tests valid when CPU timers report zero by
   checking that the reported CPU metrics are finite and non-negative.
 - Run free-threaded GIL checks with a shell-independent Python command on

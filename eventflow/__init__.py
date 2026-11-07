@@ -3,7 +3,7 @@
 from importlib import import_module
 from typing import TYPE_CHECKING, Any
 
-__version__ = "1.3.1"
+__version__ = "1.3.2"
 
 from .actions import (
     AsyncEventBusActions,
