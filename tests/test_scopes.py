@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from eventflow import AsyncEventBus, EventBus
-from eventflow.scopes import AsyncSubscriptionScope, SubscriptionScope
+from eventflow.scopes import AsyncSubscriptionScope, ResourceScope, SubscriptionScope
 from eventflow.compatibility import ExceptionGroup
 from eventflow.subscription import AsyncSubscription
 
@@ -333,3 +333,31 @@ class AsyncScopeTests(unittest.IsolatedAsyncioTestCase):
         await scope.aclose()
         self.assertFalse(handle.active)
         self.assertEqual(attempts, 2)
+
+
+class ResourceScopeEdgeTests(unittest.TestCase):
+    def test_sync_scope_duplicate_borrowed_and_missing_detach(self):
+        calls = []
+
+        class Resource:
+            def close(self):
+                calls.append("closed")
+
+        resource = Resource()
+        scope = ResourceScope()
+        self.assertIs(scope.add(resource), resource)
+        scope.add(resource)
+        self.assertIs(scope.detach(resource), resource)
+        scope.add(resource)
+        scope.add(resource)
+        with self.assertRaises(KeyError):
+            scope.detach(object())
+        scope.close()
+        scope.close()
+        self.assertEqual(calls, ["closed"])
+        with self.assertRaises(RuntimeError):
+            scope.add(Resource())
+        with self.assertRaises(TypeError):
+            ResourceScope().add(Resource(), close="missing")
+        with self.assertRaises(TypeError):
+            ResourceScope().defer(object())
