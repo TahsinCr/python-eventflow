@@ -546,6 +546,29 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(bus._waiters, set())
         await bus.close()
 
+    async def test_async_wait_for_cleanup_when_clear_or_close_races_with_cancellation(
+        self,
+    ) -> None:
+        for close_bus in (False, True):
+            with self.subTest(close_bus=close_bus):
+                bus = AsyncEventBus[int]()
+                waiting = asyncio.create_task(bus.wait_for())
+                await asyncio.sleep(0)
+                self.assertEqual(bus.subscriber_count, 1)
+
+                if close_bus:
+                    await bus.close()
+                else:
+                    await bus.clear()
+                waiting.cancel()
+
+                with self.assertRaises(asyncio.CancelledError):
+                    await waiting
+                self.assertEqual(bus.subscriber_count, 0)
+                self.assertEqual(bus._waiters, set())
+                self.assertEqual(bus._schedules, {})
+                await bus.close()
+
     async def test_before_hook_failure_does_not_gate_async_delivery(self) -> None:
         delivered: list[int] = []
 
