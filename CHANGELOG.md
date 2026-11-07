@@ -17,6 +17,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Clarify that `KeyedCoalescer.stats().failures` counts delivery callback
+  failures, while `on_error` and observer errors are retained for `flush()` or
+  `close()` to report.
 - Complete an `AsyncEventQueue` waiter directly when synchronous publication
   runs on the queue's event-loop thread; publishers on other threads continue
   to use `call_soon_threadsafe()`. Across seven local runs, same-thread P50

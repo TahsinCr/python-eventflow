@@ -1271,6 +1271,9 @@ delivers pending values immediately; `close(flush=True)` flushes before
 stopping, while `flush=False` discards pending values. Callback failures are
 reported through `on_error` and `stats()`. Concurrent flush calls retain
 independent requests, so one caller's timeout cannot cancel another's flush.
+`stats().failures` counts delivery callback failures. Errors raised by `on_error`
+or the optional observer are retained for `flush()` or `close()` to report but
+do not increment that counter.
 The first `close()` call chooses the flush/discard policy; later calls can retry
 waiting for shutdown but do not change that choice. If `close(flush=False)`
 discards work during an active flush, that flush raises `RuntimeError`.
