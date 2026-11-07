@@ -1361,7 +1361,9 @@ daha eski yazmayı reddeder. TTL, tahliye veya kaldırma kaydın sürüm geçmi�
 siler; kayıt cache dışında kaldıktan sonra daha eski bir sürüm kabul edilebilir.
 Cache dışında monoton sürüm garantisi gerekiyorsa `VersionedValue` veya kalıcı
 durum kullanın. Cache yalnızca yerel süreçte geçerlidir; kalıcılık veya süreçler arası
-geçersizleştirme sağlamaz.
+geçersizleştirme sağlamaz. `get()` bulunmayan, süresi dolmuş veya sürümü uymayan
+kayıt için `None` döndürür; kayıtlı değer de `None` ise dönüş değerinden cache
+isabeti ile miss'i ayırt edemezsiniz.
 
 `ServiceRegistry`, boşlukları kırpılmış ve boş olmayan isimleri açıkça
 kaydedilmiş servislerle eşler. Cleanup callback'leri senkron olmalıdır. Her

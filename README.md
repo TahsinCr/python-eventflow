@@ -1343,7 +1343,9 @@ resident. Expiry, eviction and removal also discard the version history, so an
 older write can be accepted after the entry leaves the cache. Use
 `VersionedValue` or durable state when versions must remain monotonic beyond
 cache residency. The cache is process-local and does not provide persistence or
-cross-process invalidation.
+cross-process invalidation. `get()` returns `None` for a miss, expired or stale
+entry, and a stored `None` value; its return value alone cannot distinguish
+those cases.
 
 `ServiceRegistry` maps trimmed, non-empty names to explicitly registered
 services. Its cleanup callbacks must be synchronous. Every registration has an owner; `close_owner(owner)` closes that owner's

@@ -27,6 +27,8 @@ All notable changes to this project are documented in this file.
 
 - Clarify engine behavior when a channel is created after the shutdown snapshot
   while `stop()` is still closing its existing channels.
+- Document that `VersionedCache.get()` cannot distinguish a stored `None` from
+  an absent, expired, or stale entry.
 - Include the source revision, source-only working-tree status, a deterministic
   source fingerprint, and the interpreter's GIL mode in benchmark JSON reports.
   Comparison reports also identify the baseline source independently.
