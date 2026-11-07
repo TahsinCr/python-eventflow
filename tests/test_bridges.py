@@ -257,6 +257,26 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
             await queue.aclose()
             bus.close()
 
+    async def test_event_queue_recovers_when_publish_races_with_waiter_cancellation(self):
+        bus = EventBus[int]()
+        queue = AsyncEventQueue(bus)
+        consumer = asyncio.create_task(queue.receive())
+        await asyncio.sleep(0)
+        self.assertIsNotNone(queue._waiter)
+
+        publisher = threading.Thread(target=lambda: bus.publish(13))
+        try:
+            publisher.start()
+            publisher.join(timeout=1)
+            self.assertFalse(publisher.is_alive())
+            consumer.cancel()
+            with self.assertRaises(asyncio.CancelledError):
+                await consumer
+            self.assertEqual(await asyncio.wait_for(queue.receive(), timeout=1), 13)
+        finally:
+            await queue.aclose()
+            bus.close()
+
     async def test_event_queue_rejects_second_consumer_and_other_loop(self):
         bus = EventBus[int]()
         queue = AsyncEventQueue(bus)

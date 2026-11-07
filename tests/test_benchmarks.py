@@ -11,14 +11,20 @@ REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
 
 
 def _run_benchmark(module: str, *arguments: str, timeout: int = 20):
-    return subprocess.run(
+    result = subprocess.run(
         [sys.executable, "-m", module, *arguments],
         cwd=REPOSITORY_ROOT,
-        check=True,
+        check=False,
         capture_output=True,
         text=True,
         timeout=timeout,
     )
+    if result.returncode:
+        raise AssertionError(
+            f"{module} exited with {result.returncode}\n"
+            f"stdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+        )
+    return result
 
 
 class BenchmarkTests(unittest.TestCase):
@@ -135,7 +141,7 @@ class BenchmarkTests(unittest.TestCase):
                 "--acquisitions",
                 "2",
                 "--rate",
-                "10000",
+                "2",
                 "--repeats",
                 "1",
                 "--cancel-fraction",

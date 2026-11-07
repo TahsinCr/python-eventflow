@@ -759,29 +759,37 @@ class EventBusTests(unittest.TestCase):
     def test_wait_for_receives_matching_event_and_close_wakes_waiter(self) -> None:
         bus = EventBus[int]()
         result: list[int | None] = []
+        registered = threading.Event()
+        original_subscribe = bus.subscribe
+
+        def subscribe(*args, **kwargs):
+            subscription = original_subscribe(*args, **kwargs)
+            registered.set()
+            return subscription
 
         waiter = threading.Thread(
             target=lambda: result.append(
-                bus.wait_for(predicate=lambda value: value == 7, timeout=1.0)
+                bus.wait_for(predicate=lambda value: value == 7, timeout=5.0)
             )
         )
-        waiter.start()
-        with bus._condition:
-            self.assertTrue(bus._condition.wait_for(lambda: bus.subscriber_count > 0, timeout=1.0))
-        bus.publish(6)
-        bus.publish(7)
-        waiter.join(timeout=1.0)
+        with patch.object(bus, "subscribe", side_effect=subscribe):
+            waiter.start()
+            self.assertTrue(registered.wait(5.0))
+            bus.publish(6)
+            bus.publish(7)
+        waiter.join(timeout=5.0)
         self.assertEqual(result, [7])
 
         closed_result: list[int | None] = []
+        registered.clear()
         closed_waiter = threading.Thread(
             target=lambda: closed_result.append(bus.wait_for(timeout=5.0))
         )
-        closed_waiter.start()
-        with bus._condition:
-            self.assertTrue(bus._condition.wait_for(lambda: bus.subscriber_count > 0, timeout=1.0))
-        bus.close()
-        closed_waiter.join(timeout=1.0)
+        with patch.object(bus, "subscribe", side_effect=subscribe):
+            closed_waiter.start()
+            self.assertTrue(registered.wait(5.0))
+            bus.close()
+        closed_waiter.join(timeout=5.0)
         self.assertEqual(closed_result, [None])
         with self.assertRaises(EventBusClosedError):
             bus.publish(8)

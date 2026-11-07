@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Run the full unit suite on Ubuntu with the GIL explicitly disabled on CPython
+  3.14t and 3.15t, and verify the interpreter mode before testing.
 - Add a bridge benchmark for direct async calls, `LoopPortal` round-trips, and
   separately labeled same-thread and cross-thread waiting-consumer round-trips
   using the shared measurement harness.
@@ -65,6 +67,11 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Keep the rate-limiter benchmark smoke test stable on slower runners by
+  allowing all workers to queue before the first refill, and include captured
+  benchmark output when a subprocess fails.
+- Synchronize the synchronous `EventBus.wait_for()` test on subscription
+  registration instead of waiting on a condition that receives no notification.
 - Preserve upstream `AsyncStream.__anext__()` overrides in fused `map()` and
   `filter()` chains by using the direct root-iterator path only when no override
   is present.
