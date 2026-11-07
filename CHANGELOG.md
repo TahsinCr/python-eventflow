@@ -51,6 +51,8 @@ All notable changes to this project are documented in this file.
   observer reporting raises.
 - Keep `KeyedCoalescer` workers alive after observer failures, finish accepted
   deliveries, and surface reporting errors through `flush()` or `close()`.
+- Reject `BoundedWorkPool.shutdown(wait=True)` from completion callbacks running
+  on the pool's worker threads.
 - Keep Python 3.10 rate-limiter acquisitions waiting after `asyncio.wait_for()`
   reaches its token-refill timeout.
 - Read `BoundedWorkPool` worker identities under the same lock used to update

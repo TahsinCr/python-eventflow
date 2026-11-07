@@ -55,7 +55,8 @@ class BoundedWorkPool:
         self._completed = 0
         self._rejected = 0
         self._closed = False
-        self._worker_ids: set[int] = set()
+        # Future callbacks may run on the worker after the submitted call returns.
+        self._worker_threads: set[threading.Thread] = set()
 
     def submit(self, operation: Callable[..., T], /, *args: Any, **kwargs: Any) -> Future[T]:
         """Submit work immediately or raise when all accepted slots are occupied."""
@@ -79,12 +80,8 @@ class BoundedWorkPool:
                         started = True
                         self._pending -= 1
                         self._running += 1
-                        self._worker_ids.add(threading.get_ident())
-                    try:
-                        return synchronous_result(operation(*args, **kwargs))
-                    finally:
-                        with self._lock:
-                            self._worker_ids.discard(threading.get_ident())
+                        self._worker_threads.add(threading.current_thread())
+                    return synchronous_result(operation(*args, **kwargs))
 
                 try:
                     future = self._executor.submit(run)
@@ -137,7 +134,7 @@ class BoundedWorkPool:
         if not isinstance(wait, bool) or not isinstance(cancel_futures, bool):
             raise TypeError("wait and cancel_futures must be bools")
         with self._lock:
-            if wait and threading.get_ident() in self._worker_ids:
+            if wait and threading.current_thread() in self._worker_threads:
                 raise RuntimeError("A BoundedWorkPool worker cannot wait for its own shutdown")
             self._closed = True
         self._executor.shutdown(wait=wait, cancel_futures=cancel_futures)

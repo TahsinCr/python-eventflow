@@ -254,3 +254,39 @@ class RegistryPolicyExecutorTests(unittest.TestCase):
         self.assertTrue(pool.stats().closed)
         with self.assertRaises(RuntimeError):
             pool.submit(lambda: 1)
+
+    def test_work_pool_done_callback_rejects_waiting_for_its_own_shutdown(self):
+        pool = BoundedWorkPool(max_workers=1, max_pending=0)
+        started = threading.Event()
+        release = threading.Event()
+        callback_done = threading.Event()
+        errors = []
+
+        def work():
+            started.set()
+            release.wait(1)
+            return 1
+
+        future = pool.submit(work)
+        self.assertTrue(started.wait(1))
+
+        def shutdown_from_callback(_future):
+            try:
+                pool.shutdown(wait=True)
+            except RuntimeError as error:
+                errors.append(error)
+            finally:
+                callback_done.set()
+
+        future.add_done_callback(shutdown_from_callback)
+        release.set()
+        try:
+            self.assertEqual(future.result(timeout=1), 1)
+            self.assertTrue(callback_done.wait(1))
+            self.assertEqual(len(errors), 1)
+            self.assertEqual(
+                str(errors[0]), "A BoundedWorkPool worker cannot wait for its own shutdown"
+            )
+            self.assertFalse(pool.stats().closed)
+        finally:
+            pool.shutdown(wait=True)
