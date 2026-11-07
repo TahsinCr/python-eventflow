@@ -8,6 +8,9 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from concurrent.futures import Future
+from queue import Queue
+from threading import Thread
 
 from eventflow import EventBus
 from eventflow.bridges import AsyncEventQueue, LoopPortal
@@ -47,9 +50,54 @@ async def _run(iterations: int, output: str | None) -> None:
 
             results.append(
                 await measure_async(
-                    "sync-bus-to-async-queue-roundtrip", publish_and_receive, iterations
+                    "same-thread-sync-bus-to-async-queue", publish_and_receive, iterations
                 )
             )
+
+            requests: Queue[tuple[int, Future[None]] | None] = Queue()
+
+            def publish_from_thread() -> None:
+                while (request := requests.get()) is not None:
+                    event, completed = request
+                    try:
+                        bus.publish(event)
+                    except BaseException as error:
+                        completed.set_exception(error)
+                    else:
+                        completed.set_result(None)
+
+            producer = Thread(
+                target=publish_from_thread,
+                name="EventFlowBridgeBenchmark",
+                daemon=True,
+            )
+            producer.start()
+
+            async def publish_from_thread_and_receive() -> int:
+                nonlocal sequence
+                event = sequence
+                sequence += 1
+                completed: Future[None] = Future()
+                asyncio.get_running_loop().call_soon(requests.put, (event, completed))
+                received = await queue.receive()
+                await asyncio.wrap_future(completed)
+                if received != event:
+                    raise RuntimeError("bridge benchmark received an unexpected event")
+                return received
+
+            try:
+                results.append(
+                    await measure_async(
+                        "cross-thread-sync-bus-to-async-queue",
+                        publish_from_thread_and_receive,
+                        iterations,
+                    )
+                )
+            finally:
+                requests.put(None)
+                producer.join(timeout=2)
+                if producer.is_alive():
+                    raise RuntimeError("bridge benchmark producer did not stop")
 
     report(results, output)
 

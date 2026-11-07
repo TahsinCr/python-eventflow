@@ -22,7 +22,7 @@ def _run_benchmark(module: str, *arguments: str, timeout: int = 20):
 
 
 class BenchmarkTests(unittest.TestCase):
-    def test_bridge_benchmark_reports_direct_portal_and_queue_roundtrips(self) -> None:
+    def test_bridge_benchmark_reports_same_and_cross_thread_queue_roundtrips(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             output = Path(temporary_directory) / "bridges.json"
             _run_benchmark(
@@ -40,7 +40,8 @@ class BenchmarkTests(unittest.TestCase):
             {
                 "async-direct-await",
                 "loop-portal-roundtrip",
-                "sync-bus-to-async-queue-roundtrip",
+                "same-thread-sync-bus-to-async-queue",
+                "cross-thread-sync-bus-to-async-queue",
             },
         )
         self.assertTrue(all(result["ops_per_second"] > 0 for result in by_case.values()))
