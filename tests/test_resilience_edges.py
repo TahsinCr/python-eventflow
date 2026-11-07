@@ -3,7 +3,9 @@
 from __future__ import annotations
 
 import asyncio
+import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 
 from _support import ManualClock
 
@@ -14,6 +16,44 @@ from eventflow.timing import Deadline
 
 
 class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
+    def test_circuit_breaker_reset_ignores_in_flight_results(self):
+        for outcome in ("success", "failure"):
+            with self.subTest(outcome=outcome):
+                started = threading.Event()
+                release = threading.Event()
+                breaker = CircuitBreaker(failure_threshold=2)
+
+                def stale_operation():
+                    started.set()
+                    if not release.wait(timeout=1):
+                        raise TimeoutError("stale operation was not released")
+                    if outcome == "failure":
+                        raise OSError("stale failure")
+                    return "stale success"
+
+                def current_failure():
+                    raise OSError("current failure")
+
+                with ThreadPoolExecutor(max_workers=1) as workers:
+                    stale_call = workers.submit(breaker.call, stale_operation)
+                    try:
+                        self.assertTrue(started.wait(timeout=1))
+                        breaker.reset()
+                        with self.assertRaisesRegex(OSError, "current failure"):
+                            breaker.call(current_failure)
+                        self.assertEqual(breaker.stats().failures, 1)
+                    finally:
+                        release.set()
+
+                    if outcome == "failure":
+                        with self.assertRaisesRegex(OSError, "stale failure"):
+                            stale_call.result(timeout=1)
+                    else:
+                        self.assertEqual(stale_call.result(timeout=1), "stale success")
+
+                self.assertEqual(breaker.state, "closed")
+                self.assertEqual(breaker.stats().failures, 1)
+
     async def test_cooldown_sync_and_async_wait_timeout_and_pruning(self):
         cooldowns = CooldownRegistry()
         cooldowns.block("sync", 0.02)
