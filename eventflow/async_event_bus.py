@@ -9,6 +9,7 @@ from concurrent.futures import Future
 from dataclasses import dataclass, field as dataclass_field
 from typing import Generic, TypeVar, cast
 
+from ._callbacks import is_async_callable
 from .actions import AsyncEventBusActions, EventErrorContext, EventTimeoutContext
 from .base import (
     BaseEventBus,
@@ -114,7 +115,7 @@ class AsyncEventBus(BaseEventBus[T]):
             self._actions.on_error,
             self._actions.on_timeout,
         ):
-            if action is not None and not self._is_async_handler(action):
+            if action is not None and not is_async_callable(action):
                 raise InvalidEventHandlerError("AsyncEventBus actions must be async")
         self._delivery_mode = DeliveryMode(delivery_mode)
         self._max_concurrency = (
@@ -173,7 +174,7 @@ class AsyncEventBus(BaseEventBus[T]):
         replay: int = 0,
     ) -> AsyncSubscription:
         self._bind_loop()
-        if not callable(callback) or not self._is_async_handler(callback):
+        if not is_async_callable(callback):
             raise InvalidEventHandlerError("AsyncEventBus accepts async handlers only")
         replay = validate_nonnegative_count(replay, name="Replay count")
         delivery_limit = self._delivery_limit(once=once, times=times)

@@ -11,7 +11,7 @@ from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass, field
 from typing import Generic, TypeVar
 
-from ._callbacks import synchronous_result
+from ._callbacks import is_async_callable, synchronous_result
 from .actions import EventBusActions, EventErrorContext, EventTimeoutContext
 from .base import (
     BaseEventBus,
@@ -140,7 +140,7 @@ class EventBus(BaseEventBus[T]):
             self._actions.on_error,
             self._actions.on_timeout,
         ):
-            if action is not None and self._is_async_handler(action):
+            if action is not None and is_async_callable(action):
                 raise InvalidEventHandlerError("EventBus actions must be synchronous")
         self._executor = _validate_executor(executor)
         self._replay_buffer_limit = replay_buffer_limit
@@ -182,7 +182,7 @@ class EventBus(BaseEventBus[T]):
     ) -> Subscription:
         if not callable(callback):
             raise InvalidEventHandlerError("Event handler must be callable")
-        if self._is_async_handler(callback):
+        if is_async_callable(callback):
             raise InvalidEventHandlerError(
                 "EventBus accepts synchronous handlers; use AsyncEventBus"
             )

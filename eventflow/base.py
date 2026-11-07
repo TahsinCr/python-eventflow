@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import inspect
 import math
 import threading
 import weakref
@@ -181,9 +180,3 @@ class BaseEventBus(Generic[T], ABC):
         if event_filter is None and event_type is None and predicate is None:
             return self._history.query(limit=limit)
         return self._history.query(normalized_filter, limit=limit)
-
-    @staticmethod
-    def _is_async_handler(handler: Any) -> bool:
-        if inspect.iscoroutinefunction(handler):
-            return True
-        return callable(handler) and inspect.iscoroutinefunction(type(handler).__call__)
