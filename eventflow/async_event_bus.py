@@ -6,26 +6,26 @@ import asyncio
 from collections import deque
 from collections.abc import Awaitable, Callable
 from concurrent.futures import Future
-from dataclasses import dataclass, field as dataclass_field
+from dataclasses import dataclass
+from dataclasses import field as dataclass_field
 from typing import Generic, TypeVar, cast
 
 from ._callbacks import is_async_callable
+from ._lifecycle import create_task_safely, finish_cleanup
 from .actions import AsyncEventBusActions, EventErrorContext, EventTimeoutContext
 from .base import (
     BaseEventBus,
     normalize_replay_capacity,
-    validate_nonnegative_count,
     validate_finite_duration,
+    validate_nonnegative_count,
     validate_positive_capacity,
 )
-from .contracts import DeliveryMode, ErrorPolicy, EventBusStats, PublishResult
 from .compatibility import ExceptionGroup
+from .contracts import DeliveryMode, ErrorPolicy, EventBusStats, PublishResult
 from .errors import EventBusError, InvalidEventHandlerError
 from .filtering import EventFilter, EventType, coerce_event_filter
 from .history import EventHistory
-from ._lifecycle import create_task_safely, finish_cleanup
 from .subscription import AsyncSubscription
-
 
 T = TypeVar("T")
 
@@ -669,7 +669,7 @@ class AsyncEventBus(BaseEventBus[T]):
                 return_exceptions=True,
             )
 
-    async def __aenter__(self) -> "AsyncEventBus[T]":
+    async def __aenter__(self) -> AsyncEventBus[T]:
         self._bind_loop()
         self._ensure_open()
         return self

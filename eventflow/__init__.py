@@ -33,7 +33,19 @@ from .history import EventHistory, MemoryEventHistory
 from .subscription import AsyncSubscription, Subscription
 
 if TYPE_CHECKING:
+    from .bridges import AsyncEventQueue, AsyncEventQueueStats, LoopPortal
+    from .cache import CacheStats, VersionedCache
+    from .concurrency import (
+        KeyedConcurrencyKeyStats,
+        KeyedConcurrencyLimiter,
+        KeyedConcurrencyStats,
+        KeyedRateLimiter,
+        KeyedRateStats,
+        SingleFlight,
+        SingleFlightStats,
+    )
     from .context import EventEnvelope, correlation_context, current_correlation_id
+    from .executors import BoundedWorkPool, WorkPoolStats
     from .observability import (
         ExecutionMetrics,
         OperationMetrics,
@@ -45,27 +57,6 @@ if TYPE_CHECKING:
         PipelineStatsSnapshot,
     )
     from .pipeline import AsyncPipeline, Pipeline, PipelineExecutionError
-    from .scopes import (
-        AsyncCancelHandle,
-        AsyncResourceScope,
-        AsyncSubscriptionScope,
-        CancelHandle,
-        ResourceScope,
-        SubscriptionScope,
-    )
-    from .stream import AsyncStream
-    from .bridges import AsyncEventQueue, AsyncEventQueueStats, LoopPortal
-    from .cache import CacheStats, VersionedCache
-    from .concurrency import (
-        KeyedConcurrencyLimiter,
-        KeyedConcurrencyKeyStats,
-        KeyedConcurrencyStats,
-        KeyedRateLimiter,
-        KeyedRateStats,
-        SingleFlight,
-        SingleFlightStats,
-    )
-    from .executors import BoundedWorkPool, WorkPoolStats
     from .policy import PolicyDecision, PolicyEvaluator
     from .registry import RegistryChange, ServiceRegistry
     from .resilience import (
@@ -83,6 +74,14 @@ if TYPE_CHECKING:
         ScheduledHandle,
         SchedulerStats,
     )
+    from .scopes import (
+        AsyncCancelHandle,
+        AsyncResourceScope,
+        AsyncSubscriptionScope,
+        CancelHandle,
+        ResourceScope,
+        SubscriptionScope,
+    )
     from .state import (
         StateMachine,
         StateSnapshot,
@@ -90,6 +89,7 @@ if TYPE_CHECKING:
         VersionedSnapshot,
         VersionedValue,
     )
+    from .stream import AsyncStream
     from .tasks import (
         AsyncTaskScope,
         LatestTaskCoordinator,

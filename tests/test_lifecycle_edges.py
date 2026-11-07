@@ -7,11 +7,12 @@ import threading
 import unittest
 from unittest.mock import patch
 
+from _support import _AsyncValueMixin
+
 from eventflow.compatibility import ExceptionGroup
 from eventflow.observability import OperationStats
 from eventflow.scopes import AsyncResourceScope
 from eventflow.tasks import AsyncTaskScope, LatestTaskCoordinator
-from _support import _AsyncValueMixin
 
 
 class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase, _AsyncValueMixin):

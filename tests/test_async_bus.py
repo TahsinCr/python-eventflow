@@ -7,24 +7,24 @@ import unittest
 from typing import cast
 from unittest.mock import patch
 
+from _support import _FailingAppendHistory, _FailingQueryHistory, _RecordingQueryHistory
+
 from eventflow import (
-    AsyncEventEngine,
     AsyncEventBus,
     AsyncEventBusActions,
+    AsyncEventEngine,
     DeliveryMode,
     ErrorPolicy,
     EventBusClosedError,
     EventBusError,
-    EventFilter,
     EventErrorContext,
+    EventFilter,
     EventTimeoutContext,
     InvalidEventHandlerError,
     MemoryEventHistory,
     PublishResult,
 )
 from eventflow.compatibility import ExceptionGroup
-
-from _support import _FailingAppendHistory, _FailingQueryHistory, _RecordingQueryHistory
 
 
 class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):

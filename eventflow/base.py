@@ -14,7 +14,6 @@ from .errors import EventBusClosedError
 from .filtering import EventFilter, EventType, coerce_event_filter
 from .history import EventHistory, MemoryEventHistory, _validate_query_limit
 
-
 T = TypeVar("T")
 
 

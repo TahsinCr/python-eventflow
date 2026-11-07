@@ -3,9 +3,9 @@
 from __future__ import annotations
 
 from collections.abc import Iterator, Mapping
-from copy import deepcopy
 from contextlib import contextmanager
 from contextvars import ContextVar
+from copy import deepcopy
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from types import MappingProxyType

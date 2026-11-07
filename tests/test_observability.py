@@ -3,9 +3,9 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from eventflow.pipeline import AsyncPipeline, Pipeline, PipelineExecutionError
-from eventflow.observability import PipelineObservation, PipelineStats
 from eventflow.context import correlation_context
+from eventflow.observability import PipelineObservation, PipelineStats
+from eventflow.pipeline import AsyncPipeline, Pipeline, PipelineExecutionError
 
 
 class ObservabilityTests(unittest.TestCase):

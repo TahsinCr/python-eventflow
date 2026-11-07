@@ -1,13 +1,13 @@
 """Frozen public signatures and real decorator/context-manager contracts."""
 
 import ast
-from importlib import import_module
 import inspect
 import json
 import re
 import subprocess
 import sys
 import unittest
+from importlib import import_module
 from pathlib import Path
 
 import eventflow

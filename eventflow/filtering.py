@@ -7,7 +7,6 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any, Generic, TypeVar
 
-
 T = TypeVar("T")
 EventType = type[Any] | tuple[type[Any], ...]
 

@@ -13,10 +13,10 @@ from dataclasses import dataclass
 from typing import Any, Generic, Literal, TypeVar, cast
 
 from ._callbacks import close_awaitable
+from ._lifecycle import bind_running_loop
 from .base import validate_nonnegative_timeout, validate_positive_capacity
 from .errors import EventQueueClosedError, LoopPortalClosedError, QueueOverflowError
 from .event_bus import EventBus
-from ._lifecycle import bind_running_loop
 from .observability import OperationStats, _require_operation_stats
 from .subscription import Subscription
 

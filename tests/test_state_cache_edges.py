@@ -4,10 +4,11 @@ from __future__ import annotations
 
 import unittest
 
+from _support import ManualClock
+
 from eventflow.cache import VersionedCache
 from eventflow.state import StateMachine, StateTransitionError, VersionedValue
 from eventflow.timing import Deadline
-from _support import ManualClock
 
 
 class TimingStateCacheTests(unittest.TestCase):

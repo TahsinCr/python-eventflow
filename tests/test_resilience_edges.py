@@ -5,11 +5,12 @@ from __future__ import annotations
 import asyncio
 import unittest
 
+from _support import ManualClock
+
 from eventflow.compatibility import ExceptionGroup
 from eventflow.errors import CircuitOpenError
 from eventflow.resilience import CircuitBreaker, CooldownRegistry, RetryPolicy
 from eventflow.timing import Deadline
-from _support import ManualClock
 
 
 class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):

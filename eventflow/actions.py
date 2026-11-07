@@ -9,7 +9,6 @@ from typing import Generic, TypeVar
 from .contracts import PublishResult
 from .filtering import EventFilter
 
-
 T = TypeVar("T")
 
 

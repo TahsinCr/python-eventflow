@@ -5,9 +5,9 @@ from __future__ import annotations
 import asyncio
 import inspect
 import threading
-from collections.abc import Awaitable
+from collections.abc import Awaitable, Callable
 from dataclasses import dataclass
-from typing import Callable, Protocol, TypeVar
+from typing import Protocol, TypeVar
 
 from ._callbacks import is_async_callable, synchronous_result
 from ._lifecycle import (

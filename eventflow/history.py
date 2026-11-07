@@ -10,7 +10,6 @@ from typing import Generic, TypeVar
 
 from .filtering import EventFilter
 
-
 T = TypeVar("T")
 
 

@@ -6,8 +6,9 @@ import asyncio
 import unittest
 from unittest.mock import patch
 
-from eventflow.concurrency import KeyedConcurrencyLimiter, KeyedRateLimiter, SingleFlight
 from _support import _AsyncValueMixin
+
+from eventflow.concurrency import KeyedConcurrencyLimiter, KeyedRateLimiter, SingleFlight
 
 
 class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase, _AsyncValueMixin):

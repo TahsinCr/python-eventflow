@@ -59,7 +59,7 @@ class Subscription:
             self._cancel_condition.notify_all()
         return True
 
-    def __enter__(self) -> "Subscription":
+    def __enter__(self) -> Subscription:
         return self
 
     def __exit__(self, *_args: object) -> None:
@@ -124,7 +124,7 @@ class AsyncSubscription:
         completion.set_result(None)
         return True
 
-    async def __aenter__(self) -> "AsyncSubscription":
+    async def __aenter__(self) -> AsyncSubscription:
         return self
 
     async def __aexit__(self, *_args: object) -> None:

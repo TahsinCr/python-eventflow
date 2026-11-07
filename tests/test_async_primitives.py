@@ -7,6 +7,9 @@ import threading
 import unittest
 from unittest.mock import patch
 
+from _support import ManualClock
+
+from eventflow import ErrorPolicy, EventBus
 from eventflow.bridges import AsyncEventQueue
 from eventflow.compatibility import ExceptionGroup
 from eventflow.concurrency import KeyedConcurrencyLimiter, KeyedRateLimiter, SingleFlight
@@ -17,8 +20,6 @@ from eventflow.scheduling import AsyncScheduler
 from eventflow.scopes import AsyncResourceScope
 from eventflow.stream import AsyncStream
 from eventflow.tasks import AsyncTaskScope, LatestTaskCoordinator
-from eventflow import EventBus, ErrorPolicy
-from _support import ManualClock
 
 
 class AsyncPrimitiveTests(unittest.IsolatedAsyncioTestCase):

@@ -16,17 +16,16 @@ from .actions import EventBusActions, EventErrorContext, EventTimeoutContext
 from .base import (
     BaseEventBus,
     normalize_replay_capacity,
-    validate_nonnegative_count,
     validate_finite_duration,
+    validate_nonnegative_count,
     validate_positive_capacity,
 )
-from .contracts import ErrorPolicy, EventBusStats, PublishResult
 from .compatibility import ExceptionGroup
+from .contracts import ErrorPolicy, EventBusStats, PublishResult
 from .errors import EventBusError, EventShutdownTimeoutError, InvalidEventHandlerError
 from .filtering import EventFilter, EventType, coerce_event_filter
 from .history import EventHistory
 from .subscription import Subscription
-
 
 T = TypeVar("T")
 _executor_context = threading.local()
@@ -630,7 +629,7 @@ class EventBus(BaseEventBus[T]):
     def __len__(self) -> int:
         return self.subscriber_count
 
-    def __enter__(self) -> "EventBus[T]":
+    def __enter__(self) -> EventBus[T]:
         self._ensure_open()
         return self
 

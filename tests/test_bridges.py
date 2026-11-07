@@ -8,9 +8,9 @@ import contextvars
 import threading
 import unittest
 
+from eventflow import EventBus
 from eventflow.bridges import AsyncEventQueue, LoopPortal
 from eventflow.errors import EventQueueClosedError, LoopPortalClosedError
-from eventflow import EventBus
 
 
 class ThreadBridgeTests(unittest.TestCase):

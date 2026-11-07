@@ -5,8 +5,8 @@ import asyncio
 from collections.abc import Awaitable, Callable
 from functools import partial
 
-from eventflow.pipeline import AsyncPipeline, Pipeline
 from eventflow.observability import PipelineStats
+from eventflow.pipeline import AsyncPipeline, Pipeline
 
 from ._measure import measure, measure_async, report
 

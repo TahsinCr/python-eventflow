@@ -3,9 +3,10 @@
 from __future__ import annotations
 
 import threading
+from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Any, Callable, TypeVar
+from typing import Any, TypeVar
 
 from ._callbacks import is_async_callable, synchronous_result
 from .base import validate_positive_capacity

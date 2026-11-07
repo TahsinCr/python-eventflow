@@ -297,7 +297,7 @@ class EventEngine:
 
     close = stop
 
-    def __enter__(self) -> "EventEngine":
+    def __enter__(self) -> EventEngine:
         return self
 
     def __exit__(self, *_args: object) -> None:
@@ -488,7 +488,7 @@ class AsyncEventEngine:
 
     close = stop
 
-    async def __aenter__(self) -> "AsyncEventEngine":
+    async def __aenter__(self) -> AsyncEventEngine:
         return self
 
     async def __aexit__(self, *_args: object) -> None:

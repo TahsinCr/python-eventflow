@@ -5,6 +5,9 @@ from __future__ import annotations
 import threading
 import unittest
 
+from _support import ManualClock
+
+from eventflow import EventBus
 from eventflow.bridges import AsyncEventQueue
 from eventflow.cache import VersionedCache
 from eventflow.compatibility import ExceptionGroup
@@ -19,8 +22,6 @@ from eventflow.scopes import ResourceScope
 from eventflow.state import StateMachine, StateTransitionError, VersionedValue
 from eventflow.tasks import AsyncTaskScope
 from eventflow.timing import Deadline
-from eventflow import EventBus
-from _support import ManualClock
 
 
 class PrimitiveTests(unittest.TestCase):

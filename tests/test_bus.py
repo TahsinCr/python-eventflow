@@ -13,6 +13,8 @@ from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import cast
 from unittest.mock import patch
 
+from _support import _FailingAppendHistory, _FailingQueryHistory, _RecordingQueryHistory
+
 from eventflow import (
     AsyncEventBus,
     AsyncEventBusActions,
@@ -20,19 +22,17 @@ from eventflow import (
     ErrorPolicy,
     EventBus,
     EventBusActions,
-    EventEngine,
     EventBusClosedError,
     EventBusError,
-    EventFilter,
+    EventEngine,
     EventErrorContext,
+    EventFilter,
     EventTimeoutContext,
     InvalidEventHandlerError,
     MemoryEventHistory,
     PublishResult,
 )
 from eventflow.compatibility import ExceptionGroup
-
-from _support import _FailingAppendHistory, _FailingQueryHistory, _RecordingQueryHistory
 
 
 class EventBusTests(unittest.TestCase):

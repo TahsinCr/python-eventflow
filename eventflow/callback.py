@@ -5,17 +5,17 @@ from __future__ import annotations
 import asyncio
 import inspect
 import math
+import sys
 import threading
 import time
-import sys
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
 from ._callbacks import synchronous_result
+from ._lifecycle import ensure_future_safely, finish_cleanup
 from .compatibility import ExceptionGroup
 from .errors import CallbackTimeoutError
-from ._lifecycle import ensure_future_safely, finish_cleanup
 from .subscription import Subscription
 
 
