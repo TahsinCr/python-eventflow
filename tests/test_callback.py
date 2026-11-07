@@ -126,6 +126,31 @@ class CallbackTests(unittest.TestCase):
 
 
 class AsyncCallbackTests(unittest.IsolatedAsyncioTestCase):
+    async def test_async_failed_final_cancellation_restores_callback_quota(self):
+        calls = []
+        cancellations = 0
+
+        def cancel():
+            nonlocal cancellations
+            cancellations += 1
+            if cancellations == 1:
+                raise RuntimeError("unsubscribe failed")
+
+        async def callback(event):
+            calls.append(event)
+
+        subscription = CallbackSubscription(
+            1, cancel, callback, asynchronous=True, max_calls=1
+        )
+        with self.assertRaisesRegex(RuntimeError, "unsubscribe failed"):
+            await subscription.invoke_async("rejected")
+
+        self.assertTrue(subscription.active)
+        await subscription.invoke_async("accepted")
+        self.assertFalse(subscription.active)
+        self.assertEqual(calls, ["accepted"])
+        self.assertEqual(cancellations, 2)
+
     async def test_async_success_and_after_errors_are_preserved(self):
         from eventflow.compatibility import ExceptionGroup
 
