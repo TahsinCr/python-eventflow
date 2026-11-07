@@ -8,12 +8,14 @@ from __future__ import annotations
 
 import argparse
 import asyncio
+from collections import deque
 from concurrent.futures import Future
 from queue import Queue
 from threading import Thread
 
 from eventflow import EventBus
 from eventflow.bridges import AsyncEventQueue, LoopPortal
+from eventflow.errors import EventQueueClosedError
 
 from ._measure import measure, measure_async, report
 
@@ -37,20 +39,41 @@ async def _run(iterations: int, output: str | None) -> None:
     with EventBus[int]() as bus:
         queue = AsyncEventQueue(bus, capacity=1)
         async with queue:
+            loop = asyncio.get_running_loop()
+            acknowledgements: deque[asyncio.Future[int]] = deque()
+            consumer_ready = asyncio.Event()
+
+            async def consume_waiting_events() -> None:
+                consumer_ready.set()
+                try:
+                    while True:
+                        received = await queue.receive()
+                        acknowledgement = acknowledgements.popleft()
+                        if not acknowledgement.done():
+                            acknowledgement.set_result(received)
+                except EventQueueClosedError:
+                    return
+
+            consumer = asyncio.create_task(consume_waiting_events())
+            await consumer_ready.wait()
 
             async def publish_and_receive() -> int:
                 nonlocal sequence
                 event = sequence
                 sequence += 1
+                acknowledgement = loop.create_future()
+                acknowledgements.append(acknowledgement)
                 bus.publish(event)
-                received = await queue.receive()
+                received = await acknowledgement
                 if received != event:
                     raise RuntimeError("bridge benchmark received an unexpected event")
                 return received
 
             results.append(
                 await measure_async(
-                    "same-thread-sync-bus-to-async-queue", publish_and_receive, iterations
+                    "same-thread-waiting-consumer-roundtrip",
+                    publish_and_receive,
+                    iterations,
                 )
             )
 
@@ -77,10 +100,12 @@ async def _run(iterations: int, output: str | None) -> None:
                 nonlocal sequence
                 event = sequence
                 sequence += 1
+                acknowledgement = loop.create_future()
+                acknowledgements.append(acknowledgement)
                 completed: Future[None] = Future()
-                asyncio.get_running_loop().call_soon(requests.put, (event, completed))
-                received = await queue.receive()
+                requests.put((event, completed))
                 await asyncio.wrap_future(completed)
+                received = await acknowledgement
                 if received != event:
                     raise RuntimeError("bridge benchmark received an unexpected event")
                 return received
@@ -88,7 +113,7 @@ async def _run(iterations: int, output: str | None) -> None:
             try:
                 results.append(
                     await measure_async(
-                        "cross-thread-sync-bus-to-async-queue",
+                        "cross-thread-waiting-consumer-roundtrip",
                         publish_from_thread_and_receive,
                         iterations,
                     )
@@ -99,6 +124,7 @@ async def _run(iterations: int, output: str | None) -> None:
                 if producer.is_alive():
                     raise RuntimeError("bridge benchmark producer did not stop")
 
+    await consumer
     report(results, output)
 
 

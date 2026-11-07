@@ -62,6 +62,7 @@ class AsyncEventQueue(Generic[T]):
         self._events: deque[T] = deque()
         self._lock = threading.Lock()
         self._loop: asyncio.AbstractEventLoop | None = None
+        self._loop_thread_id: int | None = None
         self._waiter: asyncio.Future[None] | None = None
         self._consumer: asyncio.Task[Any] | None = None
         self._received = 0
@@ -74,6 +75,8 @@ class AsyncEventQueue(Generic[T]):
 
     def _bind_loop(self) -> asyncio.AbstractEventLoop:
         loop = bind_running_loop(self._loop, "AsyncEventQueue")
+        if self._loop_thread_id is None:
+            self._loop_thread_id = threading.get_ident()
         self._loop = loop
         return loop
 
@@ -86,25 +89,28 @@ class AsyncEventQueue(Generic[T]):
         waiter: asyncio.Future[None] | None
         dropped = 0
         overflow_error = False
+        accepted = True
         with self._lock:
             if self._closed:
                 return
-            if len(self._events) >= self._capacity:
-                if self._overflow == "drop_newest":
-                    self._dropped += 1
-                    dropped = 1
-                elif self._overflow == "drop_oldest":
-                    self._events.popleft()
-                    self._dropped += 1
-                    dropped = 1
-                else:
-                    self._overflow_errors += 1
-                    overflow_error = True
-            if not dropped or self._overflow != "drop_newest":
-                if not overflow_error:
-                    self._events.append(event)
+            if len(self._events) < self._capacity:
+                self._events.append(event)
+            elif self._overflow == "drop_newest":
+                self._dropped += 1
+                dropped = 1
+                accepted = False
+            elif self._overflow == "drop_oldest":
+                self._events.popleft()
+                self._dropped += 1
+                dropped = 1
+                self._events.append(event)
+            else:
+                self._overflow_errors += 1
+                overflow_error = True
+                accepted = False
             waiter, self._waiter = self._waiter, None
             loop = self._loop
+            loop_thread_id = self._loop_thread_id
             depth = len(self._events)
         try:
             if self._observer is not None:
@@ -116,10 +122,12 @@ class AsyncEventQueue(Generic[T]):
                     queue_depth=depth,
                 )
         finally:
-            accepted = not overflow_error and not (dropped and self._overflow == "drop_newest")
             if accepted and waiter is not None and loop is not None:
                 try:
-                    loop.call_soon_threadsafe(self._wake, waiter)
+                    if threading.get_ident() == loop_thread_id:
+                        self._wake(waiter)
+                    else:
+                        loop.call_soon_threadsafe(self._wake, waiter)
                 except RuntimeError:
                     # A closing loop no longer has a consumer; accepted data stays queued.
                     pass

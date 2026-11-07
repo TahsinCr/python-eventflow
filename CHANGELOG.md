@@ -7,8 +7,8 @@ All notable changes to this project are documented in this file.
 ### Added
 
 - Add a bridge benchmark for direct async calls, `LoopPortal` round-trips, and
-  separately labeled same-thread and cross-thread bus-to-queue delivery using
-  the shared measurement harness.
+  separately labeled same-thread and cross-thread waiting-consumer round-trips
+  using the shared measurement harness.
 - Add a worker-backed `KeyedCoalescer` benchmark for single and concurrent
   producers, merged updates, and concurrent flushes across configurable key
   counts, with repeated end-to-end timing samples.
@@ -17,6 +17,13 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Complete an `AsyncEventQueue` waiter directly when synchronous publication
+  runs on the queue's event-loop thread; publishers on other threads continue
+  to use `call_soon_threadsafe()`. Across seven local runs, same-thread P50
+  round-trip latency fell 31.1% on Python 3.10.18 and 41.1% on Python 3.14.9.
+  Cross-thread P50 changed by less than 1.5%; tail latency varied between runs.
+  See the
+  [measurement details](benchmarks/results/README.md#async-event-queue-waiter-handoff-2026-11-07).
 - Read fused `AsyncStream.map()`/`filter()` chains directly from their root
   iterator, avoiding a nested `AsyncStream.__anext__()` handoff while preserving
   single-consumer ownership and close propagation. A 5,000-item local run

@@ -1,0 +1,549 @@
+{
+  "date": "2026-11-07",
+  "baseline_revision": "a6fc5ca67859682e1d11c8a4a6314b7959d7b0c8",
+  "optimized_source": "local working tree based on the baseline revision",
+  "platform": "Linux-7.2.14-arch1-1-x86_64-with-glibc2.44",
+  "architecture": "x86_64",
+  "method": {
+    "iterations_per_run": 1000,
+    "warmup_operations_per_case": 20,
+    "alternating_runs_per_python_version_and_source": 7,
+    "consumer": "one persistent asyncio task enters AsyncEventQueue.receive() before publishing begins and rearms after each event",
+    "same_thread_case": "synchronous EventBus.publish() runs on the event-loop thread and awaits delivery acknowledgement",
+    "cross_thread_case": "a persistent publisher thread publishes each event and awaits both publisher completion and delivery acknowledgement",
+    "summary": "reported values are medians across seven independent process runs; peak traced allocation is a separate harness pass of up to 100 operations"
+  },
+  "median_summary": {
+    "3.10.18": {
+      "same-thread-waiting-consumer-roundtrip": {
+        "baseline": {
+          "p50_us": 31.796,
+          "p95_us": 33.845,
+          "p99_us": 35.802,
+          "ops_per_second": 31450.002,
+          "peak_traced_bytes": 12596
+        },
+        "optimized": {
+          "p50_us": 21.892,
+          "p95_us": 22.635,
+          "p99_us": 25.575,
+          "ops_per_second": 45677.744,
+          "peak_traced_bytes": 8880
+        }
+      },
+      "cross-thread-waiting-consumer-roundtrip": {
+        "baseline": {
+          "p50_us": 72.484,
+          "p95_us": 101.255,
+          "p99_us": 222.622,
+          "ops_per_second": 13794.245,
+          "peak_traced_bytes": 10857
+        },
+        "optimized": {
+          "p50_us": 72.785,
+          "p95_us": 178.838,
+          "p99_us": 241.058,
+          "ops_per_second": 13737.207,
+          "peak_traced_bytes": 10857
+        }
+      }
+    },
+    "3.14.9": {
+      "same-thread-waiting-consumer-roundtrip": {
+        "baseline": {
+          "p50_us": 18.772,
+          "p95_us": 20.893,
+          "p99_us": 23.197,
+          "ops_per_second": 53269.41,
+          "peak_traced_bytes": 5504
+        },
+        "optimized": {
+          "p50_us": 11.058,
+          "p95_us": 11.478,
+          "p99_us": 14.165,
+          "ops_per_second": 90424.089,
+          "peak_traced_bytes": 1600
+        }
+      },
+      "cross-thread-waiting-consumer-roundtrip": {
+        "baseline": {
+          "p50_us": 49.27,
+          "p95_us": 124.122,
+          "p99_us": 168.525,
+          "ops_per_second": 20295.503,
+          "peak_traced_bytes": 7785
+        },
+        "optimized": {
+          "p50_us": 48.589,
+          "p95_us": 123.667,
+          "p99_us": 156.382,
+          "ops_per_second": 20579.731,
+          "peak_traced_bytes": 7785
+        }
+      }
+    }
+  },
+  "raw_trials": {
+    "3.10.18": {
+      "baseline": [
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 31.404,
+            "p95_us": 33.275,
+            "p99_us": 35.28,
+            "ops_per_second": 31843.077314991722,
+            "peak_traced_bytes": 12596
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 71.372,
+            "p95_us": 76.641,
+            "p99_us": 173.254,
+            "ops_per_second": 14010.900480573886,
+            "peak_traced_bytes": 10857
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 31.969,
+            "p95_us": 33.772,
+            "p99_us": 36.969,
+            "ops_per_second": 31279.813572311108,
+            "peak_traced_bytes": 12596
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 71.811,
+            "p95_us": 179.53,
+            "p99_us": 234.933,
+            "ops_per_second": 13925.443177229115,
+            "peak_traced_bytes": 10857
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 31.796,
+            "p95_us": 33.845,
+            "p99_us": 35.802,
+            "ops_per_second": 31450.00235875018,
+            "peak_traced_bytes": 12596
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 87.038,
+            "p95_us": 182.249,
+            "p99_us": 302.09,
+            "ops_per_second": 11489.03658683701,
+            "peak_traced_bytes": 10857
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 31.684,
+            "p95_us": 33.85,
+            "p99_us": 35.478,
+            "ops_per_second": 31561.671506122962,
+            "peak_traced_bytes": 12596
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 72.484,
+            "p95_us": 178.98,
+            "p99_us": 213.036,
+            "ops_per_second": 13794.245040968908,
+            "peak_traced_bytes": 10857
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 32.413,
+            "p95_us": 35.292,
+            "p99_us": 40.173,
+            "ops_per_second": 30851.818714713234,
+            "peak_traced_bytes": 12596
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 86.463,
+            "p95_us": 94.964,
+            "p99_us": 222.622,
+            "ops_per_second": 11565.373272422368,
+            "peak_traced_bytes": 10818
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 31.51,
+            "p95_us": 33.324,
+            "p99_us": 35.393,
+            "ops_per_second": 31735.45326161121,
+            "peak_traced_bytes": 12596
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 71.751,
+            "p95_us": 101.255,
+            "p99_us": 269.031,
+            "ops_per_second": 13936.990864302488,
+            "peak_traced_bytes": 10857
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 31.907,
+            "p95_us": 34.056,
+            "p99_us": 36.869,
+            "ops_per_second": 31339.61170221101,
+            "peak_traced_bytes": 12596
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 73.978,
+            "p95_us": 100.371,
+            "p99_us": 222.179,
+            "ops_per_second": 13517.166801838335,
+            "peak_traced_bytes": 10857
+          }
+        }
+      ],
+      "optimized": [
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 21.892,
+            "p95_us": 22.635,
+            "p99_us": 25.656,
+            "ops_per_second": 45677.74351947014,
+            "peak_traced_bytes": 8880
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 72.99,
+            "p95_us": 153.855,
+            "p99_us": 282.059,
+            "ops_per_second": 13699.75614434063,
+            "peak_traced_bytes": 10857
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 22.646,
+            "p95_us": 23.659,
+            "p99_us": 26.246,
+            "ops_per_second": 44157.908681444846,
+            "peak_traced_bytes": 8880
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 72.464,
+            "p95_us": 177.494,
+            "p99_us": 220.245,
+            "ops_per_second": 13799.19412706298,
+            "peak_traced_bytes": 10857
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 21.662,
+            "p95_us": 22.252,
+            "p99_us": 25.13,
+            "ops_per_second": 46162.72360069244,
+            "peak_traced_bytes": 8880
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 72.785,
+            "p95_us": 179.717,
+            "p99_us": 241.058,
+            "ops_per_second": 13737.207225771,
+            "peak_traced_bytes": 10857
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 21.659,
+            "p95_us": 22.284,
+            "p99_us": 24.732,
+            "ops_per_second": 46169.11747731942,
+            "peak_traced_bytes": 8880
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 71.986,
+            "p95_us": 76.644,
+            "p99_us": 185.89,
+            "ops_per_second": 13891.397057802104,
+            "peak_traced_bytes": 10818
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 21.843,
+            "p95_us": 22.564,
+            "p99_us": 25.575,
+            "ops_per_second": 45780.20921555612,
+            "peak_traced_bytes": 8880
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 71.247,
+            "p95_us": 178.838,
+            "p99_us": 188.879,
+            "ops_per_second": 14035.481697731866,
+            "peak_traced_bytes": 10857
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 22.349,
+            "p95_us": 23.133,
+            "p99_us": 25.574,
+            "ops_per_second": 44744.7313078885,
+            "peak_traced_bytes": 8880
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 73.858,
+            "p95_us": 182.676,
+            "p99_us": 247.49,
+            "ops_per_second": 13537.386878210898,
+            "peak_traced_bytes": 10857
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 22.079,
+            "p95_us": 22.894,
+            "p99_us": 27.502,
+            "ops_per_second": 45290.88068117484,
+            "peak_traced_bytes": 8880
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 85.461,
+            "p95_us": 234.081,
+            "p99_us": 305.772,
+            "ops_per_second": 11700.217039026074,
+            "peak_traced_bytes": 10857
+          }
+        }
+      ]
+    },
+    "3.14.9": {
+      "baseline": [
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 18.679,
+            "p95_us": 20.893,
+            "p99_us": 23.197,
+            "ops_per_second": 53536.0565340757,
+            "peak_traced_bytes": 5504
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 48.673,
+            "p95_us": 124.574,
+            "p99_us": 195.212,
+            "ops_per_second": 20544.216289509095,
+            "peak_traced_bytes": 7785
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 18.594,
+            "p95_us": 20.459,
+            "p99_us": 22.704,
+            "ops_per_second": 53776.45129197924,
+            "peak_traced_bytes": 5504
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 48.903,
+            "p95_us": 124.122,
+            "p99_us": 153.237,
+            "ops_per_second": 20446.970781278753,
+            "peak_traced_bytes": 7785
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 18.519,
+            "p95_us": 20.762,
+            "p99_us": 22.478,
+            "ops_per_second": 53997.13815167796,
+            "peak_traced_bytes": 5504
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 62.407,
+            "p95_us": 127.143,
+            "p99_us": 201.576,
+            "ops_per_second": 16020.891242179803,
+            "peak_traced_bytes": 7785
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 18.772,
+            "p95_us": 20.869,
+            "p99_us": 22.901,
+            "ops_per_second": 53269.410041283794,
+            "peak_traced_bytes": 5504
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 49.537,
+            "p95_us": 66.45,
+            "p99_us": 75.458,
+            "ops_per_second": 20182.856681534704,
+            "peak_traced_bytes": 7785
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 19.821,
+            "p95_us": 22.338,
+            "p99_us": 26.047,
+            "ops_per_second": 50451.54129458655,
+            "peak_traced_bytes": 5504
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 50.433,
+            "p95_us": 128.568,
+            "p99_us": 183.685,
+            "ops_per_second": 19825.731817325708,
+            "peak_traced_bytes": 7785
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 19.237,
+            "p95_us": 21.806,
+            "p99_us": 23.791,
+            "ops_per_second": 51980.455348788855,
+            "peak_traced_bytes": 5504
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 47.709,
+            "p95_us": 56.374,
+            "p99_us": 129.333,
+            "ops_per_second": 20958.428956165444,
+            "peak_traced_bytes": 7785
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 19.015,
+            "p95_us": 21.769,
+            "p99_us": 24.712,
+            "ops_per_second": 52590.06047856955,
+            "peak_traced_bytes": 5504
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 49.27,
+            "p95_us": 55.97,
+            "p99_us": 168.525,
+            "ops_per_second": 20295.50251664231,
+            "peak_traced_bytes": 7785
+          }
+        }
+      ],
+      "optimized": [
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 11.058,
+            "p95_us": 11.414,
+            "p99_us": 14.39,
+            "ops_per_second": 90424.08897730356,
+            "peak_traced_bytes": 1600
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 47.866,
+            "p95_us": 51.873,
+            "p99_us": 57.554,
+            "ops_per_second": 20891.655872644467,
+            "peak_traced_bytes": 7785
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 11.308,
+            "p95_us": 11.675,
+            "p99_us": 14.168,
+            "ops_per_second": 88432.96781039971,
+            "peak_traced_bytes": 1600
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 48.05,
+            "p95_us": 52.357,
+            "p99_us": 82.915,
+            "ops_per_second": 20809.489127041932,
+            "peak_traced_bytes": 7785
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 11.107,
+            "p95_us": 11.491,
+            "p99_us": 14.137,
+            "ops_per_second": 90029.25950934054,
+            "peak_traced_bytes": 1600
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 47.1,
+            "p95_us": 50.8,
+            "p99_us": 52.806,
+            "ops_per_second": 21228.943541624652,
+            "peak_traced_bytes": 7785
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 11.154,
+            "p95_us": 11.478,
+            "p99_us": 13.226,
+            "ops_per_second": 89649.91707382671,
+            "peak_traced_bytes": 1600
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 48.589,
+            "p95_us": 123.667,
+            "p99_us": 156.382,
+            "ops_per_second": 20579.73102291553,
+            "peak_traced_bytes": 7785
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 10.962,
+            "p95_us": 15.324,
+            "p99_us": 15.974,
+            "ops_per_second": 91224.22915526365,
+            "peak_traced_bytes": 1600
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 48.784,
+            "p95_us": 125.178,
+            "p99_us": 184.793,
+            "ops_per_second": 20495.373169506984,
+            "peak_traced_bytes": 7785
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 10.976,
+            "p95_us": 11.366,
+            "p99_us": 13.761,
+            "ops_per_second": 91103.72158702683,
+            "peak_traced_bytes": 1600
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 50.021,
+            "p95_us": 131.732,
+            "p99_us": 209.74,
+            "ops_per_second": 19985.410650225334,
+            "peak_traced_bytes": 7913
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 10.867,
+            "p95_us": 11.184,
+            "p99_us": 14.165,
+            "ops_per_second": 92017.48332183115,
+            "peak_traced_bytes": 1600
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 49.35,
+            "p95_us": 153.56,
+            "p99_us": 231.296,
+            "ops_per_second": 20263.013920690562,
+            "peak_traced_bytes": 7913
+          }
+        }
+      ]
+    }
+  },
+  "limitations": "Local microbenchmark on one Linux host; round-trip includes consumer scheduling and benchmark acknowledgements. It is not a deployment guarantee or a hard performance gate. Cross-thread dispatch continues to use asyncio.call_soon_threadsafe()."
+}

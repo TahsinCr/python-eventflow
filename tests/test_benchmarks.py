@@ -40,8 +40,8 @@ class BenchmarkTests(unittest.TestCase):
             {
                 "async-direct-await",
                 "loop-portal-roundtrip",
-                "same-thread-sync-bus-to-async-queue",
-                "cross-thread-sync-bus-to-async-queue",
+                "same-thread-waiting-consumer-roundtrip",
+                "cross-thread-waiting-consumer-roundtrip",
             },
         )
         self.assertTrue(all(result["ops_per_second"] > 0 for result in by_case.values()))

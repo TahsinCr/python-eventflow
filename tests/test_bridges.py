@@ -207,6 +207,56 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
             await queue.aclose()
             bus.close()
 
+    async def test_event_queue_uses_local_wakeup_for_same_thread_publish(self):
+        bus = EventBus[int]()
+        queue = AsyncEventQueue(bus)
+        consumer = asyncio.create_task(queue.receive())
+        await asyncio.sleep(0)
+        loop = asyncio.get_running_loop()
+
+        try:
+            with patch.object(
+                loop,
+                "call_soon_threadsafe",
+                side_effect=AssertionError("same-thread wake used cross-thread scheduling"),
+            ):
+                bus.publish(7)
+            self.assertEqual(await asyncio.wait_for(consumer, timeout=1), 7)
+        finally:
+            await queue.aclose()
+            bus.close()
+
+    async def test_event_queue_wakes_waiter_from_publisher_thread(self):
+        bus = EventBus[int]()
+        queue = AsyncEventQueue(bus)
+        consumer = asyncio.create_task(queue.receive())
+        await asyncio.sleep(0)
+        errors: list[BaseException] = []
+        loop = asyncio.get_running_loop()
+
+        def publish() -> None:
+            try:
+                bus.publish(11)
+            except BaseException as error:
+                errors.append(error)
+
+        publisher = threading.Thread(target=publish, name="EventQueuePublisherTest")
+        try:
+            with patch.object(
+                loop,
+                "call_soon_threadsafe",
+                wraps=loop.call_soon_threadsafe,
+            ) as schedule_threadsafe:
+                publisher.start()
+                self.assertEqual(await asyncio.wait_for(consumer, timeout=1), 11)
+            publisher.join(timeout=1)
+            self.assertFalse(publisher.is_alive())
+            self.assertEqual(errors, [])
+            schedule_threadsafe.assert_called_once()
+        finally:
+            await queue.aclose()
+            bus.close()
+
     async def test_event_queue_rejects_second_consumer_and_other_loop(self):
         bus = EventBus[int]()
         queue = AsyncEventQueue(bus)

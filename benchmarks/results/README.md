@@ -305,3 +305,29 @@ subprocess.run(
 )
 print(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)  # KiB on Linux
 ```
+
+## AsyncEventQueue waiter handoff (2026-11-07)
+
+Compared baseline `a6fc5ca` with the same-thread waiter wake optimization on
+Linux x86_64. Both revisions used the corrected benchmark harness: one
+persistent async consumer was already waiting in `receive()` before each
+synchronous publish, and it rearmed before the next operation. The cross-thread
+case used one persistent publisher thread. Each process ran 1,000 timed
+operations per case; seven independent processes alternated baseline and
+optimized order for each Python version. The table reports the median of the
+seven per-process percentile values. Full per-run data and the exact workload
+are in [`bridge_waiter_handoff_2026-11-07.json`](bridge_waiter_handoff_2026-11-07.json).
+
+| Python | Case | Before P50 (us) | After P50 (us) | Change | Before P95 (us) | After P95 (us) |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 3.10.18 | same-thread waiting consumer | 31.796 | 21.892 | -31.1% | 33.845 | 22.635 |
+| 3.10.18 | cross-thread waiting consumer | 72.484 | 72.785 | +0.4% | 101.255 | 178.838 |
+| 3.14.9 | same-thread waiting consumer | 18.772 | 11.058 | -41.1% | 20.893 | 11.478 |
+| 3.14.9 | cross-thread waiting consumer | 49.270 | 48.589 | -1.4% | 124.122 | 123.667 |
+
+The same-thread path avoids the thread-safe loop wakeup and completes its
+waiter on the owning event-loop thread. Cross-thread publishers retain
+`call_soon_threadsafe()` for safety; these measurements show no material P50
+change there. Tail percentiles vary between runs, especially in the threaded
+case. These are local round-trip measurements that include consumer scheduling
+and benchmark acknowledgements, not guarantees for a deployed workload.
