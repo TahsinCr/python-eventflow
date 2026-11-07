@@ -331,3 +331,22 @@ waiter on the owning event-loop thread. Cross-thread publishers retain
 change there. Tail percentiles vary between runs, especially in the threaded
 case. These are local round-trip measurements that include consumer scheduling
 and benchmark acknowledgements, not guarantees for a deployed workload.
+
+## CPython 3.15.2 free-threading comparison (2026-11-07)
+
+Compared regular CPython 3.15.2 with CPython 3.15.2t on the same Linux x86_64
+host and benchmark harness. The runtime mode was checked with
+`sys._is_gil_enabled()` before each process. Seven 1,000-operation processes
+per mode alternated order. The table reports the median of per-process latency
+percentiles; full samples are included in the JSON record above.
+
+| Bridge case | GIL enabled P50 (us) | GIL disabled P50 (us) | Change | GIL enabled P95 (us) | GIL disabled P95 (us) |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| same-thread waiting consumer | 12.402 | 13.848 | +11.7% | 12.862 | 14.315 |
+| cross-thread waiting consumer | 50.457 | 41.083 | -18.6% | 83.958 | 49.508 |
+
+This workload uses one synchronous publisher thread and one async consumer; it
+does not measure CPU-bound scaling across many publisher threads. The free-
+threaded build was slower on the same-thread case and faster on the cross-thread
+round-trip in these local samples. The measurements do not establish a general
+speedup for EventFlow or Python code, and traced allocation peaks are not RSS.

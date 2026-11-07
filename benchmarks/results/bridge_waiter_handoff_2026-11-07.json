@@ -545,5 +545,275 @@
       ]
     }
   },
-  "limitations": "Local microbenchmark on one Linux host; round-trip includes consumer scheduling and benchmark acknowledgements. It is not a deployment guarantee or a hard performance gate. Cross-thread dispatch continues to use asyncio.call_soon_threadsafe()."
+  "limitations": "Local microbenchmark on one Linux host; round-trip includes consumer scheduling and benchmark acknowledgements. It is not a deployment guarantee or a hard performance gate. Cross-thread dispatch continues to use asyncio.call_soon_threadsafe().",
+  "free_threading_comparison": {
+    "python_version": "3.15.2",
+    "gil_mode_verified": true,
+    "runs_per_mode": 7,
+    "iterations_per_run": 1000,
+    "order": "GIL-enabled and GIL-disabled process order alternated across runs",
+    "gil_enabled": {
+      "same-thread-waiting-consumer-roundtrip": {
+        "p50_us": 12.402,
+        "p95_us": 12.862,
+        "p99_us": 16.095,
+        "ops_per_second": 80632.156,
+        "peak_traced_bytes": 1832
+      },
+      "cross-thread-waiting-consumer-roundtrip": {
+        "p50_us": 50.457,
+        "p95_us": 83.958,
+        "p99_us": 174.468,
+        "ops_per_second": 19818.659,
+        "peak_traced_bytes": 7849
+      }
+    },
+    "gil_disabled": {
+      "same-thread-waiting-consumer-roundtrip": {
+        "p50_us": 13.848,
+        "p95_us": 14.315,
+        "p99_us": 17.559,
+        "ops_per_second": 72209.987,
+        "peak_traced_bytes": 1952
+      },
+      "cross-thread-waiting-consumer-roundtrip": {
+        "p50_us": 41.083,
+        "p95_us": 49.508,
+        "p99_us": 154.922,
+        "ops_per_second": 24338.599,
+        "peak_traced_bytes": 20217
+      }
+    },
+    "raw_trials": {
+      "3.15.2-gil": [
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 12.53,
+            "p95_us": 12.862,
+            "p99_us": 16.25,
+            "ops_per_second": 79802.09081477935,
+            "peak_traced_bytes": 1832
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 49.552,
+            "p95_us": 83.958,
+            "p99_us": 174.468,
+            "ops_per_second": 20180.20926877012,
+            "peak_traced_bytes": 7849
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 12.108,
+            "p95_us": 12.408,
+            "p99_us": 15.663,
+            "ops_per_second": 82590.02312520647,
+            "peak_traced_bytes": 1832
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 50.457,
+            "p95_us": 56.887,
+            "p99_us": 72.274,
+            "ops_per_second": 19818.65926770054,
+            "peak_traced_bytes": 7849
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 12.402,
+            "p95_us": 12.898,
+            "p99_us": 16.156,
+            "ops_per_second": 80632.15610385421,
+            "peak_traced_bytes": 1832
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 49.279,
+            "p95_us": 53.751,
+            "p99_us": 162.498,
+            "ops_per_second": 20292.00190744818,
+            "peak_traced_bytes": 7849
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 12.723,
+            "p95_us": 13.152,
+            "p99_us": 16.095,
+            "ops_per_second": 78597.81498074354,
+            "peak_traced_bytes": 1832
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 48.293,
+            "p95_us": 52.165,
+            "p99_us": 87.407,
+            "ops_per_second": 20706.720366094814,
+            "peak_traced_bytes": 7849
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 12.255,
+            "p95_us": 12.55,
+            "p99_us": 14.36,
+            "ops_per_second": 81599.34720522235,
+            "peak_traced_bytes": 1832
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 50.701,
+            "p95_us": 150.098,
+            "p99_us": 191.459,
+            "ops_per_second": 19723.282348648463,
+            "peak_traced_bytes": 7849
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 12.816,
+            "p95_us": 13.403,
+            "p99_us": 23.137,
+            "ops_per_second": 78024.42164397457,
+            "peak_traced_bytes": 1832
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 51.241,
+            "p95_us": 152.474,
+            "p99_us": 238.902,
+            "ops_per_second": 19513.90853831068,
+            "peak_traced_bytes": 7849
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 12.14,
+            "p95_us": 12.433,
+            "p99_us": 15.583,
+            "ops_per_second": 82372.32289950577,
+            "peak_traced_bytes": 1832
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 51.914,
+            "p95_us": 210.227,
+            "p99_us": 306.423,
+            "ops_per_second": 19256.69170036588,
+            "peak_traced_bytes": 7849
+          }
+        }
+      ],
+      "3.15.2t-no-gil": [
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 13.979,
+            "p95_us": 14.315,
+            "p99_us": 16.804,
+            "ops_per_second": 71535.87524143358,
+            "peak_traced_bytes": 1952
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 41.416,
+            "p95_us": 131.756,
+            "p99_us": 267.686,
+            "ops_per_second": 24141.17760664365,
+            "peak_traced_bytes": 26577
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 14.231,
+            "p95_us": 14.741,
+            "p99_us": 18.424,
+            "ops_per_second": 70266.66198222253,
+            "peak_traced_bytes": 1952
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 41.915,
+            "p95_us": 48.197,
+            "p99_us": 154.922,
+            "ops_per_second": 23857.238286096002,
+            "peak_traced_bytes": 20217
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 13.842,
+            "p95_us": 14.171,
+            "p99_us": 16.978,
+            "ops_per_second": 72241.28589488893,
+            "peak_traced_bytes": 1952
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 41.021,
+            "p95_us": 44.145,
+            "p99_us": 50.86,
+            "ops_per_second": 24377.460599929305,
+            "peak_traced_bytes": 19793
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 14.337,
+            "p95_us": 14.773,
+            "p99_us": 17.711,
+            "ops_per_second": 69747.16652136006,
+            "peak_traced_bytes": 1952
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 41.083,
+            "p95_us": 135.897,
+            "p99_us": 263.24,
+            "ops_per_second": 24338.598583493564,
+            "peak_traced_bytes": 19800
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 13.838,
+            "p95_us": 14.363,
+            "p99_us": 19.391,
+            "ops_per_second": 72264.77814713109,
+            "peak_traced_bytes": 1952
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 41.181,
+            "p95_us": 49.508,
+            "p99_us": 67.291,
+            "ops_per_second": 24282.158683907,
+            "peak_traced_bytes": 20464
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 13.848,
+            "p95_us": 14.313,
+            "p99_us": 16.581,
+            "ops_per_second": 72209.98664115247,
+            "peak_traced_bytes": 1952
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 40.697,
+            "p95_us": 48.551,
+            "p99_us": 51.239,
+            "ops_per_second": 24566.402987274603,
+            "peak_traced_bytes": 18401
+          }
+        },
+        {
+          "same-thread-waiting-consumer-roundtrip": {
+            "p50_us": 13.771,
+            "p95_us": 14.123,
+            "p99_us": 17.559,
+            "ops_per_second": 72616.36772928618,
+            "peak_traced_bytes": 1952
+          },
+          "cross-thread-waiting-consumer-roundtrip": {
+            "p50_us": 40.635,
+            "p95_us": 49.688,
+            "p99_us": 268.559,
+            "ops_per_second": 24608.72133083965,
+            "peak_traced_bytes": 20401
+          }
+        }
+      ]
+    },
+    "limitations": "Same local Linux x86_64 host and benchmark harness. This round-trip workload has one publisher thread and one event-loop consumer; it does not measure many-core CPU-bound scaling. Traced allocation peaks are not RSS and differ by runtime build."
+  }
 }

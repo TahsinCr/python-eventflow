@@ -19,6 +19,10 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Record a matched CPython 3.15.2 GIL-on/free-threaded bridge comparison: local
+  cross-thread P50 was 18.6% lower without the GIL, while same-thread P50 was
+  11.7% higher. See the
+  [measurement details](benchmarks/results/README.md#cpython-3152-free-threading-comparison-2026-11-07).
 - Clarify that `KeyedCoalescer.stats().failures` counts delivery callback
   failures, while `on_error` and observer errors are retained for `flush()` or
   `close()` to report.
