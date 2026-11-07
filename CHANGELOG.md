@@ -49,6 +49,8 @@ All notable changes to this project are documented in this file.
 
 - Wake waiting `AsyncEventQueue` consumers for accepted events even when
   observer reporting raises.
+- Keep `KeyedCoalescer` workers alive after observer failures, finish accepted
+  deliveries, and surface reporting errors through `flush()` or `close()`.
 - Keep Python 3.10 rate-limiter acquisitions waiting after `asyncio.wait_for()`
   reaches its token-refill timeout.
 - Read `BoundedWorkPool` worker identities under the same lock used to update

@@ -7,8 +7,10 @@ import threading
 import time
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 
 from eventflow.compatibility import ExceptionGroup
+from eventflow.observability import OperationStats
 from eventflow.scheduling import KeyedCoalescer
 
 
@@ -226,6 +228,36 @@ class CoalescerTests(unittest.TestCase):
 
 
 class CoalescerEdgeTests(unittest.TestCase):
+    def test_observer_failure_is_reported_after_pending_work_and_worker_continues(self):
+        calls = []
+        observer = OperationStats()
+        coalescer = KeyedCoalescer(
+            interval=60,
+            key=lambda value: value,
+            merge=lambda _first, second: second,
+            callback=calls.append,
+            observer=observer,
+        )
+        try:
+            with patch.object(
+                observer,
+                "record",
+                side_effect=[RuntimeError("observer"), None, None],
+            ):
+                coalescer.push("first")
+                coalescer.push("second")
+                with self.assertRaises(ExceptionGroup) as raised:
+                    coalescer.flush(timeout=1)
+                self.assertEqual(str(raised.exception.exceptions[0]), "observer")
+                self.assertCountEqual(calls, ["first", "second"])
+
+                coalescer.push("third")
+                coalescer.flush(timeout=1)
+
+            self.assertEqual(calls, ["first", "second", "third"])
+        finally:
+            coalescer.close(timeout=1)
+
     def test_callback_failures_are_visible_and_pending_work_can_be_discarded(self):
         reported = []
 

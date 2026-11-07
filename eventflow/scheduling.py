@@ -202,16 +202,20 @@ class KeyedCoalescer(Generic[K, T]):
                 with self._condition:
                     self._delivered += 1
             finally:
+                if self._observer is not None:
+                    try:
+                        self._observer.record(
+                            "keyed_coalescer.delivery",
+                            status=status,
+                            elapsed=time.monotonic() - started,
+                            queue_depth=self.pending_count,
+                        )
+                    except BaseException as observer_error:
+                        with self._condition:
+                            self._capture_error(observer_error)
                 with self._condition:
                     self._active -= 1
                     self._condition.notify_all()
-                if self._observer is not None:
-                    self._observer.record(
-                        "keyed_coalescer.delivery",
-                        status=status,
-                        elapsed=time.monotonic() - started,
-                        queue_depth=self.pending_count,
-                    )
 
     def _capture_error(self, error: BaseException) -> None:
         if len(self._errors) == self._errors.maxlen:
@@ -249,10 +253,10 @@ class KeyedCoalescer(Generic[K, T]):
         if errors:
             if all(isinstance(error, Exception) for error in errors):
                 raise ExceptionGroup(
-                    "KeyedCoalescer callbacks failed",
+                    "KeyedCoalescer delivery failed",
                     [error for error in errors if isinstance(error, Exception)],
                 )
-            raise BaseExceptionGroup("KeyedCoalescer callbacks failed", errors)
+            raise BaseExceptionGroup("KeyedCoalescer delivery failed", errors)
 
     def flush(self, timeout: float | None = None) -> None:
         """Deliver all pending values and wait for the worker to become idle."""
