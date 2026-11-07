@@ -129,15 +129,7 @@ jobs:
       - name: Verify GIL is disabled
         env:
           PYTHON_GIL: "0"
-        run: |
-          python - <<'PY'
-          import eventflow
-          import sys
-          import sysconfig
-
-          assert sysconfig.get_config_var("Py_GIL_DISABLED") == 1
-          assert not sys._is_gil_enabled()
-          PY
+        run: python -c 'import sys, sysconfig; assert sysconfig.get_config_var("Py_GIL_DISABLED") == 1; assert not sys._is_gil_enabled()'
 
       - name: Run unit tests without the GIL
         env:
