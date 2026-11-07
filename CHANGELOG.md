@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Check Ruff formatting in GitHub Actions alongside lint rules.
 - Keep the full operating-system/Python test matrix while running Ruff once,
   Pyright on Python 3.10 and 3.14, and the 3.10/Linux suite once under branch
   coverage.
