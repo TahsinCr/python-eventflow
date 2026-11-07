@@ -17,6 +17,13 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Read fused `AsyncStream.map()`/`filter()` chains directly from their root
+  iterator, avoiding a nested `AsyncStream.__anext__()` handoff while preserving
+  single-consumer ownership and close propagation. A 5,000-item local run
+  reduced unbuffered median latency by 14.9% on Python 3.10.18 and 8.5% on
+  Python 3.14.9; buffer-16 latency fell by 6.3% and 2.0%. Peak traced memory
+  increased by 736 and 1,248 bytes for unbuffered runs. See the
+  [measurement details](benchmarks/results/README.md#asyncstream-root-read-2026-11-07).
 - Check Ruff formatting in GitHub Actions alongside lint rules.
 - Keep the full operating-system/Python test matrix while running Ruff once,
   Pyright on Python 3.10 and 3.14, and the 3.10/Linux suite once under branch

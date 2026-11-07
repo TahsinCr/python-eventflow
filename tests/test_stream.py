@@ -276,6 +276,29 @@ class StreamTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(closed.is_set())
         self.assert_no_stream_tasks()
 
+    async def test_closing_source_cancels_a_pending_transformed_read(self):
+        entered, closed = asyncio.Event(), asyncio.Event()
+
+        async def source():
+            try:
+                entered.set()
+                await asyncio.Event().wait()
+                yield 1
+            finally:
+                closed.set()
+
+        root = AsyncStream(source())
+        stream = root.map(lambda value: value)
+        reader = asyncio.create_task(stream.__anext__())
+        await entered.wait()
+        await asyncio.wait_for(root.aclose(), timeout=1)
+        with self.assertRaises(asyncio.CancelledError):
+            await reader
+        self.assertTrue(root.closed)
+        self.assertTrue(stream.closed)
+        self.assertTrue(closed.is_set())
+        self.assert_no_stream_tasks()
+
     async def test_concurrent_reads_are_rejected(self):
         entered, release = asyncio.Event(), asyncio.Event()
 

@@ -85,9 +85,32 @@ class AsyncStream(AsyncIterator[T], Generic[T]):
         self._claimed = True
         self._reader = task
         try:
-            if self._operator_source is not None:
+            source = self._operator_source
+            if source is not None:
                 while True:
-                    value: Any = await self._operator_source.__anext__()
+                    if source._consumer is not task:
+                        source._bind_loop()
+                    if source._closed:
+                        raise StopAsyncIteration
+                    if source._reader is not None:
+                        raise RuntimeError(
+                            "Concurrent reads from one AsyncStream are not supported"
+                        )
+                    if source._consumer is None:
+                        source._consumer = task
+                    elif source._consumer is not task:
+                        raise RuntimeError("AsyncStream must be consumed by one task")
+                    source._claimed = True
+                    source._reader = task
+                    try:
+                        if source._iterator is None:
+                            source._iterator = source._source.__aiter__()
+                        value: Any = await source._iterator.__anext__()
+                    finally:
+                        source._reader = None
+                        if source._read_finished is not None:
+                            source._read_finished.set()
+                        source._read_finished = None
                     for operation, transform in self._operators:
                         result = transform(value)
                         if inspect.isawaitable(result):
