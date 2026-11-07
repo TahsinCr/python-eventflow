@@ -22,6 +22,29 @@ def _run_benchmark(module: str, *arguments: str, timeout: int = 20):
 
 
 class BenchmarkTests(unittest.TestCase):
+    def test_bridge_benchmark_reports_direct_portal_and_queue_roundtrips(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "bridges.json"
+            _run_benchmark(
+                "benchmarks.benchmark_bridges",
+                "--iterations",
+                "1",
+                "--output",
+                str(output),
+            )
+            results = json.loads(output.read_text(encoding="utf-8"))["results"]
+
+        by_case = {result["case"]: result for result in results}
+        self.assertEqual(
+            set(by_case),
+            {
+                "async-direct-await",
+                "loop-portal-roundtrip",
+                "sync-bus-to-async-queue-roundtrip",
+            },
+        )
+        self.assertTrue(all(result["ops_per_second"] > 0 for result in by_case.values()))
+
     def test_coalescer_benchmark_measures_worker_flush_and_merge_cases(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             output = Path(temporary_directory) / "coalescer.json"

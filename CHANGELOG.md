@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Add a bridge benchmark for direct async calls, `LoopPortal` round-trips, and
+  synchronous bus to async queue delivery using the shared measurement harness.
 - Add a worker-backed `KeyedCoalescer` benchmark for single and concurrent
   producers, merged updates, and concurrent flushes across configurable key
   counts, with repeated end-to-end timing samples.
