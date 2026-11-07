@@ -13,6 +13,20 @@ from eventflow.scheduling import KeyedCoalescer
 
 
 class CoalescerTests(unittest.TestCase):
+    def test_coalescer_context_manager_flushes_and_closes_pending_work(self):
+        calls = []
+        with KeyedCoalescer(
+            interval=60,
+            key=lambda item: item[0],
+            merge=lambda first, second: (first[0], first[1] + second[1]),
+            callback=calls.append,
+        ) as coalescer:
+            coalescer.push(("key", 2))
+            self.assertFalse(coalescer.stats().closed)
+
+        self.assertEqual(calls, [("key", 2)])
+        self.assertTrue(coalescer.stats().closed)
+
     def test_coalescer_public_flush_delivers_each_merged_key_once(self):
         calls = []
         coalescer = KeyedCoalescer(

@@ -11,6 +11,19 @@ from eventflow.tasks import AsyncTaskScope
 
 
 class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
+    async def test_scheduler_context_manager_drains_one_shot_work(self):
+        calls = []
+
+        async with AsyncScheduler() as scheduler:
+            handle = scheduler.schedule_once(calls.append, "complete")
+            await handle.join(timeout=1)
+            self.assertEqual(calls, ["complete"])
+            self.assertFalse(scheduler.snapshot().closed)
+
+        self.assertTrue(scheduler.snapshot().closed)
+        with self.assertRaises(RuntimeError):
+            scheduler.schedule_once(calls.append, "rejected")
+
     async def test_periodic_scheduler_caps_parallel_callbacks(self):
         observer = OperationStats()
         scheduler = AsyncScheduler(observer=observer)
