@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Keep the full operating-system/Python test matrix while running Ruff once,
+  Pyright on Python 3.10 and 3.14, and the 3.10/Linux suite once under branch
+  coverage.
 - Expand the package summary to cover EventFlow's released pipeline and
   coordination APIs, and name the frozen API contract for the v1.3.1 release.
 - Index pending `KeyedCoalescer` deadlines in a min-heap, so each due item is
