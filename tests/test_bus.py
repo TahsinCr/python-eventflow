@@ -3,7 +3,6 @@ from __future__ import annotations
 import asyncio
 import gc
 import threading
-import time
 import unittest
 import warnings
 from collections import deque
@@ -627,14 +626,10 @@ class EventBusTests(unittest.TestCase):
         schedule = bus.publish_every("heartbeat", 0.001, times=3)
 
         self.assertTrue(completed.wait(1.0))
-        deadline = time.monotonic() + 1.0
-        while schedule.active and time.monotonic() < deadline:
-            time.sleep(0.001)
-        self.assertEqual(received, ["heartbeat"] * 3)
-        self.assertFalse(schedule.active)
-
         waiting = bus.publish_every("late", 60.0, immediately=False)
         bus.close()
+        self.assertEqual(received, ["heartbeat"] * 3)
+        self.assertFalse(schedule.active)
         self.assertFalse(waiting.active)
 
     def test_periodic_publish_reports_failures_through_error_action(self) -> None:
@@ -799,9 +794,8 @@ class EventBusTests(unittest.TestCase):
             )
         )
         waiter.start()
-        deadline = time.monotonic() + 1.0
-        while bus.subscriber_count == 0 and time.monotonic() < deadline:
-            time.sleep(0.001)
+        with bus._condition:
+            self.assertTrue(bus._condition.wait_for(lambda: bus.subscriber_count > 0, timeout=1.0))
         bus.publish(6)
         bus.publish(7)
         waiter.join(timeout=1.0)
@@ -812,9 +806,8 @@ class EventBusTests(unittest.TestCase):
             target=lambda: closed_result.append(bus.wait_for(timeout=5.0))
         )
         closed_waiter.start()
-        deadline = time.monotonic() + 1.0
-        while bus.subscriber_count == 0 and time.monotonic() < deadline:
-            time.sleep(0.001)
+        with bus._condition:
+            self.assertTrue(bus._condition.wait_for(lambda: bus.subscriber_count > 0, timeout=1.0))
         bus.close()
         closed_waiter.join(timeout=1.0)
         self.assertEqual(closed_result, [None])

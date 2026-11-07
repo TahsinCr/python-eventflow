@@ -365,6 +365,8 @@ ones. Pass `replay=N` to deliver up to the N newest retained events that match
 the subscription filter:
 
 ~~~python
+from eventflow import EventBus
+
 with EventBus[str](history=10) as bus:
     bus.publish("started")
     bus.publish("ready")

@@ -375,6 +375,8 @@ Sonradan katılan bir abonenin canlı teslimattan önce yakın geçmişi alması
 `replay=N` kullanın:
 
 ~~~python
+from eventflow import EventBus
+
 with EventBus[str](history=10) as bus:
     bus.publish("started")
     bus.publish("ready")

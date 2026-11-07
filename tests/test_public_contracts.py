@@ -30,13 +30,15 @@ class PublicContractTests(unittest.TestCase):
                 .split("<!-- integrated execution documentation -->")[0]
             )
             blocks = re.findall(r"~~~python\n(.*?)~~~", content, re.S)
-            subprocess.run(
-                [sys.executable, "-c", "\n".join(blocks)],
-                check=True,
-                cwd=root,
-                capture_output=True,
-                timeout=20,
-            )
+            for index, block in enumerate(blocks):
+                with self.subTest(readme=name, block=index):
+                    subprocess.run(
+                        [sys.executable, "-c", block],
+                        check=True,
+                        cwd=root,
+                        capture_output=True,
+                        timeout=20,
+                    )
 
     def test_released_execution_apis_match_the_reviewed_contract(self):
         contract = json.loads(
