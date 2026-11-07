@@ -84,6 +84,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Resolve strict Pyright diagnostics in the publish/runtime benchmarks by typing
+  their sample collections and initializing memory-soak midpoint snapshots.
 - Make rate-limiter benchmark cancellation setup independent of the measured
   token refill rate, and include captured output when a benchmark subprocess
   fails.

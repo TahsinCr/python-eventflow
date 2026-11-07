@@ -4,6 +4,8 @@ Run from the repository root: ``python -m benchmarks.benchmark_runtime``.
 Results are local workload measurements, not deployment guarantees.
 """
 
+# pyright: strict
+
 from __future__ import annotations
 
 import argparse
@@ -63,7 +65,7 @@ def _sync_contention(publishers: int, iterations: int, samples: int) -> dict[str
                 bus.publish(1)
 
         with ThreadPoolExecutor(max_workers=publishers) as executor:
-            timings = []
+            timings: list[float] = []
             for _ in range(samples):
                 started = perf_counter()
                 list(executor.map(publish_many, range(publishers)))
@@ -100,7 +102,7 @@ async def _async_contention(
             for _ in range(iterations):
                 await bus.publish(1)
 
-        timings = []
+        timings: list[float] = []
         for _ in range(samples):
             started = perf_counter()
             await asyncio.gather(*(publish_many() for _ in range(publishers)))
@@ -172,6 +174,7 @@ def _memory_sync(operations: int, history_capacity: int | None) -> dict[str, obj
 
     bus.subscribe(receive)
     tracemalloc.start()
+    after_half = tracemalloc.get_traced_memory()[0]
     started = perf_counter()
     try:
         for index in range(operations):
@@ -205,6 +208,7 @@ async def _memory_async(operations: int, history_capacity: int | None) -> dict[s
 
     await bus.subscribe(receive)
     tracemalloc.start()
+    after_half = tracemalloc.get_traced_memory()[0]
     started = perf_counter()
     try:
         for index in range(operations):
@@ -230,9 +234,9 @@ async def _memory_async(operations: int, history_capacity: int | None) -> dict[s
 
 
 def _sync_schedules(count: int, samples: int) -> dict[str, object]:
-    timings = []
-    live_thread_counts = []
-    remaining_thread_counts = []
+    timings: list[float] = []
+    live_thread_counts: list[int] = []
+    remaining_thread_counts: list[int] = []
     for _ in range(samples):
         baseline_threads = threading.active_count()
         with EventBus[int]() as bus:
@@ -257,9 +261,9 @@ def _sync_schedules(count: int, samples: int) -> dict[str, object]:
 
 
 async def _async_schedules(count: int, samples: int) -> dict[str, object]:
-    timings = []
-    live_task_counts = []
-    remaining_task_counts = []
+    timings: list[float] = []
+    live_task_counts: list[int] = []
+    remaining_task_counts: list[int] = []
     for _ in range(samples):
         async with AsyncEventBus[int]() as bus:
             baseline_tasks = len(asyncio.all_tasks())
@@ -312,7 +316,7 @@ def main() -> None:
     parser.add_argument("--output")
     args = parser.parse_args()
 
-    results = [
+    results: list[dict[str, object]] = [
         _sync_contention(publishers, args.iterations, args.samples)
         for publishers in args.publisher_counts
     ]

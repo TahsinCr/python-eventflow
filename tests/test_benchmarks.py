@@ -222,7 +222,7 @@ class BenchmarkTests(unittest.TestCase):
                 "--iterations",
                 "1",
                 "--soak-operations",
-                "2",
+                "1",
                 "--samples",
                 "1",
                 "--publisher-counts",

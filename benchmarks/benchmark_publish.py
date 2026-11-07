@@ -3,6 +3,8 @@
 Run from the repository root: python -m benchmarks.benchmark_publish.
 """
 
+# pyright: strict
+
 from __future__ import annotations
 
 import argparse
@@ -20,7 +22,7 @@ def main() -> None:
     args = parser.parse_args()
     if args.iterations <= 0:
         parser.error("iterations must be positive")
-    results = []
+    results: list[dict[str, object]] = []
 
     def receive(_event: int) -> None:
         pass
