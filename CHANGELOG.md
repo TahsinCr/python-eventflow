@@ -24,6 +24,9 @@ All notable changes to this project are documented in this file.
   distributions, worker completion spread, and observed waiter cancellations.
 
 ### Changed
+
+- Clarify engine behavior when a channel is created after the shutdown snapshot
+  while `stop()` is still closing its existing channels.
 - Include the source revision, source-only working-tree status, a deterministic
   source fingerprint, and the interpreter's GIL mode in benchmark JSON reports.
   Comparison reports also identify the baseline source independently.

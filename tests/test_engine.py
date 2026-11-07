@@ -149,6 +149,37 @@ class EventEngineTests(unittest.TestCase):
         self.assertTrue(engine.running)
         engine.stop()
 
+    def test_channel_created_during_stop_restarts_after_stop_snapshot(self) -> None:
+        engine = EventEngine()
+        closing = EventBus[int]()
+        engine.add("closing", closing)
+        close_started = threading.Event()
+        close_release = threading.Event()
+        original_close = closing.close
+
+        def blocked_close() -> None:
+            close_started.set()
+            if not close_release.wait(2):
+                raise TimeoutError("test close was not released")
+            original_close()
+
+        try:
+            with patch.object(closing, "close", side_effect=blocked_close):
+                with ThreadPoolExecutor(max_workers=1) as executor:
+                    stopping = executor.submit(engine.stop)
+                    self.assertTrue(close_started.wait(1))
+                    reopened = engine.channel("reopened")
+                    self.assertTrue(engine.running)
+                    close_release.set()
+                    stopping.result(timeout=1)
+        finally:
+            close_release.set()
+
+        self.assertTrue(closing.closed)
+        self.assertFalse(reopened.closed)
+        self.assertTrue(engine.running)
+        engine.stop()
+
     def test_engine_forwards_typed_subscription_options(self) -> None:
         engine = EventEngine(history=3)
         received: list[int] = []
@@ -360,6 +391,42 @@ class AsyncEventEngineTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(engine.channel_names, ())
         await engine.stop()
         self.assertTrue(failing.closed)
+
+    async def test_channel_created_during_async_stop_restarts_after_stop_snapshot(
+        self,
+    ) -> None:
+        engine = AsyncEventEngine()
+        closing = AsyncEventBus[int]()
+        engine.add("closing", closing)
+        close_started = asyncio.Event()
+        close_release = asyncio.Event()
+        original_close = closing.close
+
+        async def blocked_close() -> None:
+            close_started.set()
+            await close_release.wait()
+            await original_close()
+
+        stopping: asyncio.Task[None] | None = None
+        reopened: AsyncEventBus[int] | None = None
+        try:
+            with patch.object(closing, "close", side_effect=blocked_close):
+                stopping = asyncio.create_task(engine.stop())
+                await asyncio.wait_for(close_started.wait(), 1)
+                reopened = engine.channel("reopened")
+                self.assertTrue(engine.running)
+                close_release.set()
+                await asyncio.wait_for(stopping, 1)
+        finally:
+            close_release.set()
+            if stopping is not None and not stopping.done():
+                await stopping
+
+        self.assertTrue(closing.closed)
+        self.assertIsNotNone(reopened)
+        self.assertFalse(reopened.closed)
+        self.assertTrue(engine.running)
+        await engine.stop()
 
     async def test_async_engine_validation_remove_and_context_manager(self) -> None:
         async with AsyncEventEngine() as engine:

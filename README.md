@@ -602,6 +602,11 @@ The engine exposes `running` and a sorted `channel_names` tuple.
 During `stop()`, both engines attempt every channel. If some closes fail, the
 failures are raised together and the engine retains those channels so a later
 `stop()` can retry cleanup.
+`stop()` closes the channel snapshot taken when it begins. A concurrent
+`channel()` or `add()` after that snapshot creates a new active channel and
+restarts the engine; that new channel is not closed by the in-progress stop.
+Serialize shutdown and channel creation in application code when the engine
+must remain stopped.
 
 `AsyncEventEngine` offers the same channel model for async buses. Its
 `channel()` and `add()` methods return directly. Publish, subscribe, once,

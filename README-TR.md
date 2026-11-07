@@ -619,6 +619,11 @@ kapatılamazsa hatalar birlikte yükseltilir ve engine bu kanalların sahipliği
 korur; sonraki `stop()` çağrısı temizliği yeniden deneyebilir. Başarılı bir
 `stop()` sonrasında engine yeniden kullanılabilir; sonraki `channel()` veya
 `add()` çağrısı yeni ya da açık kanallarla çalışmayı tekrar başlatır.
+`stop()` başladığında mevcut kanalların anlık görüntüsünü kapatır. Bu görüntü
+alındıktan sonra eşzamanlı bir `channel()` veya `add()` çağrısı yeni kanal
+oluşturup engine'i yeniden çalıştırabilir; devam eden `stop()` bu kanalı
+kapatmaz. Engine'in kapalı kalması gerekiyorsa uygulama shutdown ve kanal
+oluşturma işlemlerini sıraya koymalıdır.
 
 `AsyncEventEngine` aynı düzeni async bus'lar için sağlar. `channel()` ve
 `add()` doğrudan sonuç döndürür; yayın, abonelik, bekleme, kaldırma, start ve
