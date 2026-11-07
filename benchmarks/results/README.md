@@ -107,6 +107,30 @@ for native size-only batching. The extra coordination serves its deadline and
 bounded producer/consumer handoff; this change did not alter that path. These
 are local sequential measurements, not production guarantees.
 
+## AsyncStream root read (2026-11-07)
+
+Compared baseline `cbdf55b` with optimized commit `caacb2f` on Linux x86_64,
+using CPython 3.10.18 and 3.14.9. Each case consumed 5,000 items over 40
+iterations. The optimized path reads the root iterator directly for fused
+`map()`/`filter()` chains, skipping one nested `AsyncStream.__anext__()` call
+per item. Runs used separate sequential processes; the table reports whole
+stream latency and `tracemalloc` peak, not retained memory or process RSS.
+
+| Python | Case | Before p50 (us) | After p50 (us) | Before items/s | After items/s | Peak traced bytes |
+| --- | --- | ---: | ---: | ---: | ---: | ---: |
+| 3.10.18 | unbuffered | 19,140.583 | 16,287.464 | 261,207 | 306,930 | 3,804 -> 4,540 |
+| 3.10.18 | buffer-16 | 40,366.206 | 37,810.560 | 123,862 | 132,181 | 7,204 -> 7,657 |
+| 3.14.9 | unbuffered | 8,794.800 | 8,050.361 | 568,470 | 620,730 | 6,016 -> 7,264 |
+| 3.14.9 | buffer-16 | 18,054.025 | 17,685.558 | 276,936 | 282,485 | 12,149 -> 13,405 |
+
+Unbuffered p50 fell by 14.9% on Python 3.10.18 and 8.5% on Python 3.14.9;
+buffer-16 p50 fell by 6.3% and 2.0%. The latency improvement comes with a
+small increase in peak traced allocations: 736/1,248 bytes for unbuffered
+reads and 453/1,256 bytes for buffer-16. This trade-off is specific to this
+CPU-only synthetic source and these interpreters. Raw reports, including
+p95/p99 and all benchmark cases, are in
+[`stream_root_read.json`](stream_root_read.json).
+
 ## Runtime load and resource checks
 
 `runtime_load.json`, `callback_errors.json` and `pipeline_diagnostics.json` were
