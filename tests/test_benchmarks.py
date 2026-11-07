@@ -22,6 +22,33 @@ def _run_benchmark(module: str, *arguments: str, timeout: int = 20):
 
 
 class BenchmarkTests(unittest.TestCase):
+    def test_coalescer_benchmark_measures_worker_flush_and_merge_cases(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "coalescer.json"
+            _run_benchmark(
+                "benchmarks.benchmark_coalescer",
+                "--key-counts",
+                "8",
+                "16",
+                "--samples",
+                "1",
+                "--producers",
+                "2",
+                "--merge-updates",
+                "2",
+                "--output",
+                str(output),
+            )
+
+            report = json.loads(output.read_text(encoding="utf-8"))
+
+        self.assertEqual(report["benchmark"], "keyed-coalescer-worker-lifecycle")
+        self.assertEqual(
+            {result["case"] for result in report["results"]},
+            {"single-producer", "multi-producer", "merge-heavy", "concurrent-flush"},
+        )
+        self.assertTrue(all(result["p99_total_seconds"] > 0 for result in report["results"]))
+
     def test_runtime_report_covers_contention_memory_and_schedule_cleanup(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             output = Path(temporary_directory) / "runtime.json"

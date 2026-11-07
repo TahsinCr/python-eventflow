@@ -4,6 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Add a worker-backed `KeyedCoalescer` benchmark for single and concurrent
+  producers, merged updates, and concurrent flushes across configurable key
+  counts, with repeated end-to-end timing samples.
+
 ### Changed
 
 - Check Ruff formatting in GitHub Actions alongside lint rules.
