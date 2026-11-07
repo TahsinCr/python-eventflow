@@ -7,35 +7,38 @@ import tempfile
 import unittest
 from pathlib import Path
 
+REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+
+
+def _run_benchmark(module: str, *arguments: str, timeout: int = 20):
+    return subprocess.run(
+        [sys.executable, "-m", module, *arguments],
+        cwd=REPOSITORY_ROOT,
+        check=True,
+        capture_output=True,
+        text=True,
+        timeout=timeout,
+    )
+
 
 class BenchmarkTests(unittest.TestCase):
     def test_runtime_report_covers_contention_memory_and_schedule_cleanup(self) -> None:
-        repository = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temporary_directory:
             output = Path(temporary_directory) / "runtime.json"
-            subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "benchmarks.benchmark_runtime",
-                    "--iterations",
-                    "1",
-                    "--soak-operations",
-                    "2",
-                    "--samples",
-                    "1",
-                    "--publisher-counts",
-                    "1",
-                    "--schedule-counts",
-                    "1",
-                    "--output",
-                    str(output),
-                ],
-                cwd=repository,
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=20,
+            _run_benchmark(
+                "benchmarks.benchmark_runtime",
+                "--iterations",
+                "1",
+                "--soak-operations",
+                "2",
+                "--samples",
+                "1",
+                "--publisher-counts",
+                "1",
+                "--schedule-counts",
+                "1",
+                "--output",
+                str(output),
             )
 
             results = json.loads(output.read_text(encoding="utf-8"))["results"]
@@ -53,27 +56,17 @@ class BenchmarkTests(unittest.TestCase):
         )
 
     def test_keyed_limiter_benchmark_reports_waiter_samples(self) -> None:
-        repository = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temporary_directory:
             output = Path(temporary_directory) / "limiter.json"
-            subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "benchmarks.benchmark_keyed_limiter",
-                    "--waiters",
-                    "8",
-                    "16",
-                    "--repeats",
-                    "1",
-                    "--output",
-                    str(output),
-                ],
-                cwd=repository,
-                check=True,
-                capture_output=True,
-                text=True,
-                timeout=20,
+            _run_benchmark(
+                "benchmarks.benchmark_keyed_limiter",
+                "--waiters",
+                "8",
+                "16",
+                "--repeats",
+                "1",
+                "--output",
+                str(output),
             )
             report = json.loads(output.read_text(encoding="utf-8"))
 
@@ -82,7 +75,6 @@ class BenchmarkTests(unittest.TestCase):
         self.assertTrue(all(result["p50_seconds"] > 0 for result in report["results"]))
 
     def test_publish_and_pipeline_reports_include_error_and_middleware_cases(self) -> None:
-        repository = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temporary_directory:
             callback_output = Path(temporary_directory) / "callbacks.json"
             pipeline_output = Path(temporary_directory) / "pipeline.json"
@@ -90,21 +82,12 @@ class BenchmarkTests(unittest.TestCase):
                 ("benchmarks.benchmark_publish", callback_output),
                 ("benchmarks.benchmark_pipeline", pipeline_output),
             ):
-                subprocess.run(
-                    [
-                        sys.executable,
-                        "-m",
-                        module,
-                        "--iterations",
-                        "1",
-                        "--output",
-                        str(output),
-                    ],
-                    cwd=repository,
-                    check=True,
-                    capture_output=True,
-                    text=True,
-                    timeout=20,
+                _run_benchmark(
+                    module,
+                    "--iterations",
+                    "1",
+                    "--output",
+                    str(output),
                 )
 
             callback_cases = {
@@ -122,25 +105,16 @@ class BenchmarkTests(unittest.TestCase):
         self.assertIn("async/20/middleware", pipeline_cases)
 
     def test_stream_report_includes_equivalent_native_baseline(self) -> None:
-        repository = Path(__file__).resolve().parents[1]
         with tempfile.TemporaryDirectory() as temporary_directory:
             output = Path(temporary_directory) / "stream.json"
-            subprocess.run(
-                [
-                    sys.executable,
-                    "-m",
-                    "benchmarks.benchmark_stream",
-                    "--iterations",
-                    "1",
-                    "--items",
-                    "5",
-                    "--output",
-                    str(output),
-                ],
-                cwd=repository,
-                check=True,
-                capture_output=True,
-                text=True,
+            _run_benchmark(
+                "benchmarks.benchmark_stream",
+                "--iterations",
+                "1",
+                "--items",
+                "5",
+                "--output",
+                str(output),
             )
 
             results = json.loads(output.read_text(encoding="utf-8"))["results"]
@@ -162,25 +136,16 @@ class BenchmarkTests(unittest.TestCase):
             self.assertGreater(result["items_per_second"], 0)
 
     def test_replay_benchmark_includes_sparse_filtered_history(self) -> None:
-        repository = Path(__file__).resolve().parents[1]
-        result = subprocess.run(
-            [
-                sys.executable,
-                "-m",
-                "benchmarks.benchmark_replay",
-                "--events",
-                "20",
-                "--replay",
-                "1",
-                "--iterations",
-                "1",
-                "--samples",
-                "1",
-            ],
-            cwd=repository,
-            check=True,
-            capture_output=True,
-            text=True,
+        result = _run_benchmark(
+            "benchmarks.benchmark_replay",
+            "--events",
+            "20",
+            "--replay",
+            "1",
+            "--iterations",
+            "1",
+            "--samples",
+            "1",
             timeout=10,
         )
         self.assertIn("Sparse filtered history query", result.stdout)

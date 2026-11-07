@@ -167,7 +167,7 @@ Reproduce the optimized measurement with:
 python -m benchmarks.benchmark_keyed_limiter --waiters 100 1000 5000 --repeats 3 --output keyed_limiter.json
 ```
 
-## Unreleased micro-optimizations (2026-11-04)
+## v1.3.1 performance measurements (2026-11-04)
 
 Paired local comparisons used Linux 7.2.11 x86_64 with CPython 3.10.22 and
 3.14.9. Each baseline and optimized source tree was loaded from its recorded
