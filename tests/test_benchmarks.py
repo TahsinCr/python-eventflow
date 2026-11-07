@@ -47,7 +47,7 @@ class BenchmarkTests(unittest.TestCase):
             {result["case"] for result in report["results"]},
             {"single-producer", "multi-producer", "merge-heavy", "concurrent-flush"},
         )
-        self.assertTrue(all(result["p99_total_seconds"] > 0 for result in report["results"]))
+        self.assertTrue(all(result["median_total_seconds"] > 0 for result in report["results"]))
 
     def test_runtime_report_covers_contention_memory_and_schedule_cleanup(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:

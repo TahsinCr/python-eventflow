@@ -8,7 +8,6 @@ from __future__ import annotations
 
 import argparse
 import json
-import math
 import platform
 import threading
 from concurrent.futures import ThreadPoolExecutor
@@ -27,11 +26,6 @@ def _positive(value: str) -> int:
     if result < 1:
         raise argparse.ArgumentTypeError("value must be a positive integer")
     return result
-
-
-def _percentile(values: list[float], fraction: float) -> float:
-    ordered = sorted(values)
-    return ordered[max(0, math.ceil(fraction * len(ordered)) - 1)]
 
 
 def _sample(
@@ -137,8 +131,8 @@ def _measure_case(
         "median_push_seconds": median(sample["push_seconds"] for sample in timings),
         "median_drain_seconds": median(sample["drain_seconds"] for sample in timings),
         "median_total_seconds": median(totals),
-        "p95_total_seconds": _percentile(totals, 0.95),
-        "p99_total_seconds": _percentile(totals, 0.99),
+        "min_total_seconds": min(totals),
+        "max_total_seconds": max(totals),
         "sample_total_seconds": totals,
     }
 
@@ -180,7 +174,7 @@ def _run(
 def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--key-counts", type=_positive, nargs="+", default=[128, 1024, 4096, 16384])
-    parser.add_argument("--samples", type=_positive, default=5)
+    parser.add_argument("--samples", type=_positive, default=10)
     parser.add_argument("--producers", type=_positive, default=4)
     parser.add_argument("--merge-updates", type=_positive, default=8)
     parser.add_argument("--output", type=Path)
