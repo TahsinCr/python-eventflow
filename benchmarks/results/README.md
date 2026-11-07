@@ -7,6 +7,8 @@ benchmark source files differ from that revision, and a SHA-256 fingerprint of
 the runtime package, benchmark Python files and `pyproject.toml`. Generated
 result files are excluded from the fingerprint. Reports also record whether
 the interpreter has the GIL enabled when that information is available.
+The multi-publisher bridge benchmark additionally reports process CPU seconds
+and CPU use as a percentage of one core's wall-clock capacity.
 `benchmark_compare` stores this metadata for both the candidate and its
 baseline. Metadata collection runs after the timed samples. Existing historical
 JSON records are left as they were measured.
@@ -366,3 +368,35 @@ does not measure CPU-bound scaling across many publisher threads. The free-
 threaded build was slower on the same-thread case and faster on the cross-thread
 round-trip in these local samples. The measurements do not establish a general
 speedup for EventFlow or Python code, and traced allocation peaks are not RSS.
+
+## Multi-publisher bridge handoff (2026-11-07)
+
+Measured CPython 3.14.9 with the GIL enabled and CPython 3.14.3t with the GIL
+disabled on the same Linux x86_64 host. Each count used 500 sends per publisher
+and five samples. A publisher waited for an async consumer acknowledgement
+before sending its next event. Throughput is the median across samples;
+round-trip P50/P95/P99 and process CPU use are the medians of the corresponding
+per-sample values. CPU use is normalized to one core and can exceed 100% when
+threads execute in parallel. Each run delivered all 75,000 measured events.
+
+| Python | Publishers | Throughput (ops/s) | CPU (% of one core) | P50 (us) | P95 (us) | P99 (us) |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: |
+| 3.14.9, GIL on | 2 | 19,762 | 112.4 | 79.6 | 205.2 | 289.4 |
+| 3.14.9, GIL on | 4 | 13,580 | 110.3 | 275.4 | 466.8 | 627.0 |
+| 3.14.9, GIL on | 8 | 14,169 | 109.9 | 518.3 | 946.9 | 1,302.7 |
+| 3.14.9, GIL on | 16 | 12,677 | 105.3 | 1,128.9 | 2,156.5 | 2,936.9 |
+| 3.14.3t, GIL off | 2 | 38,452 | 217.8 | 31.3 | 155.7 | 223.9 |
+| 3.14.3t, GIL off | 4 | 67,781 | 359.8 | 41.0 | 125.1 | 237.1 |
+| 3.14.3t, GIL off | 8 | 63,834 | 477.2 | 109.6 | 200.6 | 287.9 |
+| 3.14.3t, GIL off | 16 | 64,266 | 525.2 | 232.4 | 353.4 | 442.4 |
+
+In these samples, GIL-disabled throughput rose from two to four publishers and
+then largely plateaued; the GIL-enabled run did not improve with additional
+publishers, and its tail latency grew. This is useful evidence for the target
+handoff path, not a general interpreter or deployment comparison: the runs are
+short local measurements and were not isolated from host scheduling noise.
+Both JSON files identify commit `a7fd6c377a9e3707406651866c3fbf12e65dd034`,
+record a clean source state, and share source fingerprint
+`ff604a13c3d82eb9f12d5b38657dcde257ad4da63202b3575834e6c8c98774ee`:
+[`GIL enabled`](bridge_publishers_cpython_3.14.9_gil_on_2026-11-07.json) ·
+[`GIL disabled`](bridge_publishers_cpython_3.14.3t_gil_off_2026-11-07.json).
