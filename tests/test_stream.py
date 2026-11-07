@@ -299,6 +299,18 @@ class StreamTests(unittest.IsolatedAsyncioTestCase):
         self.assertTrue(closed.is_set())
         self.assert_no_stream_tasks()
 
+    async def test_map_preserves_upstream_anext_override(self):
+        class DoubledStream(AsyncStream[int]):
+            async def __anext__(self) -> int:
+                return 2 * await super().__anext__()
+
+        async def source():
+            yield 3
+
+        root = DoubledStream(source())
+        async with root.map(lambda value: value + 1).filter(lambda value: value == 7) as stream:
+            self.assertEqual(await stream.__anext__(), 7)
+
     async def test_concurrent_reads_are_rejected(self):
         entered, release = asyncio.Event(), asyncio.Event()
 

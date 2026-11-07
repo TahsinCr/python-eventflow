@@ -55,6 +55,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Preserve upstream `AsyncStream.__anext__()` overrides in fused `map()` and
+  `filter()` chains by using the direct root-iterator path only when no override
+  is present.
 - Wake waiting `AsyncEventQueue` consumers for accepted events even when
   observer reporting raises.
 - Keep `KeyedCoalescer` workers alive after observer failures, finish accepted
