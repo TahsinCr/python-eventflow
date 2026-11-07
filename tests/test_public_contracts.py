@@ -19,6 +19,10 @@ from eventflow import (
     Subscription,
 )
 
+_MODULE_ONLY_EXPORTS = {
+    ".observability": {"ExecutionStatus", "ObservationKind"},
+}
+
 
 class PublicContractTests(unittest.TestCase):
     def test_readme_examples_before_integrated_section_execute(self):
@@ -76,8 +80,17 @@ class PublicContractTests(unittest.TestCase):
             exports_by_module.setdefault(module_name, set()).add(name)
 
         for module_name, module in module_exports.items():
-            module_public_exports = set(getattr(module, "__all__", ())) & set(exports)
-            self.assertEqual(module_public_exports, exports_by_module[module_name])
+            module_public_exports = set(getattr(module, "__all__", ()))
+            mapped_exports = exports_by_module[module_name]
+            module_only_exports = _MODULE_ONLY_EXPORTS.get(module_name, set())
+            self.assertTrue(module_only_exports.issubset(module_public_exports), module_name)
+            self.assertEqual(
+                module_public_exports,
+                mapped_exports | module_only_exports,
+                f"Review package exports for {module_name}",
+            )
+
+        self.assertTrue(set(_MODULE_ONLY_EXPORTS).issubset(module_exports))
 
         for name in exports:
             self.assertIsNotNone(getattr(eventflow, name), name)
