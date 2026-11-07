@@ -104,12 +104,13 @@ jobs:
           pyright examples benchmarks --pythonversion "${{ matrix.python-version }}"
 
   free-threaded:
-    name: Python ${{ matrix.python-version }} with GIL disabled
-    runs-on: ubuntu-latest
+    name: Python ${{ matrix.python-version }} with GIL disabled on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
     timeout-minutes: 20
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.14t", "3.15t"]
     steps:
       - name: Check out source

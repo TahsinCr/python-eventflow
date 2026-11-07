@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Run the full suite on GIL-disabled CPython 3.14t and 3.15t on Windows and
+  macOS as well as the existing Ubuntu jobs.
 - Add focused `LoopPortal` tests for retrying a failed thread start and releasing
   the loop thread after startup failure.
 - Run the full unit suite on Ubuntu with the GIL explicitly disabled on CPython
