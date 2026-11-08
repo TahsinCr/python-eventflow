@@ -395,3 +395,88 @@ record a clean source state, and share source fingerprint
 `ff604a13c3d82eb9f12d5b38657dcde257ad4da63202b3575834e6c8c98774ee`:
 [`GIL enabled`](bridge_publishers_cpython_3.14.9_gil_on_2026-11-07.json) ·
 [`GIL disabled`](bridge_publishers_cpython_3.14.3t_gil_off_2026-11-07.json).
+
+## Pyperf bridge baseline: CPython 3.15.2 (2026-11-08)
+
+Captured the current bridge workloads on CPython 3.15.2 with the GIL enabled
+and CPython 3.15.2t with the GIL disabled. Both builds ran on the same Linux
+x86_64 host (Intel Core i7-12700H, kernel 7.2.14, glibc 2.44) with pyperf
+2.11.0. Pyperf used 20 worker processes, five values per process, two warmups,
+and a 0.2-second minimum value duration. `PYTHON_GIL=0` was set for the
+free-threaded workers and the recorded GIL metadata confirms both modes.
+
+The round-trip workload was pinned to CPU 4, one P-core, to measure handoff
+latency without cross-core migration. The publisher-scaling workload was pinned
+to CPUs 0, 2, 4, 6, 8, and 10, one logical thread from each P-core, leaving
+room for concurrent publisher threads. No system-wide performance tuning was
+applied. All four records use the same clean source revision
+`68889c517f1090fb69a58ebeb38feaccd6dd5b6f` and source fingerprint
+`d458ff18c45eb516a406daa77233898ad68b402f74392cd6c060238b2e54cb4a`.
+
+The files contain pyperf's raw values and environment metadata:
+
+- [Round-trip, GIL enabled](bridge_roundtrip_cpython_3.15.2_gil_on_2026-11-08.json)
+- [Round-trip, GIL disabled](bridge_roundtrip_cpython_3.15.2t_gil_off_2026-11-08.json)
+- [Publisher scaling, GIL enabled](bridge_publishers_cpython_3.15.2_gil_on_2026-11-08.json)
+- [Publisher scaling, GIL disabled](bridge_publishers_cpython_3.15.2t_gil_off_2026-11-08.json)
+
+These pyperf measurements use explicit CPU affinity and should not be compared
+directly with the earlier custom-runner observations above; the earlier runs
+used different sampling and scheduling conditions.
+
+### Waiting-consumer round-trip
+
+Values below are pyperf comparison times per event; lower is faster. The
+same-thread case publishes on the event-loop thread. The cross-thread case
+publishes from a persistent worker thread and waits for the async consumer's
+acknowledgement.
+
+| Case | GIL enabled | GIL disabled | Comparison |
+| --- | ---: | ---: | --- |
+| Same-thread waiting consumer | 12.1 us | 13.7 us | 1.13x slower without the GIL |
+| Cross-thread waiting consumer | 50.8 us | 67.5 us | 1.33x slower without the GIL |
+
+The raw files also retain direct-await and `LoopPortal` cases; the table focuses
+on the queue bridge, and `pyperf compare_to` found no significant difference
+for the `LoopPortal` case.
+
+### Concurrent publishers
+
+The publisher benchmark reports wall-clock and process CPU time per delivered
+event after queue and thread setup. CPU time can exceed wall time when several
+threads execute in parallel.
+
+| Publishers | Wall, GIL on | Wall, GIL off | Wall comparison | CPU, GIL on | CPU, GIL off |
+| ---: | ---: | ---: | --- | ---: | ---: |
+| 1 | 36.5 us | 35.0 us | 1.04x faster | 39.3 us | 53.4 us |
+| 2 | 29.7 us | 17.3 us | 1.72x faster | 33.7 us | 43.0 us |
+| 4 | 32.8 us | 9.26 us | 3.54x faster | 36.4 us | 40.1 us |
+| 8 | 32.3 us | 10.7 us | 3.01x faster | 36.1 us | 49.8 us |
+| 16 | 32.6 us | 11.8 us | 2.76x faster | 36.0 us | 61.3 us |
+
+On this host, free-threaded CPython reduced wall time once multiple publishers
+were active, while increasing process CPU time per event. Single-event
+round-trip latency was slower in the free-threaded build under the isolated
+single-core setup. Pyperf marked several publisher samples as unstable at its
+1% variation target; the 4% single-publisher wall-time difference is therefore
+not actionable. Treat the larger multi-publisher differences as a workload-
+specific signal to reproduce on another machine before making implementation
+decisions. These numbers do not establish a general speedup for EventFlow or
+free-threaded Python.
+
+Reproduce the publisher workload with the same sampling settings and choose
+the interpreter explicitly for each build:
+
+```bash
+python -m benchmarks.benchmark_bridge_publishers \
+  --publishers 1 2 4 8 16 \
+  --processes 20 --values 5 --warmups 2 --min-time 0.2 \
+  --affinity 0,2,4,6,8,10 --output gil-on.json
+
+PYTHON_GIL=0 python -m benchmarks.benchmark_bridge_publishers \
+  --publishers 1 2 4 8 16 \
+  --processes 20 --values 5 --warmups 2 --min-time 0.2 \
+  --affinity 0,2,4,6,8,10 --output gil-off.json
+
+python -m pyperf compare_to gil-on.json gil-off.json --table
+```
