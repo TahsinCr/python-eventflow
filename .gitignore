@@ -13,8 +13,10 @@ build/
 dist/
 *.egg-info/
 
-MEMORY.md
-.serena/
+.serena/*
+!.serena/memories/
+.serena/memories/*
+!.serena/memories/MEMORY.md
 .idea/
 .vscode/
 *.swp
