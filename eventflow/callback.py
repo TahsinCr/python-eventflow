@@ -13,8 +13,8 @@ from dataclasses import dataclass
 from typing import Any
 
 from ._callbacks import synchronous_result
+from ._compatibility import ExceptionGroup
 from ._lifecycle import ensure_future_safely, finish_cleanup
-from .compatibility import ExceptionGroup
 from .errors import CallbackTimeoutError
 from .subscription import Subscription
 

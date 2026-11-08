@@ -24,7 +24,7 @@ from eventflow import (
     MemoryEventHistory,
     PublishResult,
 )
-from eventflow.compatibility import ExceptionGroup
+from eventflow._compatibility import ExceptionGroup
 
 
 class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):

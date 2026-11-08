@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import unittest
 
-from eventflow.compatibility import BaseExceptionGroup, ExceptionGroup, StrEnum
+from eventflow._compatibility import BaseExceptionGroup, ExceptionGroup, StrEnum
 
 
 class CompatibilityTests(unittest.TestCase):

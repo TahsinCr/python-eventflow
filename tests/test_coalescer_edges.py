@@ -9,7 +9,7 @@ import unittest
 from concurrent.futures import ThreadPoolExecutor
 from unittest.mock import patch
 
-from eventflow.compatibility import ExceptionGroup
+from eventflow._compatibility import ExceptionGroup
 from eventflow.observability import OperationStats
 from eventflow.scheduling import KeyedCoalescer
 

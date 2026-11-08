@@ -13,6 +13,7 @@ from dataclasses import dataclass, field
 from typing import Generic, TypeVar
 
 from ._callbacks import is_async_callable, synchronous_result
+from ._compatibility import ExceptionGroup
 from .actions import EventBusActions, EventErrorContext, EventTimeoutContext
 from .base import (
     BaseEventBus,
@@ -21,7 +22,6 @@ from .base import (
     validate_nonnegative_count,
     validate_positive_capacity,
 )
-from .compatibility import ExceptionGroup
 from .contracts import ErrorPolicy, EventBusStats, PublishResult
 from .errors import EventBusError, EventShutdownTimeoutError, InvalidEventHandlerError
 from .filtering import EventFilter, EventType, coerce_event_filter

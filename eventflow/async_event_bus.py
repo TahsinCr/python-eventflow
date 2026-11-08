@@ -11,6 +11,7 @@ from dataclasses import field as dataclass_field
 from typing import Generic, TypeVar, cast
 
 from ._callbacks import is_async_callable
+from ._compatibility import ExceptionGroup
 from ._lifecycle import create_task_safely, finish_cleanup
 from .actions import AsyncEventBusActions, EventErrorContext, EventTimeoutContext
 from .base import (
@@ -20,7 +21,6 @@ from .base import (
     validate_nonnegative_count,
     validate_positive_capacity,
 )
-from .compatibility import ExceptionGroup
 from .contracts import DeliveryMode, ErrorPolicy, EventBusStats, PublishResult
 from .errors import EventBusError, InvalidEventHandlerError
 from .filtering import EventFilter, EventType, coerce_event_filter

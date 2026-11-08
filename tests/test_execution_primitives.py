@@ -8,9 +8,9 @@ import unittest
 from _support import ManualClock
 
 from eventflow import EventBus
+from eventflow._compatibility import ExceptionGroup
 from eventflow.bridges import AsyncEventQueue
 from eventflow.cache import VersionedCache
-from eventflow.compatibility import ExceptionGroup
 from eventflow.concurrency import KeyedConcurrencyLimiter, KeyedRateLimiter
 from eventflow.executors import BoundedWorkPool
 from eventflow.observability import OperationStats

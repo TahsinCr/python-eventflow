@@ -13,12 +13,12 @@ from dataclasses import dataclass
 from typing import Generic, Literal, TypeVar
 
 from ._callbacks import close_awaitable, synchronous_result
+from ._compatibility import ExceptionGroup
 from .base import (
     validate_finite_duration,
     validate_nonnegative_timeout,
     validate_positive_capacity,
 )
-from .compatibility import ExceptionGroup
 from .errors import CircuitOpenError
 from .timing import Deadline
 

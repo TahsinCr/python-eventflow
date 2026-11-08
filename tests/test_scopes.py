@@ -4,7 +4,7 @@ import unittest
 from unittest.mock import patch
 
 from eventflow import AsyncEventBus, EventBus
-from eventflow.compatibility import ExceptionGroup
+from eventflow._compatibility import ExceptionGroup
 from eventflow.scopes import AsyncSubscriptionScope, ResourceScope, SubscriptionScope
 from eventflow.subscription import AsyncSubscription
 

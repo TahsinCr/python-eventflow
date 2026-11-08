@@ -9,7 +9,7 @@ from concurrent.futures import ThreadPoolExecutor
 
 from _support import ManualClock
 
-from eventflow.compatibility import ExceptionGroup
+from eventflow._compatibility import ExceptionGroup
 from eventflow.errors import CircuitOpenError
 from eventflow.resilience import CircuitBreaker, CooldownRegistry, RetryPolicy
 from eventflow.timing import Deadline

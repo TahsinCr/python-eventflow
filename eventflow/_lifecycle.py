@@ -5,7 +5,7 @@ import inspect
 from collections.abc import Awaitable, Coroutine
 from typing import Any, TypeVar
 
-from .compatibility import BaseExceptionGroup, ExceptionGroup
+from ._compatibility import BaseExceptionGroup, ExceptionGroup
 
 T = TypeVar("T")
 

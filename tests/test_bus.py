@@ -35,7 +35,7 @@ from eventflow import (
     correlation_context,
     current_correlation_id,
 )
-from eventflow.compatibility import ExceptionGroup
+from eventflow._compatibility import ExceptionGroup
 
 
 class EventBusTests(unittest.TestCase):

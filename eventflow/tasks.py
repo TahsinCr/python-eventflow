@@ -10,6 +10,7 @@ from types import MappingProxyType
 from typing import Any, Generic, Literal, TypeVar, cast
 
 from ._callbacks import close_awaitable
+from ._compatibility import BaseExceptionGroup, ExceptionGroup
 from ._lifecycle import (
     bind_running_loop,
     create_task_safely,
@@ -17,7 +18,6 @@ from ._lifecycle import (
     request_task_cancellation,
 )
 from .base import validate_nonnegative_timeout
-from .compatibility import BaseExceptionGroup, ExceptionGroup
 from .observability import OperationStats, _require_operation_stats
 
 T = TypeVar("T")

@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Rename the Python-version compatibility helper to `eventflow._compatibility`
+  to mark it as an internal module.
 - Use pyperf as the shared timing and result engine for all benchmark modules.
   Benchmark runs now produce standard pyperf JSON, which can be compared with
   `pyperf compare_to`; source identity and the worker's observed GIL mode remain

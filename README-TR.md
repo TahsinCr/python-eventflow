@@ -319,9 +319,10 @@ güncellenir. Devam eden veya iptal edilen async yayınlarda değerler farklı
 kalabilir. `failed`, yalnızca başarısız handler'ları değil; handler, filtre ve
 action hatası kayıtlarını sayar.
 
-Python 3.10 ve üzerindeki sürümlerde aynı import ile gruplandırılmış hataları
-yakalamak için `ExceptionGroup` sınıfını `eventflow.compatibility` modülünden
-alın. Python 3.11 ve üzerindeki sürümlerde bu ad yerleşik sınıfa işaret eder.
+Python 3.10'da gruplandırılmış hataları yakalamak için `ExceptionGroup`
+sınıfını `exceptiongroup` backport'undan alın. Python 3.11 ve üzerindeki
+sürümlerde yerleşik `ExceptionGroup` sınıfını kullanın. EventFlow etkin Python
+sürümüne karşılık gelen sınıfı kullanır.
 
 <a id="working-with-events"></a>
 ## Event'lerle çalışma

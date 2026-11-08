@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 
-from .compatibility import StrEnum
+from ._compatibility import StrEnum
 
 
 class ErrorPolicy(StrEnum):

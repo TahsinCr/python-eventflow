@@ -309,9 +309,9 @@ callbacks run; `delivered` and `failed` are finalized afterward. An in-flight
 or cancelled async publish can leave them different. `failed` counts collected
 errors from handlers, filters, and actions, not only failed handlers.
 
-To catch grouped failures with the same import on Python 3.10 and newer, import
-`ExceptionGroup` from `eventflow.compatibility`. On Python 3.11 and newer, that
-name refers to the built-in exception group class.
+On Python 3.10, import `ExceptionGroup` from the `exceptiongroup` backport. On
+Python 3.11 and newer, use the built-in `ExceptionGroup` class. EventFlow uses
+the corresponding class for the active Python version.
 
 ## Working with events
 

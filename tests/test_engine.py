@@ -15,7 +15,7 @@ from eventflow import (
     EventBusClosedError,
     EventEngine,
 )
-from eventflow.compatibility import ExceptionGroup
+from eventflow._compatibility import ExceptionGroup
 
 
 class EventEngineTests(unittest.TestCase):

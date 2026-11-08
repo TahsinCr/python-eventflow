@@ -5,7 +5,7 @@ from __future__ import annotations
 import threading
 import unittest
 
-from eventflow.compatibility import ExceptionGroup
+from eventflow._compatibility import ExceptionGroup
 from eventflow.executors import BoundedWorkPool
 from eventflow.observability import OperationStats
 from eventflow.policy import PolicyEvaluator

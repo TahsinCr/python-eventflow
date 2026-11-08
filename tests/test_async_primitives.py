@@ -10,8 +10,8 @@ from unittest.mock import patch
 from _support import ManualClock
 
 from eventflow import ErrorPolicy, EventBus
+from eventflow._compatibility import ExceptionGroup
 from eventflow.bridges import AsyncEventQueue
-from eventflow.compatibility import ExceptionGroup
 from eventflow.concurrency import KeyedConcurrencyLimiter, KeyedRateLimiter, SingleFlight
 from eventflow.errors import EventQueueClosedError, QueueOverflowError
 from eventflow.observability import OperationStats

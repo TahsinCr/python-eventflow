@@ -10,8 +10,8 @@ import unittest
 from unittest.mock import patch
 
 from eventflow import ErrorPolicy, EventBus
+from eventflow._compatibility import ExceptionGroup
 from eventflow.bridges import AsyncEventQueue, LoopPortal
-from eventflow.compatibility import ExceptionGroup
 from eventflow.errors import EventQueueClosedError, LoopPortalClosedError
 from eventflow.observability import OperationStats
 

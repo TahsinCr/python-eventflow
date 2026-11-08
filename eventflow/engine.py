@@ -7,6 +7,7 @@ from collections.abc import Awaitable, Callable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Generic, TypeVar
 
+from ._compatibility import ExceptionGroup
 from .actions import (
     AsyncEventBusActions,
     EventBusActions,
@@ -15,7 +16,6 @@ from .actions import (
 )
 from .async_event_bus import AsyncEventBus
 from .base import BaseEventBus, validate_positive_capacity
-from .compatibility import ExceptionGroup
 from .contracts import DeliveryMode, ErrorPolicy, PublishResult
 from .errors import EventBusClosedError
 from .event_bus import EventBus, _validate_executor

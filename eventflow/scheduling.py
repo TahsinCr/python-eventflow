@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from typing import Any, Generic, Literal, TypeVar
 
 from ._callbacks import close_awaitable, synchronous_result
+from ._compatibility import BaseExceptionGroup, ExceptionGroup
 from ._lifecycle import (
     bind_running_loop,
     create_task_safely,
@@ -25,7 +26,6 @@ from .base import (
     validate_nonnegative_timeout,
     validate_positive_capacity,
 )
-from .compatibility import BaseExceptionGroup, ExceptionGroup
 from .observability import OperationStats, _require_operation_stats
 
 K = TypeVar("K", bound=Hashable)

@@ -9,7 +9,7 @@ from unittest.mock import patch
 
 from _support import _AsyncValueMixin
 
-from eventflow.compatibility import ExceptionGroup
+from eventflow._compatibility import ExceptionGroup
 from eventflow.observability import OperationStats
 from eventflow.scopes import AsyncResourceScope
 from eventflow.tasks import AsyncTaskScope, LatestTaskCoordinator

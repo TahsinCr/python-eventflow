@@ -4,7 +4,7 @@ import asyncio
 import unittest
 
 from eventflow import AsyncEventBus, AsyncEventEngine, DeliveryMode, ErrorPolicy
-from eventflow.compatibility import ExceptionGroup
+from eventflow._compatibility import ExceptionGroup
 
 
 class AsyncDeliveryLimitTests(unittest.IsolatedAsyncioTestCase):
