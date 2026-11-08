@@ -99,11 +99,13 @@ class PyperfRunnerTests(unittest.TestCase):
                 "from benchmarks._runner import (bench_async, bench_sync, create_runner, "
                 "forward_cli_arguments)\n"
                 "runner = create_runner('benchmark runner smoke test', "
-                "add_cmdline_args=forward_cli_arguments('case', 'items'))\n"
+                "add_cmdline_args=forward_cli_arguments('case', 'items', 'labels'))\n"
                 "runner.argparser.add_argument('--case', default='default')\n"
                 "runner.argparser.add_argument('--items', type=int, nargs='+', default=[1])\n"
+                "runner.argparser.add_argument('--labels', "
+                "type=lambda value: tuple(value.split(',')), default=('default',))\n"
                 "args = runner.parse_args()\n"
-                "case_name = '-'.join(map(str, args.items))\n"
+                "case_name = '-'.join((*map(str, args.items), *args.labels))\n"
                 "bench_sync(runner, f'sync-smoke-{args.case}-{case_name}', "
                 "lambda: sum((1, 2, 3)))\n"
                 "async def async_smoke():\n"
@@ -130,6 +132,8 @@ class PyperfRunnerTests(unittest.TestCase):
                     "--items",
                     "2",
                     "3",
+                    "--labels",
+                    "red,blue",
                     "--output",
                     str(output),
                 ],
@@ -148,7 +152,7 @@ class PyperfRunnerTests(unittest.TestCase):
 
         benchmarks = document["benchmarks"]
         names = {item["metadata"]["name"] for item in benchmarks}
-        self.assertEqual(names, {"sync-smoke-custom-2-3", "async-smoke"})
+        self.assertEqual(names, {"sync-smoke-custom-2-3-red-blue", "async-smoke"})
         metadata = document["metadata"]
         self.assertEqual(metadata["eventflow_implementation"], "python")
         self.assertIn(metadata["eventflow_gil"], {"enabled", "disabled", "unavailable"})

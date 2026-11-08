@@ -50,8 +50,10 @@ def forward_cli_arguments(*names: str) -> Callable[[list[str], Namespace], None]
         for name, option in options:
             value = getattr(args, name)
             command.append(option)
-            if isinstance(value, (list, tuple)):
+            if isinstance(value, list):
                 command.extend(str(item) for item in value)
+            elif isinstance(value, tuple):
+                command.append(",".join(str(item) for item in value))
             else:
                 command.append(str(value))
 
