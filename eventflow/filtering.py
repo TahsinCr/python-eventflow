@@ -36,13 +36,13 @@ class EventFilter(Generic[T]):
         if self.predicate is None:
             return True
         result = self.predicate(event)
+        if type(result) is bool:
+            return result
         if inspect.isawaitable(result):
             if inspect.iscoroutine(result):
                 result.close()
             raise TypeError("Event filter predicates must return a boolean synchronously")
-        if type(result) is not bool:
-            raise TypeError("Event filter predicates must return bool")
-        return result
+        raise TypeError("Event filter predicates must return bool")
 
 
 def coerce_event_filter(

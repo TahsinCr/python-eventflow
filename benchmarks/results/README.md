@@ -140,6 +140,33 @@ CPU-only synthetic source and these interpreters. Raw reports, including
 p95/p99 and all benchmark cases, are in
 [`stream_root_read.json`](stream_root_read.json).
 
+## EventFilter boolean fast path (2026-11-09)
+
+The `history/query-sparse-filter` case scans a 100,000-event history from newest
+to oldest for the oldest matching event (`event == 0`) with a replay limit of
+one. On CPython 3.14.9/Linux x86_64, pinned to logical CPU 4, the pyperf 2.11.0
+mean fell from 42.5 ms (0.4 ms standard deviation) to 9.48 ms (0.16 ms), a
+4.48x speedup. `EventFilter.matches()` now returns exact `bool` predicate
+results without calling `inspect.isawaitable`; other return types retain the
+existing awaitable validation and error behavior. The query remains an O(n)
+scan and no history index was added.
+
+Each run used 10 worker processes, 5 values per process, 2 warmups and a 0.2 s
+minimum sample duration. pyperf warned that the samples did not establish its
+95% certainty target for less than 1% variation. Treat this as strong,
+workload-specific local evidence, not a stable cross-machine timing guarantee.
+The raw before/after JSON records include revision, source fingerprint, GIL
+state, affinity and individual values:
+[`history_sparse_filter_before_2026-11-09.json`](history_sparse_filter_before_2026-11-09.json),
+[`history_sparse_filter_after_2026-11-09.json`](history_sparse_filter_after_2026-11-09.json).
+
+The baseline is clean revision `2f13c2e`; the after record carries the same
+revision plus a dirty-source fingerprint for the measured working tree. The
+benchmark exercises the history/filter path only. A native extension was not
+introduced: each scanned event still invokes the caller's Python predicate,
+so moving the loop to C would retain that callback boundary while adding a
+second backend and packaging cost.
+
 ## Runtime load and resource checks
 
 `runtime_load.json`, `callback_errors.json` and `pipeline_diagnostics.json` were
