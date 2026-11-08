@@ -35,7 +35,7 @@ jobs:
 
       - name: Run unit tests
         if: matrix.os != 'ubuntu-latest' || matrix.python-version != '3.10'
-        run: python -m unittest discover -s tests -v
+        run: python run_tests.py
 
       - name: Measure package and branch coverage
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10'
@@ -136,7 +136,7 @@ jobs:
           PYTHON_GIL: "0"
           PYTHONASYNCIODEBUG: "1"
           PYTHONWARNINGS: error
-        run: python -m unittest discover -s tests -v
+        run: python run_tests.py
 
   dependency-audit:
     name: Audit runtime dependencies

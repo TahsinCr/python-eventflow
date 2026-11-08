@@ -110,13 +110,14 @@ proje kök dizininden çalıştırın:
 
 ~~~bash
 python -m pip install -e ".[dev]"
-python -m unittest discover -s tests -v
+python run_tests.py
 ruff check .
 pyright
 ~~~
 
-`dev` ek paketi Ruff ve Pyright'ı sağlar. Testler Python'ın standart
-`unittest` altyapısını kullanır.
+`dev` ek paketi Ruff, Pyright ve pyperf'i sağlar. `run_tests.py`, Python'ın
+standart `unittest` testlerinin tamamını çalıştırır ve her testin sonucunu
+(`ok` dahil) gösterir; test başarısız olursa hata koduyla çıkar.
 
 <a id="version"></a>
 ### Sürüm bilgisi

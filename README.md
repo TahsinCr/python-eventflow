@@ -107,13 +107,14 @@ checks from the project root:
 
 ~~~bash
 python -m pip install -e ".[dev]"
-python -m unittest discover -s tests -v
+python run_tests.py
 ruff check .
 pyright
 ~~~
 
-The `dev` extra provides Ruff and Pyright. The tests use Python's standard
-`unittest` framework.
+The `dev` extra provides Ruff, Pyright and pyperf. `run_tests.py` runs the full
+standard-library `unittest` suite and prints each test's result, including `ok`
+for passing tests. It returns a failure status if any test fails.
 
 ### Version
 

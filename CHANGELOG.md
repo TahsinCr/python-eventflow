@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Add a root-level `run_tests.py` command that prints each test result and
+  returns a failure status when the suite fails.
+
 ### Changed
 
 - Rename the Python-version compatibility helper to `eventflow._compatibility`
