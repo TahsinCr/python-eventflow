@@ -21,6 +21,11 @@ All notable changes to this project are documented in this file.
   after queue and thread setup, so GIL-enabled and free-threaded runs can be
   compared with the same workload and result format.
 
+### Fixed
+
+- Forward custom benchmark arguments to pyperf worker processes so publisher
+  counts and benchmark names remain consistent across the whole run.
+
 ### Removed
 
 - Remove the custom benchmark sampler and comparison command in favor of

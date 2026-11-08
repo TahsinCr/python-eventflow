@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import asyncio
 import threading
+from argparse import Namespace
 from concurrent.futures import Future, ThreadPoolExecutor
 from time import perf_counter, process_time
 
@@ -89,8 +90,15 @@ def _cpu_time(loops: int, publishers: int) -> float:
     return asyncio.run(_sample(publishers, loops))[1]
 
 
+def _add_publisher_args(command: list[str], args: Namespace) -> None:
+    command.extend(("--publishers", *(str(publisher) for publisher in args.publishers)))
+
+
 def main() -> None:
-    runner = create_runner(__doc__ or "Concurrent bridge publisher benchmarks")
+    runner = create_runner(
+        __doc__ or "Concurrent bridge publisher benchmarks",
+        add_cmdline_args=_add_publisher_args,
+    )
     runner.argparser.add_argument("--publishers", type=int, nargs="+", default=[2, 4, 8, 16])
     args = runner.parse_args()
     if any(count < 1 for count in args.publishers):

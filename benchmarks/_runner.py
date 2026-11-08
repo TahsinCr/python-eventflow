@@ -127,14 +127,22 @@ def benchmark_metadata(root: Path | None = None) -> dict[str, str]:
     }
 
 
-def create_runner(description: str) -> Runner:
+def create_runner(
+    description: str,
+    *,
+    add_cmdline_args: Callable[[list[str], Namespace], None] | None = None,
+) -> Runner:
     import pyperf
 
     main_module = getattr(sys.modules.get("__main__"), "__spec__", None)
     program_args = ("-m", main_module.name) if main_module is not None else None
     runner = cast(
         Runner,
-        pyperf.Runner(metadata=benchmark_metadata(), program_args=program_args),
+        pyperf.Runner(
+            metadata=benchmark_metadata(),
+            program_args=program_args,
+            add_cmdline_args=add_cmdline_args,
+        ),
     )
     runner.argparser.set_defaults(inherit_environ=("PYTHON_GIL",))
     runner.argparser.description = description

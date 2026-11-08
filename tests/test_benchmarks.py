@@ -97,9 +97,14 @@ class PyperfRunnerTests(unittest.TestCase):
             (package / "__init__.py").write_text("", encoding="utf-8")
             (package / "run.py").write_text(
                 "from benchmarks._runner import bench_async, bench_sync, create_runner\n"
-                "runner = create_runner('benchmark runner smoke test')\n"
-                "runner.parse_args()\n"
-                "bench_sync(runner, 'sync-smoke', lambda: sum((1, 2, 3)))\n"
+                "def add_worker_args(command, args):\n"
+                "    command.extend(('--case', str(args.case)))\n"
+                "runner = create_runner('benchmark runner smoke test', "
+                "add_cmdline_args=add_worker_args)\n"
+                "runner.argparser.add_argument('--case', default='default')\n"
+                "args = runner.parse_args()\n"
+                "bench_sync(runner, f'sync-smoke-{args.case}', "
+                "lambda: sum((1, 2, 3)))\n"
                 "async def async_smoke():\n"
                 "    return sum((1, 2, 3))\n"
                 "bench_async(runner, 'async-smoke', async_smoke)\n",
@@ -120,6 +125,7 @@ class PyperfRunnerTests(unittest.TestCase):
                     "--values=1",
                     "--warmups=0",
                     "--loops=1",
+                    "--case=custom",
                     "--output",
                     str(output),
                 ],
@@ -138,7 +144,7 @@ class PyperfRunnerTests(unittest.TestCase):
 
         benchmarks = document["benchmarks"]
         names = {item["metadata"]["name"] for item in benchmarks}
-        self.assertEqual(names, {"sync-smoke", "async-smoke"})
+        self.assertEqual(names, {"sync-smoke-custom", "async-smoke"})
         metadata = document["metadata"]
         self.assertEqual(metadata["eventflow_implementation"], "python")
         self.assertIn(metadata["eventflow_gil"], {"enabled", "disabled", "unavailable"})
