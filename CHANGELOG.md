@@ -22,12 +22,13 @@ All notable changes to this project are documented in this file.
   compared with the same workload and result format.
 - Skip generic awaitable inspection for exact boolean event-filter results;
   the sparse 100,000-event history query measured 4.48x faster on CPython
-  3.14.9. The result is local microbenchmark evidence, not a general latency
-  guarantee.
+  3.14.9 and 4.85x faster on GIL-disabled CPython 3.15.2t. These are local
+  microbenchmark results, not general latency guarantees.
 - Skip generic awaitable inspection for exact `int` and `bool` results in
   synchronous `AsyncStream` transformations; the 5,000-item map/filter case
-  measured 1.63x faster unbuffered and 1.25x faster with a 16-item buffer on
-  CPython 3.14.9.
+  measured 1.63x faster unbuffered on CPython 3.14.9 and 1.57x faster on
+  GIL-disabled CPython 3.15.2t. The 16-item buffered case measured 1.25x
+  faster on CPython 3.14.9; its free-threaded baseline was too noisy to use.
 
 ### Fixed
 

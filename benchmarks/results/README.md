@@ -167,6 +167,15 @@ introduced: each scanned event still invokes the caller's Python predicate,
 so moving the loop to C would retain that callback boundary while adding a
 second backend and packaging cost.
 
+The same sparse-history case on GIL-disabled CPython 3.15.2t measured 73.0 ms
+(0.8 ms SD) before and 15.1 ms (0.2 ms SD) after, or 4.85x faster. This run
+used 5 worker processes, 5 values per process, 2 warmups, a 0.1 s minimum
+sample and CPU 4 affinity. pyperf still warned that its strict <1% variation
+target was not established. The matching before/after records have
+`eventflow_gil=disabled` and clean source revisions:
+[`history_sparse_filter_free_threaded_before_2026-11-09.json`](history_sparse_filter_free_threaded_before_2026-11-09.json),
+[`history_sparse_filter_free_threaded_after_2026-11-09.json`](history_sparse_filter_free_threaded_after_2026-11-09.json).
+
 ## AsyncStream primitive transform fast path (2026-11-09)
 
 The benchmark consumes 5,000 integer items through the same synchronous map and
@@ -200,6 +209,19 @@ The before snapshot already contains the EventFilter boolean fast path; the
 after snapshot adds the stream fast path. Both raw files record the same base
 revision and distinct source hashes, which make the changed runtime state
 auditable. The measured stream scenarios do not call EventFilter.
+
+On GIL-disabled CPython 3.15.2t, the unbuffered case measured 15.0 ms (0.2 ms
+SD) before and 9.55 ms (0.37 ms SD) after, a 1.57x speedup. Runs used 5
+processes, 5 values per process, 2 warmups, a 0.1 s minimum sample and CPU 4
+affinity. The buffer-16 baseline was unusually noisy (28.4 ms mean, 4.1 ms SD),
+so its 21.3 ms after result is not treated as a reliable ratio. Raw records:
+[`stream_transform_free_threaded_before_2026-11-09.json`](stream_transform_free_threaded_before_2026-11-09.json),
+[`stream_transform_free_threaded_after_2026-11-09.json`](stream_transform_free_threaded_after_2026-11-09.json).
+
+The EventFilter and unbuffered stream optimizations show the same direction
+with the GIL enabled and disabled. This supports retaining the simple Python
+fast paths for these workloads; it does not rule out a future native backend
+for a separately profiled, callback-free hot loop.
 
 ## Runtime load and resource checks
 
