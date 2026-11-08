@@ -154,6 +154,37 @@ class PyperfRunnerTests(unittest.TestCase):
         self.assertIn(metadata["eventflow_gil"], {"enabled", "disabled", "unavailable"})
         self.assertRegex(metadata["eventflow_source_sha256"], r"^[0-9a-f]{64}$")
 
+    def test_async_pipeline_benchmarks_create_pipeline_in_each_worker_loop(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "pipeline.json"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "benchmarks.benchmark_pipeline",
+                    "--processes=1",
+                    "--values=2",
+                    "--warmups=1",
+                    "--loops=1",
+                    "--output",
+                    str(output),
+                ],
+                cwd=REPOSITORY_ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=60,
+            )
+            if result.returncode:
+                self.fail(
+                    f"pipeline benchmark failed\nstdout:\n{result.stdout}\nstderr:\n{result.stderr}"
+                )
+            document = json.loads(output.read_text(encoding="utf-8"))
+
+        names = {item["metadata"]["name"] for item in document["benchmarks"]}
+        self.assertEqual(len(names), 21)
+        self.assertIn("async/20/middleware", names)
+
 
 if __name__ == "__main__":
     unittest.main()

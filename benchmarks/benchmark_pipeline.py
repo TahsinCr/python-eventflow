@@ -2,13 +2,46 @@
 
 from __future__ import annotations
 
+import asyncio
 from collections.abc import Awaitable, Callable
 from functools import partial
+from time import perf_counter
 
 from eventflow.observability import PipelineStats
 from eventflow.pipeline import AsyncPipeline, Pipeline
 
-from ._runner import bench_async, bench_sync, create_runner
+from ._runner import bench_sync, bench_time_func, create_runner
+
+
+def _time_async_pipeline(loops: int, count: int, decorator: bool, middleware: bool) -> float:
+    async def increment(value: int) -> int:
+        return value + 1
+
+    async def pass_through(
+        context: int,
+        next_: Callable[[int], Awaitable[int]],
+    ) -> int:
+        return await next_(context)
+
+    async def measure() -> float:
+        pipeline = AsyncPipeline[int]()
+        if middleware:
+            pipeline.add("increment", increment)
+            for index in range(count):
+                pipeline.add_middleware(str(index), pass_through)
+        else:
+            for index in range(count):
+                if decorator:
+                    pipeline.stage(str(index))(increment)
+                else:
+                    pipeline.add(str(index), increment)
+
+        started = perf_counter()
+        for _ in range(loops):
+            await pipeline.run(0)
+        return perf_counter() - started
+
+    return asyncio.run(measure())
 
 
 def main() -> None:
@@ -57,38 +90,25 @@ def main() -> None:
             metadata={"middleware": count},
         )
 
-    async def increment_async(value: int) -> int:
-        return value + 1
-
-    async def pass_through_async(
-        context: int,
-        next_: Callable[[int], Awaitable[int]],
-    ) -> int:
-        return await next_(context)
-
     for count in (1, 5, 20):
         for decorator in (False, True):
-            pipeline = AsyncPipeline[int]()
-            for index in range(count):
-                if decorator:
-                    pipeline.stage(str(index))(increment_async)
-                else:
-                    pipeline.add(str(index), increment_async)
-            bench_async(
+            bench_time_func(
                 runner,
                 f"async/{count}/{'decorator' if decorator else 'add'}",
-                partial(pipeline.run, 0),
+                _time_async_pipeline,
+                count,
+                decorator,
+                False,
                 metadata={"stages": count, "registration": "decorator" if decorator else "add"},
             )
 
-        wrapped_async = AsyncPipeline[int]()
-        wrapped_async.add("increment", increment_async)
-        for index in range(count):
-            wrapped_async.add_middleware(str(index), pass_through_async)
-        bench_async(
+        bench_time_func(
             runner,
             f"async/{count}/middleware",
-            partial(wrapped_async.run, 0),
+            _time_async_pipeline,
+            count,
+            False,
+            True,
             metadata={"middleware": count},
         )
 

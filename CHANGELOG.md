@@ -26,6 +26,8 @@ All notable changes to this project are documented in this file.
 - Forward custom benchmark arguments to pyperf worker processes so publisher
   counts, workload sizes and benchmark metadata remain consistent across every
   worker process.
+- Build async pipeline benchmark instances inside each pyperf worker event loop
+  and exclude setup from the measured execution time.
 
 ### Removed
 
