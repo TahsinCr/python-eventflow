@@ -167,6 +167,40 @@ introduced: each scanned event still invokes the caller's Python predicate,
 so moving the loop to C would retain that callback boundary while adding a
 second backend and packaging cost.
 
+## AsyncStream primitive transform fast path (2026-11-09)
+
+The benchmark consumes 5,000 integer items through the same synchronous map and
+boolean filter, with and without a 16-item buffer. On CPython 3.14.9/Linux
+x86_64, pinned to logical CPU 4, pyperf 2.11.0 measured these whole-stream
+means:
+
+| Case | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| unbuffered | 9.89 ms (0.20 ms SD) | 6.09 ms (0.20 ms SD) | 1.63x faster |
+| buffer-16 | 19.9 ms (0.3 ms SD) | 16.0 ms (0.4 ms SD) | 1.25x faster |
+| native map/filter control | 2.01 ms (0.02 ms SD) | 1.97 ms (0.03 ms SD) | 1.02x faster |
+
+Runs used 10 worker processes, 5 values per process, 2 warmups, a 0.2 s
+minimum sample duration and 5,000 items. `AsyncStream` now skips
+`inspect.isawaitable()` only for exact `int` and `bool` transformation results;
+subclasses and all other objects still use the previous awaitable check. The
+existing async map/filter path is unchanged. The native generator control
+remained within 2%, while both EventFlow cases improved. Buffering still costs
+more for this CPU-only workload; its purpose is bounded prefetch and
+producer/consumer decoupling.
+
+pyperf warned that the sample series did not establish its 95% certainty
+target for less than 1% variation. Treat these as workload-specific local
+measurements rather than stable timing guarantees. The JSON records retain raw
+samples and source fingerprints:
+[`stream_transform_before_2026-11-09.json`](stream_transform_before_2026-11-09.json),
+[`stream_transform_after_2026-11-09.json`](stream_transform_after_2026-11-09.json).
+
+The before snapshot already contains the EventFilter boolean fast path; the
+after snapshot adds the stream fast path. Both raw files record the same base
+revision and distinct source hashes, which make the changed runtime state
+auditable. The measured stream scenarios do not call EventFilter.
+
 ## Runtime load and resource checks
 
 `runtime_load.json`, `callback_errors.json` and `pipeline_diagnostics.json` were

@@ -24,6 +24,10 @@ All notable changes to this project are documented in this file.
   the sparse 100,000-event history query measured 4.48x faster on CPython
   3.14.9. The result is local microbenchmark evidence, not a general latency
   guarantee.
+- Skip generic awaitable inspection for exact `int` and `bool` results in
+  synchronous `AsyncStream` transformations; the 5,000-item map/filter case
+  measured 1.63x faster unbuffered and 1.25x faster with a 16-item buffer on
+  CPython 3.14.9.
 
 ### Fixed
 

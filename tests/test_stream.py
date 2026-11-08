@@ -1,5 +1,7 @@
 import asyncio
 import unittest
+from types import SimpleNamespace
+from unittest.mock import Mock, patch
 
 from eventflow.stream import AsyncStream
 
@@ -10,6 +12,18 @@ async def numbers(count=5):
 
 
 class StreamTests(unittest.IsolatedAsyncioTestCase):
+    async def test_sync_primitive_transforms_skip_awaitable_detection(self):
+        isawaitable = Mock()
+        with patch(
+            "eventflow.stream.inspect",
+            SimpleNamespace(isawaitable=isawaitable),
+        ):
+            stream = (
+                AsyncStream(numbers(3)).map(lambda value: value + 1).filter(lambda value: value > 1)
+            )
+            self.assertEqual([value async for value in stream], [2, 3])
+        isawaitable.assert_not_called()
+
     async def test_lazy_sync_async_operators_and_final_partial_batch(self):
         calls = []
 

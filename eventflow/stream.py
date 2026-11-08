@@ -120,7 +120,12 @@ class AsyncStream(AsyncIterator[T], Generic[T]):
                         value = await source.__anext__()
                     for operation, transform in self._operators:
                         result = transform(value)
-                        if inspect.isawaitable(result):
+                        result_type = type(result)
+                        if (
+                            result_type is not int
+                            and result_type is not bool
+                            and inspect.isawaitable(result)
+                        ):
                             result = await result
                         if operation == "filter":
                             if type(result) is not bool:
