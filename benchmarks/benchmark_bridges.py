@@ -1,41 +1,26 @@
-"""Measure the round-trip cost of EventFlow's thread-to-async bridges.
-
-Run with ``python -m benchmarks.benchmark_bridges``. Results are local workload
-measurements, not deployment guarantees.
-"""
+"""Benchmark same-thread and cross-thread delivery to an asyncio consumer."""
 
 from __future__ import annotations
 
-import argparse
 import asyncio
 from collections import deque
 from concurrent.futures import Future
 from queue import Queue
 from threading import Thread
+from time import perf_counter
 
 from eventflow import EventBus
 from eventflow.bridges import AsyncEventQueue, LoopPortal
 from eventflow.errors import EventQueueClosedError
 
-from ._measure import measure, measure_async, report
+from ._runner import bench_async, bench_sync, bench_time_func, create_runner
 
 
 async def _noop() -> None:
     return None
 
 
-async def _run(iterations: int, output: str | None) -> None:
-    results = [await measure_async("async-direct-await", _noop, iterations)]
-    with LoopPortal() as portal:
-        results.append(
-            measure(
-                "loop-portal-roundtrip",
-                lambda: portal.call(_noop, timeout=10),
-                iterations,
-            )
-        )
-
-    sequence = 0
+async def _queue_roundtrip_batch(loops: int, *, cross_thread: bool) -> float:
     with EventBus[int]() as bus:
         queue = AsyncEventQueue(bus, capacity=1)
         async with queue:
@@ -43,7 +28,7 @@ async def _run(iterations: int, output: str | None) -> None:
             acknowledgements: deque[asyncio.Future[int]] = deque()
             consumer_ready = asyncio.Event()
 
-            async def consume_waiting_events() -> None:
+            async def consume() -> None:
                 consumer_ready.set()
                 try:
                     while True:
@@ -54,89 +39,86 @@ async def _run(iterations: int, output: str | None) -> None:
                 except EventQueueClosedError:
                     return
 
-            consumer = asyncio.create_task(consume_waiting_events())
+            consumer = asyncio.create_task(consume())
             await consumer_ready.wait()
 
-            async def publish_and_receive() -> int:
-                nonlocal sequence
-                event = sequence
-                sequence += 1
-                acknowledgement = loop.create_future()
-                acknowledgements.append(acknowledgement)
-                bus.publish(event)
-                received = await acknowledgement
-                if received != event:
-                    raise RuntimeError("bridge benchmark received an unexpected event")
-                return received
+            if not cross_thread:
+                started = perf_counter()
+                for event in range(loops):
+                    acknowledgement = loop.create_future()
+                    acknowledgements.append(acknowledgement)
+                    bus.publish(event)
+                    if await acknowledgement != event:
+                        raise RuntimeError("bridge delivered an unexpected event")
+                elapsed = perf_counter() - started
+            else:
+                requests: Queue[tuple[int, Future[None]] | None] = Queue()
 
-            results.append(
-                await measure_async(
-                    "same-thread-waiting-consumer-roundtrip",
-                    publish_and_receive,
-                    iterations,
+                def publish_from_thread() -> None:
+                    while (request := requests.get()) is not None:
+                        event, completed = request
+                        try:
+                            bus.publish(event)
+                        except BaseException as error:
+                            completed.set_exception(error)
+                        else:
+                            completed.set_result(None)
+
+                producer = Thread(
+                    target=publish_from_thread,
+                    name="EventFlowBridgeBenchmark",
+                    daemon=True,
                 )
-            )
+                producer.start()
+                started = perf_counter()
+                try:
+                    for event in range(loops):
+                        acknowledgement = loop.create_future()
+                        acknowledgements.append(acknowledgement)
+                        completed: Future[None] = Future()
+                        requests.put((event, completed))
+                        await asyncio.wrap_future(completed)
+                        if await acknowledgement != event:
+                            raise RuntimeError("bridge delivered an unexpected event")
+                    elapsed = perf_counter() - started
+                finally:
+                    requests.put(None)
+                    producer.join(timeout=2)
+                    if producer.is_alive():
+                        raise RuntimeError("bridge benchmark publisher did not stop")
 
-            requests: Queue[tuple[int, Future[None]] | None] = Queue()
+        await consumer
+    return elapsed
 
-            def publish_from_thread() -> None:
-                while (request := requests.get()) is not None:
-                    event, completed = request
-                    try:
-                        bus.publish(event)
-                    except BaseException as error:
-                        completed.set_exception(error)
-                    else:
-                        completed.set_result(None)
 
-            producer = Thread(
-                target=publish_from_thread,
-                name="EventFlowBridgeBenchmark",
-                daemon=True,
-            )
-            producer.start()
-
-            async def publish_from_thread_and_receive() -> int:
-                nonlocal sequence
-                event = sequence
-                sequence += 1
-                acknowledgement = loop.create_future()
-                acknowledgements.append(acknowledgement)
-                completed: Future[None] = Future()
-                requests.put((event, completed))
-                await asyncio.wrap_future(completed)
-                received = await acknowledgement
-                if received != event:
-                    raise RuntimeError("bridge benchmark received an unexpected event")
-                return received
-
-            try:
-                results.append(
-                    await measure_async(
-                        "cross-thread-waiting-consumer-roundtrip",
-                        publish_from_thread_and_receive,
-                        iterations,
-                    )
-                )
-            finally:
-                requests.put(None)
-                producer.join(timeout=2)
-                if producer.is_alive():
-                    raise RuntimeError("bridge benchmark producer did not stop")
-
-    await consumer
-    report(results, output)
+def _time_queue_roundtrip(loops: int, cross_thread: bool) -> float:
+    return asyncio.run(_queue_roundtrip_batch(loops, cross_thread=cross_thread))
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--iterations", type=int, default=1000)
-    parser.add_argument("--output")
-    args = parser.parse_args()
-    if args.iterations < 1:
-        parser.error("iterations must be a positive integer")
+    runner = create_runner(__doc__ or "Thread-to-async bridge benchmarks")
+    runner.parse_args()
 
-    asyncio.run(_run(args.iterations, args.output))
+    bench_async(runner, "async-direct-await", _noop)
+
+    with LoopPortal() as portal:
+        bench_sync(
+            runner,
+            "loop-portal-roundtrip",
+            lambda: portal.call(_noop, timeout=10),
+        )
+
+    for cross_thread, name in (
+        (False, "same-thread-waiting-consumer-roundtrip"),
+        (True, "cross-thread-waiting-consumer-roundtrip"),
+    ):
+        bench_time_func(
+            runner,
+            name,
+            _time_queue_roundtrip,
+            cross_thread,
+            metadata={"publisher_thread": "cross" if cross_thread else "same"},
+        )
 
 
 if __name__ == "__main__":

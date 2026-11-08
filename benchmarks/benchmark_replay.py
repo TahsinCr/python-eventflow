@@ -1,70 +1,42 @@
-"""Compare full history reads with bounded replay setup costs."""
+"""Benchmark full history queries and bounded replay setup with pyperf."""
 
 from __future__ import annotations
 
-import argparse
 import asyncio
-import sys
-from collections.abc import Awaitable, Callable
-from pathlib import Path
-from statistics import median
 from time import perf_counter
-
-if __package__ in {None, ""}:
-    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from eventflow import AsyncEventBus, EventBus, EventFilter, MemoryEventHistory
 
-
-def _positive_integer(value: str) -> int:
-    try:
-        parsed = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("must be an integer") from exc
-    if parsed <= 0:
-        raise argparse.ArgumentTypeError("must be positive")
-    return parsed
+from ._runner import bench_sync, bench_time_func, create_runner
 
 
-def _measure_sync(
-    label: str,
-    operation: Callable[[], object],
-    *,
-    iterations: int,
-    samples: int,
-) -> None:
-    durations = []
-    for _ in range(samples):
-        started = perf_counter()
-        for _ in range(iterations):
-            operation()
-        durations.append((perf_counter() - started) * 1_000 / iterations)
-    print(f"{label}: median {median(durations):.4f} ms/op")
+async def _receive_async(_event: int) -> None:
+    pass
 
 
-async def _measure_async(
-    label: str,
-    operation: Callable[[], Awaitable[object]],
-    *,
-    iterations: int,
-    samples: int,
-) -> None:
-    durations = []
-    for _ in range(samples):
-        started = perf_counter()
-        for _ in range(iterations):
-            await operation()
-        durations.append((perf_counter() - started) * 1_000 / iterations)
-    print(f"{label}: median {median(durations):.4f} ms/op")
+def _time_async_replay(
+    loops: int,
+    history: MemoryEventHistory[int],
+    replay: int,
+) -> float:
+    async def measure() -> float:
+        async with AsyncEventBus[int](history=history) as bus:
+            started = perf_counter()
+            for _ in range(loops):
+                subscription = await bus.subscribe(_receive_async, replay=replay)
+                await subscription.cancel()
+            return perf_counter() - started
+
+    return asyncio.run(measure())
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--events", type=_positive_integer, default=100_000)
-    parser.add_argument("--replay", type=_positive_integer, default=1)
-    parser.add_argument("--iterations", type=_positive_integer, default=25)
-    parser.add_argument("--samples", type=_positive_integer, default=5)
-    args = parser.parse_args()
+    runner = create_runner(__doc__ or "History and replay benchmarks")
+    runner.argparser.add_argument("--events", type=int, default=100_000)
+    runner.argparser.add_argument("--replay", type=int, default=1)
+    args = runner.parse_args()
+    if args.events < 1 or args.replay < 1:
+        runner.argparser.error("events and replay must be positive")
 
     history = MemoryEventHistory[int](capacity=args.events)
     for event in range(args.events):
@@ -77,111 +49,48 @@ def main() -> None:
     def receive_sync(_event: int) -> None:
         pass
 
-    async def receive_async(_event: int) -> None:
-        pass
-
-    def query_all() -> object:
-        return history.query()
-
-    def query_replay_window() -> object:
-        return history.query(limit=args.replay)
-
-    def query_sparse_filtered_history() -> object:
-        return history.query(sparse_filter, limit=args.replay)
-
-    def latest_history() -> object:
-        return history.latest()
-
-    def latest_sync_bus() -> object:
-        return sync_bus.latest()
-
-    def query_sync_bus() -> object:
-        return sync_bus.query(limit=args.replay)
-
-    def latest_async_bus() -> object:
-        return async_bus.latest()
-
-    def query_async_bus() -> object:
-        return async_bus.query(limit=args.replay)
-
-    def subscribe_sync() -> None:
-        subscription = sync_bus.subscribe(receive_sync, replay=args.replay)
-        subscription.cancel()
-
-    async def subscribe_async() -> None:
-        subscription = await async_bus.subscribe(receive_async, replay=args.replay)
-        await subscription.cancel()
-
-    print(
-        f"events={args.events}, replay={args.replay}, "
-        f"iterations={args.iterations}, samples={args.samples}"
+    operations = (
+        ("history/query-all", history.query),
+        ("history/query-window", lambda: history.query(limit=args.replay)),
+        (
+            "history/query-sparse-filter",
+            lambda: history.query(sparse_filter, limit=args.replay),
+        ),
+        ("history/latest", history.latest),
+        ("sync-bus/latest", sync_bus.latest),
+        ("sync-bus/query-window", lambda: sync_bus.query(limit=args.replay)),
+        ("async-bus/latest", async_bus.latest),
+        ("async-bus/query-window", lambda: async_bus.query(limit=args.replay)),
     )
-    _measure_sync(
-        "Full history query",
-        query_all,
-        iterations=args.iterations,
-        samples=args.samples,
-    )
-    _measure_sync(
-        "Bounded history query",
-        query_replay_window,
-        iterations=args.iterations,
-        samples=args.samples,
-    )
-    _measure_sync(
-        "Sparse filtered history query",
-        query_sparse_filtered_history,
-        iterations=args.iterations,
-        samples=args.samples,
-    )
-    _measure_sync(
-        "MemoryEventHistory.latest",
-        latest_history,
-        iterations=args.iterations,
-        samples=args.samples,
-    )
-    _measure_sync(
-        "EventBus.latest",
-        latest_sync_bus,
-        iterations=args.iterations,
-        samples=args.samples,
-    )
-    _measure_sync(
-        "EventBus.query(limit=replay)",
-        query_sync_bus,
-        iterations=args.iterations,
-        samples=args.samples,
-    )
-    _measure_sync(
-        "AsyncEventBus.latest",
-        latest_async_bus,
-        iterations=args.iterations,
-        samples=args.samples,
-    )
-    _measure_sync(
-        "AsyncEventBus.query(limit=replay)",
-        query_async_bus,
-        iterations=args.iterations,
-        samples=args.samples,
-    )
-    _measure_sync(
-        "EventBus replay subscription",
-        subscribe_sync,
-        iterations=args.iterations,
-        samples=args.samples,
-    )
-
-    async def run_async_benchmarks() -> None:
-        await _measure_async(
-            "AsyncEventBus replay subscription",
-            subscribe_async,
-            iterations=args.iterations,
-            samples=args.samples,
+    for name, operation in operations:
+        bench_sync(
+            runner,
+            name,
+            operation,
+            metadata={"history_events": args.events, "replay_window": args.replay},
         )
-        await async_bus.close()
 
-    asyncio.run(run_async_benchmarks())
-    sync_bus.close()
+    with sync_bus:
+
+        def subscribe_sync() -> None:
+            subscription = sync_bus.subscribe(receive_sync, replay=args.replay)
+            subscription.cancel()
+
+        bench_sync(
+            runner,
+            "sync-bus/replay-subscribe-cancel",
+            subscribe_sync,
+            metadata={"history_events": args.events, "replay_window": args.replay},
+        )
+
+    bench_time_func(
+        runner,
+        "async-bus/replay-subscribe-cancel",
+        _time_async_replay,
+        history,
+        args.replay,
+        metadata={"history_events": args.events, "replay_window": args.replay},
+    )
 
 
 if __name__ == "__main__":

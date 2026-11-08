@@ -1,17 +1,15 @@
-# Local architecture-extension measurements
+# Historical measurements and current benchmark workflow
 
 Measured on 2026-10-28. Baseline source: `14fe966`; final runtime source: `e033f1a`. No remote service is involved.
 
-New benchmark JSON reports record the Git revision, whether EventFlow or
-benchmark source files differ from that revision, and a SHA-256 fingerprint of
-the runtime package, benchmark Python files and `pyproject.toml`. Generated
-result files are excluded from the fingerprint. Reports also record whether
-the interpreter has the GIL enabled when that information is available.
-The multi-publisher bridge benchmark additionally reports process CPU seconds
-and CPU use as a percentage of one core's wall-clock capacity.
-`benchmark_compare` stores this metadata for both the candidate and its
-baseline. Metadata collection runs after the timed samples. Existing historical
-JSON records are left as they were measured.
+Files in this directory are historical records. Existing JSON files keep the
+schema and measurements produced by the earlier EventFlow benchmark harness;
+they have not been rewritten as pyperf data. New runs use pyperf's standard
+JSON format. Each worker records the EventFlow implementation, observed GIL
+mode, Git revision, source-only dirty state, and a SHA-256 fingerprint of the
+runtime package, benchmark Python files and `pyproject.toml`. Generated result
+files are excluded from the fingerprint. Source metadata is collected outside
+the timed work. Use pyperf's `compare_to` command for new result comparisons.
 
 ## Method
 
@@ -196,10 +194,10 @@ baseline samples and three FIFO samples), and 77.26 s versus 76.0 ms at 5,000
 8.15 ms and 48.0 ms at 1,000 and 5,000 waiters. These local measurements
 isolate a high-contention case and are not production guarantees.
 
-Reproduce the optimized measurement with:
+Run the same-key contention workload with the current pyperf harness:
 
 ```bash
-python -m benchmarks.benchmark_keyed_limiter --waiters 100 1000 5000 --repeats 3 --output keyed_limiter.json
+python -m benchmarks.benchmark_keyed_limiter --fast --waiters 100 1000 5000 --output keyed_limiter.json
 ```
 
 ## v1.3.1 performance measurements (2026-11-04)
@@ -285,18 +283,22 @@ including when deadlines tie.
 ## Reproduce
 
 ```bash
-python -m benchmarks.benchmark_publish --iterations 2000 --output publish.json
-python -m benchmarks.benchmark_compare --baseline /path/to/v1.1-checkout --iterations 250 --samples 9 --output comparison.json
-python -m benchmarks.benchmark_bridge_publishers --publishers 2 4 8 16 --iterations 1000 --repeats 5 --output bridge-publishers.json
-python -m benchmarks.benchmark_pipeline --iterations 5000 --output pipeline.json
-python -m benchmarks.benchmark_stream --iterations 100 --items 1000 --output stream.json
-python -m benchmarks.benchmark_runtime --iterations 200 --samples 5 --soak-operations 100000 --output runtime.json
-python -m benchmarks.benchmark_replay --events 100000 --replay 25 --iterations 100 --samples 7
+python -m benchmarks.benchmark_publish --fast --output publish.json
+python -m benchmarks.benchmark_bridge_publishers --fast --publishers 2 4 8 16 --output bridge-publishers.json
+python -m benchmarks.benchmark_pipeline --fast --output pipeline.json
+python -m benchmarks.benchmark_stream --fast --items 1000 --output stream.json
+python -m benchmarks.benchmark_runtime --fast --soak-operations 1000 --output runtime.json
+python -m benchmarks.benchmark_replay --fast --events 100000 --replay 25 --output replay.json
+python -m pyperf compare_to baseline.json candidate.json --table
 ```
 
 ## Whole-process peak RSS
 
-Linux `resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss` was read in a fresh parent process after each child benchmark. Values below cover the entire interpreter/benchmark process; they cannot be attributed only to a buffer or pipeline. Raw commands are in `process_peak_rss.json`. Publish uses 500 operations in both source trees; pipeline uses 1,000, stream uses 20 consumptions of 1,000 items.
+These RSS values were collected with the retired custom benchmark runner in a
+fresh parent process. They cover the entire interpreter process and cannot be
+attributed only to a buffer or pipeline. Publish used 500 operations in both
+source trees; pipeline used 1,000 operations; stream used 20 consumptions of
+1,000 items. They remain historical observations, not current pyperf results.
 
 | Process | Peak RSS KiB |
 | --- | ---: |
@@ -307,16 +309,9 @@ Linux `resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss` was read in a fre
 
 Traced allocation peaks and process RSS are different measurements. Reproduce each run from the corresponding checkout in a fresh parent process:
 
-```python
-import resource, subprocess, sys
-
-subprocess.run(
-    [sys.executable, "-m", "benchmarks.benchmark_publish", "--iterations", "500"],
-    check=True,
-    stdout=subprocess.DEVNULL,
-)
-print(resource.getrusage(resource.RUSAGE_CHILDREN).ru_maxrss)  # KiB on Linux
-```
+For new memory measurements, run a pyperf workload with `--tracemalloc` or
+`--track-memory`. These capture different quantities and should not be mixed
+with the historical process-RSS figures above.
 
 ## AsyncEventQueue waiter handoff (2026-11-07)
 

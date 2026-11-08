@@ -1,24 +1,19 @@
-"""Measure pipeline registration, middleware execution and opt-in metrics."""
+"""Benchmark pipeline stages, decorators, middleware and opt-in metrics."""
 
-import argparse
-import asyncio
+from __future__ import annotations
+
 from collections.abc import Awaitable, Callable
 from functools import partial
 
 from eventflow.observability import PipelineStats
 from eventflow.pipeline import AsyncPipeline, Pipeline
 
-from ._measure import measure, measure_async, report
+from ._runner import bench_async, bench_sync, create_runner
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--iterations", type=int, default=5000)
-    parser.add_argument("--output")
-    args = parser.parse_args()
-    if args.iterations <= 0:
-        parser.error("iterations must be positive")
-    results = []
+    runner = create_runner(__doc__ or "Pipeline benchmarks")
+    runner.parse_args()
 
     def increment(value: int) -> int:
         return value + 1
@@ -31,17 +26,22 @@ def main() -> None:
                     pipeline.stage(str(index))(increment)
                 else:
                     pipeline.add(str(index), increment)
-            results.append(
-                measure(
-                    f"sync/{count}/{'decorator' if decorator else 'add'}",
-                    partial(pipeline.run, 0),
-                    args.iterations,
-                )
+            bench_sync(
+                runner,
+                f"sync/{count}/{'decorator' if decorator else 'add'}",
+                partial(pipeline.run, 0),
+                metadata={"stages": count, "registration": "decorator" if decorator else "add"},
             )
+
         observed = Pipeline[int](observer=PipelineStats())
         for index in range(count):
             observed.add(str(index), increment)
-        results.append(measure(f"sync/{count}/metrics", partial(observed.run, 0), args.iterations))
+        bench_sync(
+            runner,
+            f"sync/{count}/metrics",
+            partial(observed.run, 0),
+            metadata={"stages": count, "metrics": "enabled"},
+        )
 
         def pass_through(context: int, next_: Callable[[int], int]) -> int:
             return next_(context)
@@ -50,53 +50,47 @@ def main() -> None:
         wrapped.add("increment", increment)
         for index in range(count):
             wrapped.add_middleware(str(index), pass_through)
-        results.append(
-            measure(
-                f"sync/{count}/middleware",
-                partial(wrapped.run, 0),
-                args.iterations,
-            )
+        bench_sync(
+            runner,
+            f"sync/{count}/middleware",
+            partial(wrapped.run, 0),
+            metadata={"middleware": count},
         )
 
-    async def asynchronous() -> None:
-        async def increment_async(value: int) -> int:
-            return value + 1
+    async def increment_async(value: int) -> int:
+        return value + 1
 
-        async def pass_through_async(
-            context: int,
-            next_: Callable[[int], Awaitable[int]],
-        ) -> int:
-            return await next_(context)
+    async def pass_through_async(
+        context: int,
+        next_: Callable[[int], Awaitable[int]],
+    ) -> int:
+        return await next_(context)
 
-        for count in (1, 5, 20):
-            for decorator in (False, True):
-                pipeline = AsyncPipeline[int]()
-                for index in range(count):
-                    if decorator:
-                        pipeline.stage(str(index))(increment_async)
-                    else:
-                        pipeline.add(str(index), increment_async)
-                results.append(
-                    await measure_async(
-                        f"async/{count}/{'decorator' if decorator else 'add'}",
-                        partial(pipeline.run, 0),
-                        args.iterations,
-                    )
-                )
-            wrapped = AsyncPipeline[int]()
-            wrapped.add("increment", increment_async)
+    for count in (1, 5, 20):
+        for decorator in (False, True):
+            pipeline = AsyncPipeline[int]()
             for index in range(count):
-                wrapped.add_middleware(str(index), pass_through_async)
-            results.append(
-                await measure_async(
-                    f"async/{count}/middleware",
-                    partial(wrapped.run, 0),
-                    args.iterations,
-                )
+                if decorator:
+                    pipeline.stage(str(index))(increment_async)
+                else:
+                    pipeline.add(str(index), increment_async)
+            bench_async(
+                runner,
+                f"async/{count}/{'decorator' if decorator else 'add'}",
+                partial(pipeline.run, 0),
+                metadata={"stages": count, "registration": "decorator" if decorator else "add"},
             )
 
-    asyncio.run(asynchronous())
-    report(results, args.output)
+        wrapped_async = AsyncPipeline[int]()
+        wrapped_async.add("increment", increment_async)
+        for index in range(count):
+            wrapped_async.add_middleware(str(index), pass_through_async)
+        bench_async(
+            runner,
+            f"async/{count}/middleware",
+            partial(wrapped_async.run, 0),
+            metadata={"middleware": count},
+        )
 
 
 if __name__ == "__main__":

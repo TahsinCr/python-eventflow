@@ -1,23 +1,15 @@
-"""Measure worker-backed coalescing from updates through flush and close.
-
-Run with ``python -m benchmarks.benchmark_coalescer``. Results are local
-workload measurements, not deployment guarantees.
-"""
+"""Benchmark keyed coalescer updates, merges, flushes and worker teardown."""
 
 from __future__ import annotations
 
 import argparse
-import json
-import platform
 import threading
 from concurrent.futures import ThreadPoolExecutor
-from pathlib import Path
-from statistics import median
 from time import perf_counter
 
 from eventflow import KeyedCoalescer
 
-from ._measure import benchmark_metadata
+from ._runner import bench_time_func, create_runner
 
 
 def _positive(value: str) -> int:
@@ -36,7 +28,7 @@ def _sample(
     producers: int,
     updates_per_key: int,
     flush_callers: int,
-) -> dict[str, float]:
+) -> float:
     delivered = 0
 
     def callback(_value: tuple[int, int]) -> None:
@@ -70,9 +62,7 @@ def _sample(
                 barrier.wait(timeout=10)
                 for future in futures:
                     future.result(timeout=60)
-        push_seconds = perf_counter() - started
 
-        drain_started = perf_counter()
         if flush_callers == 1:
             coalescer.flush(timeout=60)
         else:
@@ -87,109 +77,69 @@ def _sample(
                 barrier.wait(timeout=10)
                 for future in futures:
                     future.result(timeout=60)
-        drain_seconds = perf_counter() - drain_started
-        coalescer.close(timeout=60)
-        total_seconds = perf_counter() - started
 
         stats = coalescer.stats()
         expected_merges = key_count * (updates_per_key - 1)
         if delivered != key_count or stats.merged != expected_merges:
             raise RuntimeError("coalescer benchmark lost or duplicated work")
-        return {
-            "push_seconds": push_seconds,
-            "drain_seconds": drain_seconds,
-            "total_seconds": total_seconds,
-        }
     finally:
         coalescer.close(flush=False, timeout=60)
+    return perf_counter() - started
 
 
-def _measure_case(
-    name: str,
+def _time_coalescer(
+    loops: int,
     key_count: int,
-    *,
-    samples: int,
     producers: int,
     updates_per_key: int,
     flush_callers: int,
-) -> dict[str, object]:
-    timings = [
-        _sample(
+) -> float:
+    elapsed = 0.0
+    for _ in range(loops):
+        elapsed += _sample(
             key_count,
             producers=producers,
             updates_per_key=updates_per_key,
             flush_callers=flush_callers,
         )
-        for _ in range(samples)
-    ]
-    totals = [sample["total_seconds"] for sample in timings]
-    return {
-        "case": name,
-        "keys": key_count,
-        "pushes_per_key": updates_per_key,
-        "producers": producers,
-        "flush_callers": flush_callers,
-        "samples": samples,
-        "median_push_seconds": median(sample["push_seconds"] for sample in timings),
-        "median_drain_seconds": median(sample["drain_seconds"] for sample in timings),
-        "median_total_seconds": median(totals),
-        "min_total_seconds": min(totals),
-        "max_total_seconds": max(totals),
-        "sample_total_seconds": totals,
-    }
-
-
-def _run(
-    key_counts: list[int], samples: int, producers: int, merge_updates: int
-) -> dict[str, object]:
-    results = []
-    for key_count in key_counts:
-        cases = (
-            ("single-producer", 1, 1, 1),
-            ("multi-producer", min(producers, key_count), 1, 1),
-            ("merge-heavy", 1, merge_updates, 1),
-            ("concurrent-flush", 1, 1, 2),
-        )
-        for name, producer_count, updates, flush_callers in cases:
-            results.append(
-                _measure_case(
-                    name,
-                    key_count,
-                    samples=samples,
-                    producers=producer_count,
-                    updates_per_key=updates,
-                    flush_callers=flush_callers,
-                )
-            )
-    return {
-        "benchmark": "keyed-coalescer-worker-lifecycle",
-        "python": platform.python_version(),
-        "platform": platform.platform(),
-        "workload": (
-            "real worker thread; unique or merged keyed updates; flush and close included; "
-            "no-op callback"
-        ),
-        "results": results,
-    }
+    return elapsed
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--key-counts", type=_positive, nargs="+", default=[128, 1024, 4096, 16384])
-    parser.add_argument("--samples", type=_positive, default=10)
-    parser.add_argument("--producers", type=_positive, default=4)
-    parser.add_argument("--merge-updates", type=_positive, default=8)
-    parser.add_argument("--output", type=Path)
-    args = parser.parse_args()
+    runner = create_runner(__doc__ or "Keyed coalescer benchmarks")
+    runner.argparser.add_argument(
+        "--key-counts", type=_positive, nargs="+", default=[128, 1024, 4096, 16384]
+    )
+    runner.argparser.add_argument("--producers", type=_positive, default=4)
+    runner.argparser.add_argument("--merge-updates", type=_positive, default=8)
+    args = runner.parse_args()
+    if len(set(args.key_counts)) != len(args.key_counts):
+        runner.argparser.error("key counts must be unique")
 
-    result = _run(args.key_counts, args.samples, args.producers, args.merge_updates)
-    result.update(benchmark_metadata())
-    rendered = json.dumps(result, indent=2) + "\n"
-    if args.output is None:
-        print(rendered, end="")
-    else:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(rendered, encoding="utf-8")
+    for key_count in args.key_counts:
+        cases = (
+            ("single-producer", 1, 1, 1),
+            ("multi-producer", min(args.producers, key_count), 1, 1),
+            ("merge-heavy", 1, args.merge_updates, 1),
+            ("concurrent-flush", 1, 1, 2),
+        )
+        for name, producers, updates, flush_callers in cases:
+            bench_time_func(
+                runner,
+                f"{name}/{key_count}",
+                _time_coalescer,
+                key_count,
+                producers,
+                updates,
+                flush_callers,
+                inner_loops=key_count * updates,
+                metadata={
+                    "keys": key_count,
+                    "producers": producers,
+                    "updates_per_key": updates,
+                    "flush_callers": flush_callers,
+                },
+            )
 
 
 if __name__ == "__main__":

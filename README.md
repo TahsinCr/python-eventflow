@@ -1567,46 +1567,48 @@ The project supports Python 3.10 and newer and uses setuptools as its build
 backend. The compatibility dependencies are installed only on Python 3.10.
 Development setup and checks are described under
 [Install](https://github.com/TahsinCr/python-eventflow/blob/main/README.md#install).
-Run `python -m benchmarks.benchmark_replay` from the repository root to compare
-history `latest()`/`query()` calls through the history and bus APIs, along with
-bounded sync and async replay setup. The standard-library benchmark defaults
-to 100,000 retained events and can be adjusted with `--events`, `--replay`,
-`--iterations`, and `--samples`.
+The benchmark suite uses [pyperf](https://pyperf.readthedocs.io/) as its single
+timing and result format. Install the development extra, then run a benchmark
+module from the repository root:
 
-Additional repeatable measurements use `python -m benchmarks.benchmark_publish`,
-`python -m benchmarks.benchmark_pipeline`, `python -m benchmarks.benchmark_stream`
-and `python -m benchmarks.benchmark_runtime`. The stream benchmark also compares
-burst-input `batch_within(64, 60)` against native size-only batching; this
-isolates batch coordination overhead and does not measure sparse-source timer
-latency. The runtime-load benchmark compares
-sync and async publisher contention, async `max_concurrency` values, callback
-error rates, periodic schedule resources, and traced memory over a configurable
-event soak. It defaults to five samples, 500 publishes per publisher in each
-sample, and 100,000 soak events; use `--iterations`, `--publisher-counts`,
-`--schedule-counts`, `--samples` or `--soak-operations` to adjust the workload.
-Use `--output results.json` to retain the environment, throughput, p50/p95/p99
-latency and separately traced peak allocations. Stream rates count items per
-whole-stream operation. Runtime memory samples use `tracemalloc`, not process
-RSS, and include event history when configured. Local microbenchmarks are not
-deployment guarantees. Recorded results and methodology live under
-`benchmarks/results`.
+```bash
+python -m pip install -e ".[dev]"
+python -m benchmarks.benchmark_publish --fast --output publish.json
+python -m benchmarks.benchmark_pipeline --fast --output pipeline.json
+python -m benchmarks.benchmark_stream --fast --items 1000 --output stream.json
+python -m benchmarks.benchmark_replay --fast --events 100000 --replay 25 --output replay.json
+python -m benchmarks.benchmark_bridges --fast --output bridges.json
+python -m benchmarks.benchmark_bridge_publishers --fast --publishers 2 4 8 16 --output bridge-publishers.json
+```
 
-To measure synchronous publishers handing events to an asyncio consumer, run
-`python -m benchmarks.benchmark_bridge_publishers`. It compares 2, 4, 8 and 16
-publisher threads. Each publisher waits for the consumer to acknowledge its
-event before sending another, so the bounded queue measures concurrent handoff
-contention without silently dropping work. Use `--iterations`, `--repeats`,
-`--publishers` and `--output` to adjust the run.
-Each sample also reports process CPU time and utilization as a percentage of
-one core's wall-clock capacity. Since it sums CPU time across process threads,
-it can exceed 100% when threads consume CPU concurrently, including while
-native code releases the GIL.
+Each module compares a focused workload: event dispatch and callback errors,
+pipeline registration and middleware, whole-stream consumption and batching,
+history queries and replay setup, thread-to-async handoff, keyed limiters,
+coalescing, publisher contention, periodic schedules, and memory soak. The
+stream benchmark's `batch_within(64, 60)` case uses burst input; it measures
+batch coordination and not sparse-source timer latency. Use each module's
+`--help` for workload parameters. pyperf supplies `--fast` and `--rigorous`,
+worker/process and sample controls, JSON output, statistics, histograms and
+memory options (`--tracemalloc` or `--track-memory`). Compare matching suites
+with `python -m pyperf compare_to baseline.json candidate.json --table`.
+Keep the interpreter build, GIL mode and workload settings the same for a useful
+comparison. Local measurements describe their recorded machine and workload;
+they are not deployment guarantees. Historical measurements and their methods
+remain under `benchmarks/results`.
 
-Benchmark JSON reports include the active GIL mode where Python exposes it,
-the Git revision, a source-only dirty flag, and a SHA-256 fingerprint of the
-EventFlow package, benchmark Python files and `pyproject.toml`. The fingerprint
-does not include generated results. The comparison benchmark also records the
-baseline source separately. Provenance is collected outside the timed samples.
+The bridge-publisher benchmark reports wall time and process CPU time per
+delivered event. It starts timing after the queue, consumer and publisher threads
+are ready, and includes publish-to-acknowledgement delivery. For a free-threaded
+CPython comparison, run the same command with a free-threaded interpreter and
+`PYTHON_GIL=0`; the pyperf workers inherit that setting and record the GIL mode
+they observe. Keep the interpreter build, workload and machine conditions fixed
+when comparing results.
+
+Every pyperf result records the EventFlow implementation (`python`), the
+worker's observed GIL mode, Git revision, source-only dirty status, and a
+SHA-256 fingerprint of the package, benchmark sources and `pyproject.toml`.
+Generated result files are excluded from the fingerprint. pyperf also records
+the interpreter and machine metadata used for each run.
 
 Copyright © 2026 TahsinCr. EventFlow is licensed under the MIT License.
 See [LICENSE](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE) and

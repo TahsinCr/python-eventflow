@@ -4,6 +4,22 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Use pyperf as the shared timing and result engine for all benchmark modules.
+  Benchmark runs now produce standard pyperf JSON, which can be compared with
+  `pyperf compare_to`; source identity and the worker's observed GIL mode remain
+  recorded as benchmark metadata.
+- Measure bridge-publisher wall time and process CPU time per delivered event
+  after queue and thread setup, so GIL-enabled and free-threaded runs can be
+  compared with the same workload and result format.
+
+### Removed
+
+- Remove the custom benchmark sampler and comparison command in favor of
+  pyperf's worker, statistics, JSON and comparison tools. Historical benchmark
+  result files remain unchanged.
+
 ## [v1.3.2] - 2026-11-08
 
 ### Added

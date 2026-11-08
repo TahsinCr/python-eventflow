@@ -1,23 +1,13 @@
-"""Measure same-key waiter handoff under queued async work.
-
-Run with ``python -m benchmarks.benchmark_keyed_limiter``. Each worker yields
-once while holding its permit so the benchmark measures repeated contention,
-not only immediate acquire/release calls.
-"""
+"""Benchmark same-key limiter handoff under queued asynchronous contention."""
 
 from __future__ import annotations
 
-import argparse
 import asyncio
-import json
-import platform
-import statistics
-from pathlib import Path
 from time import perf_counter
 
 from eventflow import KeyedConcurrencyLimiter
 
-from ._measure import benchmark_metadata
+from ._runner import bench_time_func, create_runner
 
 
 async def _sample(waiter_count: int) -> float:
@@ -56,44 +46,34 @@ async def _sample(waiter_count: int) -> float:
         await limiter.aclose()
 
 
-async def _run(waiter_counts: list[int], repeats: int) -> dict[str, object]:
-    results = []
-    for waiter_count in waiter_counts:
-        samples = [await _sample(waiter_count) for _ in range(repeats)]
-        results.append(
-            {
-                "waiters": waiter_count,
-                "repeats": repeats,
-                "sample_seconds": samples,
-                "p50_seconds": statistics.median(samples),
-            }
-        )
-    return {
-        "benchmark": "keyed-concurrency-same-key-waiters",
-        "python": platform.python_version(),
-        "platform": platform.platform(),
-        "workload": "one permit; each waiter yields once while holding it",
-        "results": results,
-    }
+def _time_waiters(loops: int, waiter_count: int) -> float:
+    async def measure() -> float:
+        elapsed = 0.0
+        for _ in range(loops):
+            elapsed += await _sample(waiter_count)
+        return elapsed
+
+    return asyncio.run(measure())
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--waiters", type=int, nargs="+", default=[100, 1000, 5000])
-    parser.add_argument("--repeats", type=int, default=3)
-    parser.add_argument("--output", type=Path)
-    args = parser.parse_args()
-    if args.repeats < 1 or any(waiter_count < 1 for waiter_count in args.waiters):
-        parser.error("waiter counts and repeats must be positive")
+    runner = create_runner(__doc__ or "Keyed concurrency limiter benchmarks")
+    runner.argparser.add_argument("--waiters", type=int, nargs="+", default=[100, 1000, 5000])
+    args = runner.parse_args()
+    if any(waiter_count < 1 for waiter_count in args.waiters):
+        runner.argparser.error("waiter counts must be positive")
+    if len(set(args.waiters)) != len(args.waiters):
+        runner.argparser.error("waiter counts must be unique")
 
-    report = asyncio.run(_run(args.waiters, args.repeats))
-    report.update(benchmark_metadata())
-    rendered = json.dumps(report, indent=2) + "\n"
-    if args.output is None:
-        print(rendered, end="")
-    else:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(rendered, encoding="utf-8")
+    for waiter_count in args.waiters:
+        bench_time_func(
+            runner,
+            f"same-key-waiters/{waiter_count}",
+            _time_waiters,
+            waiter_count,
+            inner_loops=waiter_count,
+            metadata={"waiters": waiter_count},
+        )
 
 
 if __name__ == "__main__":

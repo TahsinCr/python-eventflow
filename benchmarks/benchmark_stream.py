@@ -1,24 +1,20 @@
-"""Measure whole-stream latency, item throughput and bounded peak allocations."""
+"""Benchmark full AsyncStream consumption and native iterator baselines."""
 
-import argparse
-import asyncio
+from __future__ import annotations
+
 from collections.abc import AsyncIterator
-from typing import cast
 
 from eventflow.stream import AsyncStream
 
-from ._measure import measure_async, report
+from ._runner import bench_async, create_runner
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--iterations", type=int, default=100)
-    parser.add_argument("--items", type=int, default=1000)
-    parser.add_argument("--output")
-    args = parser.parse_args()
-    if args.iterations <= 0 or args.items <= 0:
-        parser.error("iterations and items must be positive")
-    results = []
+    runner = create_runner(__doc__ or "AsyncStream benchmarks")
+    runner.argparser.add_argument("--items", type=int, default=1_000)
+    args = runner.parse_args()
+    if args.items < 1:
+        runner.argparser.error("items must be positive")
 
     async def source() -> AsyncIterator[int]:
         for value in range(args.items):
@@ -66,23 +62,16 @@ def main() -> None:
             async for _ in stream:
                 pass
 
-    async def asynchronous() -> None:
-        operations = [
-            ("direct-generator", direct),
-            ("native-map-filter", consume_native),
-            ("unbuffered", lambda: consume(False)),
-            ("buffer-16", lambda: consume(True)),
-            ("native-batch-64", consume_native_batches),
-            ("batch_within-64-burst", consume_batch_within),
-        ]
-        for label, operation in operations:
-            result = await measure_async(label, operation, args.iterations)
-            result["items_per_operation"] = args.items
-            result["items_per_second"] = cast(float, result["ops_per_second"]) * args.items
-            results.append(result)
-
-    asyncio.run(asynchronous())
-    report(results, args.output)
+    operations = (
+        ("direct-generator", direct),
+        ("native-map-filter", consume_native),
+        ("unbuffered", lambda: consume(False)),
+        ("buffer-16", lambda: consume(True)),
+        ("native-batch-64", consume_native_batches),
+        ("batch_within-64-burst", consume_batch_within),
+    )
+    for name, operation in operations:
+        bench_async(runner, name, operation, metadata={"items_per_stream": args.items})
 
 
 if __name__ == "__main__":

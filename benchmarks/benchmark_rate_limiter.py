@@ -1,37 +1,15 @@
-"""Measure same-key rate-limiter wait distributions under sustained demand.
-
-Run with ``python -m benchmarks.benchmark_rate_limiter``. FIFO ordering is not
-promised; these samples expose observed wait and cancellation distributions.
-"""
+"""Benchmark keyed rate limiting with contending and cancelled waiters."""
 
 from __future__ import annotations
 
 import argparse
 import asyncio
-import json
 import math
-import platform
-from pathlib import Path
-from statistics import median
 from time import perf_counter
-from typing import TypedDict
 
 from eventflow import KeyedRateLimiter
 
-from ._measure import benchmark_metadata
-
-
-class _WorkerResult(TypedDict):
-    elapsed_seconds: float
-    wait_seconds: list[float]
-
-
-class _Sample(TypedDict):
-    completed_workers: int
-    cancelled_workers: int
-    completed_acquisitions: int
-    acquisition_wait_seconds: list[float]
-    worker_completion_seconds: list[float]
+from ._runner import bench_time_func, create_runner
 
 
 def _positive_int(value: str) -> int:
@@ -64,69 +42,9 @@ def _cancellation_fraction(value: str) -> float:
     return result
 
 
-def _percentile(values: list[float], fraction: float) -> float:
-    ordered = sorted(values)
-    return ordered[max(0, math.ceil(fraction * len(ordered)) - 1)]
-
-
-async def _sample(workers: int, acquisitions: int, rate: float, cancel_count: int) -> _Sample:
-    cancelled = await _cancel_waiters(cancel_count)
-    limiter = KeyedRateLimiter[str](rate=rate, period=1, burst=1)
-    if not limiter.try_acquire("shared"):
-        raise RuntimeError("could not reserve the initial rate-limit token")
-
-    active_workers = workers - cancel_count
-    arrivals = 0
-    start = asyncio.Event()
-
-    async def worker() -> _WorkerResult:
-        nonlocal arrivals
-        arrivals += 1
-        if arrivals == active_workers:
-            start.set()
-        await start.wait()
-        wait_times = []
-        started = perf_counter()
-        for _ in range(acquisitions):
-            wait_started = perf_counter()
-            await limiter.acquire("shared")
-            wait_times.append(perf_counter() - wait_started)
-        return {"elapsed_seconds": perf_counter() - started, "wait_seconds": wait_times}
-
-    tasks = [asyncio.create_task(worker()) for _ in range(active_workers)]
-    try:
-        outcomes = await asyncio.gather(*tasks, return_exceptions=True)
-        completed = []
-        for outcome in outcomes:
-            if isinstance(outcome, BaseException):
-                if not isinstance(outcome, asyncio.CancelledError):
-                    raise RuntimeError(f"rate-limiter worker failed: {outcome!r}")
-                raise RuntimeError("rate-limiter measurement worker was cancelled")
-            else:
-                completed.append(outcome)
-        wait_times = [wait for outcome in completed for wait in outcome["wait_seconds"]]
-        worker_times = [outcome["elapsed_seconds"] for outcome in completed]
-        if not wait_times or not worker_times:
-            raise RuntimeError("rate-limiter sample produced no completed acquisitions")
-        return {
-            "completed_workers": len(completed),
-            "cancelled_workers": cancelled,
-            "completed_acquisitions": len(wait_times),
-            "acquisition_wait_seconds": wait_times,
-            "worker_completion_seconds": worker_times,
-        }
-    finally:
-        for task in tasks:
-            if not task.done():
-                task.cancel()
-        await asyncio.gather(*tasks, return_exceptions=True)
-        await limiter.aclose()
-
-
-async def _cancel_waiters(count: int) -> int:
-    if count == 0:
-        return 0
-
+async def _cancel_waiters(count: int) -> None:
+    if not count:
+        return
     limiter = KeyedRateLimiter[str](rate=1, period=3_600, burst=1)
     if not limiter.try_acquire("shared"):
         raise RuntimeError("could not reserve the cancellation probe token")
@@ -138,13 +56,11 @@ async def _cancel_waiters(count: int) -> int:
             if loop.time() >= deadline:
                 raise TimeoutError("cancellation probe workers did not reach the wait queue")
             await asyncio.sleep(0)
-
         for task in tasks:
             task.cancel()
         outcomes = await asyncio.gather(*tasks, return_exceptions=True)
         if any(not isinstance(outcome, asyncio.CancelledError) for outcome in outcomes):
             raise RuntimeError("cancellation probe did not cancel every queued worker")
-        return len(outcomes)
     finally:
         for task in tasks:
             if not task.done():
@@ -153,88 +69,87 @@ async def _cancel_waiters(count: int) -> int:
         await limiter.aclose()
 
 
-async def _run(
+async def _sample(workers: int, acquisitions: int, rate: float, cancel_count: int) -> float:
+    await _cancel_waiters(cancel_count)
+    limiter = KeyedRateLimiter[str](rate=rate, period=1, burst=1)
+    if not limiter.try_acquire("shared"):
+        raise RuntimeError("could not reserve the initial rate-limit token")
+
+    active_workers = workers - cancel_count
+    arrivals = 0
+    ready = asyncio.Event()
+    start = asyncio.Event()
+
+    async def worker() -> None:
+        nonlocal arrivals
+        arrivals += 1
+        if arrivals == active_workers:
+            ready.set()
+        await start.wait()
+        for _ in range(acquisitions):
+            await limiter.acquire("shared")
+
+    tasks = [asyncio.create_task(worker()) for _ in range(active_workers)]
+    try:
+        await ready.wait()
+        started = perf_counter()
+        start.set()
+        outcomes = await asyncio.gather(*tasks, return_exceptions=True)
+        for outcome in outcomes:
+            if isinstance(outcome, BaseException):
+                raise RuntimeError("rate-limiter benchmark worker failed") from outcome
+        return perf_counter() - started
+    finally:
+        for task in tasks:
+            if not task.done():
+                task.cancel()
+        await asyncio.gather(*tasks, return_exceptions=True)
+        await limiter.aclose()
+
+
+def _time_rate_limiter(
+    loops: int,
     workers: int,
     acquisitions: int,
     rate: float,
-    repeats: int,
-    cancel_fraction: float,
-) -> dict[str, object]:
-    total_cancelled = min(round(workers * repeats * cancel_fraction), (workers - 1) * repeats)
-    cancellations_per_sample = [
-        total_cancelled // repeats + (index < total_cancelled % repeats) for index in range(repeats)
-    ]
-    samples = [
-        await _sample(workers, acquisitions, rate, cancel_count)
-        for cancel_count in cancellations_per_sample
-    ]
-    waits = [
-        value
-        for sample in samples
-        for value in sample["acquisition_wait_seconds"]
-        if isinstance(value, float)
-    ]
-    worker_times = [
-        value
-        for sample in samples
-        for value in sample["worker_completion_seconds"]
-        if isinstance(value, float)
-    ]
-    cancelled = sum(int(sample["cancelled_workers"]) for sample in samples)
-    task_count = workers * repeats
-    return {
-        "benchmark": "keyed-rate-limiter-wait-fairness",
-        "python": platform.python_version(),
-        "platform": platform.platform(),
-        "workload": (
-            "same key; one reserved token; active workers reacquire repeatedly; "
-            "cancellation waiters are measured in a separate probe"
-        ),
-        "workers_per_sample": workers,
-        "acquisitions_per_worker": acquisitions,
-        "rate_per_second": rate,
-        "repeats": repeats,
-        "requested_cancel_fraction": cancel_fraction,
-        "observed_cancel_fraction": cancelled / task_count,
-        "completed_acquisitions": len(waits),
-        "acquisition_wait_seconds": {
-            "p50": median(waits),
-            "p95": _percentile(waits, 0.95),
-            "p99": _percentile(waits, 0.99),
-            "max": max(waits),
-        },
-        "worker_completion_seconds": {
-            "p50": median(worker_times),
-            "p95": _percentile(worker_times, 0.95),
-            "p99": _percentile(worker_times, 0.99),
-            "max": max(worker_times),
-            "max_to_median_ratio": max(worker_times) / median(worker_times),
-        },
-        "sample_completed_acquisitions": [sample["completed_acquisitions"] for sample in samples],
-        "sample_cancelled_workers": [sample["cancelled_workers"] for sample in samples],
-    }
+    cancel_count: int,
+) -> float:
+    async def measure() -> float:
+        elapsed = 0.0
+        for _ in range(loops):
+            elapsed += await _sample(workers, acquisitions, rate, cancel_count)
+        return elapsed
+
+    return asyncio.run(measure())
 
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("--workers", type=_positive_int, default=32)
-    parser.add_argument("--acquisitions", type=_positive_int, default=16)
-    parser.add_argument("--rate", type=_rate, default=1000.0)
-    parser.add_argument("--repeats", type=_positive_int, default=5)
-    parser.add_argument("--cancel-fraction", type=_cancellation_fraction, default=0.05)
-    parser.add_argument("--output", type=Path)
-    args = parser.parse_args()
+    runner = create_runner(__doc__ or "Keyed rate limiter benchmarks")
+    runner.argparser.add_argument("--workers", type=_positive_int, default=32)
+    runner.argparser.add_argument("--acquisitions", type=_positive_int, default=16)
+    runner.argparser.add_argument("--rate", type=_rate, default=1_000.0)
+    runner.argparser.add_argument("--cancel-fraction", type=_cancellation_fraction, default=0.05)
+    args = runner.parse_args()
 
-    result = asyncio.run(
-        _run(args.workers, args.acquisitions, args.rate, args.repeats, args.cancel_fraction)
+    cancel_count = min(round(args.workers * args.cancel_fraction), args.workers - 1)
+    active_acquisitions = (args.workers - cancel_count) * args.acquisitions
+
+    bench_time_func(
+        runner,
+        "same-key-rate-limit-contention",
+        _time_rate_limiter,
+        args.workers,
+        args.acquisitions,
+        args.rate,
+        cancel_count,
+        inner_loops=active_acquisitions,
+        metadata={
+            "workers": args.workers,
+            "acquisitions_per_worker": args.acquisitions,
+            "rate_per_second": args.rate,
+            "cancelled_workers": cancel_count,
+        },
     )
-    result.update(benchmark_metadata())
-    rendered = json.dumps(result, indent=2) + "\n"
-    if args.output is None:
-        print(rendered, end="")
-    else:
-        args.output.parent.mkdir(parents=True, exist_ok=True)
-        args.output.write_text(rendered, encoding="utf-8")
 
 
 if __name__ == "__main__":

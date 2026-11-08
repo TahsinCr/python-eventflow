@@ -1585,51 +1585,50 @@ alır. Yerleşik `MemoryEventHistory(capacity=1000)` sınırlı ve thread-safe't
 ## Geliştirme ve lisans
 
 Proje Python 3.10 ve üzerini destekler; paket setuptools ile derlenir.
-Uyumluluk bağımlılıkları yalnızca Python 3.10'da kurulur. Geliştirme kurulumu ve kontroller
-[Kurulum](https://github.com/TahsinCr/python-eventflow/blob/main/README-TR.md#install)
-bölümünde yer alır.
-Depo kökünde `python -m benchmarks.benchmark_replay` komutuyla history ve bus
-API'leri üzerinden `latest()`/`query()` çağrılarını, ayrıca sınırlı sync/async
-replay hazırlığını karşılaştırabilirsiniz. Standart kütüphane ile çalışan araç
-varsayılan olarak 100.000 event kullanır; `--events`, `--replay`,
-`--iterations` ve `--samples` seçenekleriyle ayarlanır.
+Uyumluluk bağımlılıkları yalnızca Python 3.10'da kurulur. Geliştirme kurulumu ve
+kontroller [Kurulum](https://github.com/TahsinCr/python-eventflow/blob/main/README-TR.md#install)
+bölümünde yer alır. Benchmark takımı, zamanlama ve sonuç biçimi için tek araç
+olarak [pyperf](https://pyperf.readthedocs.io/) kullanır. Geliştirme ekini kurup
+depo kökünden bir benchmark modülü çalıştırın:
 
-Ek ölçümler için `python -m benchmarks.benchmark_publish`,
-`python -m benchmarks.benchmark_pipeline`, `python -m benchmarks.benchmark_stream`
-ve `python -m benchmarks.benchmark_runtime` kullanılabilir. Stream benchmark'ı
-burst girişte `batch_within(64, 60)` ile yerel size-only batching'i karşılaştırır;
-bu ölçüm batch coordination maliyetini kapsar, seyrek kaynakta timer flush
-gecikmesini ölçmez. Runtime benchmark'ı
-sync/async publisher rekabetini, async `max_concurrency` değerlerini, callback
-hata oranlarını, periyodik schedule kaynaklarını ve ayarlanabilir sayıda event
-üzerinden izlenen belleği karşılaştırır. Varsayılan olarak beş ölçüm örneği,
-her örnekte publisher başına 500 yayın ve 100.000 soak eventi kullanır; iş yükü
-`--iterations`, `--publisher-counts`, `--schedule-counts`, `--samples` ve
-`--soak-operations` seçenekleriyle ayarlanır.
-`--output results.json` ortamı, throughput'u, p50/p95/p99 gecikmeyi ve zaman
-ölçümünden ayrı izlenen peak allocation değerini kaydeder. Stream oranları tam
-tüketilen bir stream'deki öğe sayısına göredir. Runtime bellek ölçümleri
-`tracemalloc` kullanır, process RSS değildir ve history belleğini de içerir.
-Yerel mikrobenchmark dağıtım performansı garantisi vermez. Ölçüm sonuçları ve
-yöntem `benchmarks/results` altında tutulur.
+```bash
+python -m pip install -e ".[dev]"
+python -m benchmarks.benchmark_publish --fast --output publish.json
+python -m benchmarks.benchmark_pipeline --fast --output pipeline.json
+python -m benchmarks.benchmark_stream --fast --items 1000 --output stream.json
+python -m benchmarks.benchmark_replay --fast --events 100000 --replay 25 --output replay.json
+python -m benchmarks.benchmark_bridges --fast --output bridges.json
+python -m benchmarks.benchmark_bridge_publishers --fast --publishers 2 4 8 16 --output bridge-publishers.json
+```
 
-Senkron yayıncıların event'leri asyncio tüketicisine aktarma performansını
-ölçmek için `python -m benchmarks.benchmark_bridge_publishers` komutunu
-çalıştırın. Araç 2, 4, 8 ve 16 yayıncı thread'ini karşılaştırır. Her yayıncı,
-yenisini göndermeden önce tüketicinin onayını bekler; sınırlı kuyruk böylece
-event kaybetmeden eşzamanlı aktarım rekabetini ölçer. İş yükünü `--iterations`,
-`--repeats`, `--publishers` ve `--output` seçenekleriyle ayarlayabilirsiniz.
-Her örnek ayrıca process CPU süresini ve bir çekirdeğin duvar saati kapasitesine
-göre CPU kullanım yüzdesini verir. Process içindeki thread'lerin CPU süreleri
-toplandığı için, native kod GIL'i bırakırken thread'ler eşzamanlı çalışırsa bu
-değer yüzde 100'ü aşabilir.
+Her modül belirli bir iş yükünü karşılaştırır: event dağıtımı ve callback
+hataları, pipeline kaydı ve middleware, stream tüketimi ve batching, history
+sorguları ve replay kurulumu, thread-to-async aktarımı, keyed limiter'lar,
+coalescing, yayıncı rekabeti, periyodik schedule'lar ve bellek soak'u. Stream
+benchmark'ındaki `batch_within(64, 60)` örneği burst giriş kullanır; batch
+coordination maliyetini ölçer, seyrek kaynakta timer gecikmesini ölçmez. İş yükü
+seçenekleri için modülün `--help` çıktısına bakın. pyperf; `--fast`, `--rigorous`,
+worker/process ve örnek sayısı seçenekleri, JSON çıktısı, istatistikler,
+histogramlar ve bellek ölçümü (`--tracemalloc` veya `--track-memory`) sağlar.
+Aynı senaryo dosyalarını `python -m pyperf compare_to baseline.json candidate.json --table`
+komutuyla karşılaştırın. Sağlıklı karşılaştırma için Python derlemesini, GIL
+durumunu ve iş yükü seçeneklerini aynı tutun. Yerel ölçümler yalnızca kaydedilen
+makine ve iş yükünü anlatır; dağıtım performansı garantisi değildir. Tarihsel
+ölçümler ve yöntemleri `benchmarks/results` altında korunur.
 
-Benchmark JSON raporları Python sunuyorsa GIL durumunu, Git revision'ını,
-yalnızca kaynak dosyalarını kapsayan bir değişiklik bilgisini ve EventFlow
-paketi, benchmark Python dosyaları ile `pyproject.toml` üzerinden üretilen
-SHA-256 parmak izini içerir. Bu parmak izi oluşturulmuş sonuç dosyalarını
-kapsamaz. Karşılaştırma benchmark'ı baseline kaynağını ayrıca kaydeder.
-Provenance bilgisi süre ölçümleri tamamlandıktan sonra üretilir.
+Yayıncı köprüsü benchmark'ı, teslim edilen event başına duvar saati ve süreç
+CPU süresini ayrı ölçer. Zamanlayıcı; queue, consumer ve yayıncı thread'leri
+hazır olduğunda başlar, publish ile acknowledgement arasındaki teslim süresini
+kapsar. Free-threaded CPython karşılaştırması için aynı komutu free-threaded
+yorumlayıcıyla ve `PYTHON_GIL=0` ayarıyla çalıştırın. pyperf worker'ları bu ayarı
+devralır ve gözlemledikleri GIL durumunu kaydeder. Sonuçları karşılaştırırken
+yorumlayıcı derlemesini, iş yükünü ve makine koşullarını aynı tutun.
+
+Her pyperf sonucu EventFlow uygulamasını (`python`), worker'ın gözlemlediği GIL
+durumunu, Git revision'ını, kaynak dosyalarındaki değişiklik durumunu ve paket,
+benchmark kaynakları ile `pyproject.toml` üzerinden hesaplanan SHA-256 parmak
+izini kaydeder. Oluşturulan sonuç dosyaları parmak izine katılmaz. pyperf ayrıca
+ölçümde kullanılan Python yorumlayıcısı ve makine bilgilerini kaydeder.
 
 Copyright © 2026 TahsinCr. EventFlow, MIT Lisansı ile lisanslanmıştır.
 [LICENSE](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE) ve
