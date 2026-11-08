@@ -12,7 +12,7 @@ from time import perf_counter
 
 from eventflow import AsyncEventBus, DeliveryMode, EventBus
 
-from ._runner import bench_time_func, create_runner
+from ._runner import bench_time_func, create_runner, forward_cli_arguments
 
 _SUBSCRIBERS = 4
 _SCHEDULE_INTERVAL = 3_600.0
@@ -146,7 +146,12 @@ def _time_async_schedules(loops: int, count: int) -> float:
 
 
 def main() -> None:
-    runner = create_runner(__doc__ or "Runtime workload benchmarks")
+    runner = create_runner(
+        __doc__ or "Runtime workload benchmarks",
+        add_cmdline_args=forward_cli_arguments(
+            "batch_size", "soak_operations", "publisher_counts", "schedule_counts"
+        ),
+    )
     runner.argparser.add_argument("--batch-size", type=_positive, default=100)
     runner.argparser.add_argument("--soak-operations", type=_positive, default=10_000)
     runner.argparser.add_argument("--publisher-counts", type=_counts, default=(1, 4, 16))

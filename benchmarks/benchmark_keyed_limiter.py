@@ -7,7 +7,7 @@ from time import perf_counter
 
 from eventflow import KeyedConcurrencyLimiter
 
-from ._runner import bench_time_func, create_runner
+from ._runner import bench_time_func, create_runner, forward_cli_arguments
 
 
 async def _sample(waiter_count: int) -> float:
@@ -57,7 +57,10 @@ def _time_waiters(loops: int, waiter_count: int) -> float:
 
 
 def main() -> None:
-    runner = create_runner(__doc__ or "Keyed concurrency limiter benchmarks")
+    runner = create_runner(
+        __doc__ or "Keyed concurrency limiter benchmarks",
+        add_cmdline_args=forward_cli_arguments("waiters"),
+    )
     runner.argparser.add_argument("--waiters", type=int, nargs="+", default=[100, 1000, 5000])
     args = runner.parse_args()
     if any(waiter_count < 1 for waiter_count in args.waiters):

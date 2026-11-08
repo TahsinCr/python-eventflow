@@ -7,7 +7,7 @@ from time import perf_counter
 
 from eventflow import AsyncEventBus, EventBus, EventFilter, MemoryEventHistory
 
-from ._runner import bench_sync, bench_time_func, create_runner
+from ._runner import bench_sync, bench_time_func, create_runner, forward_cli_arguments
 
 
 async def _receive_async(_event: int) -> None:
@@ -31,7 +31,10 @@ def _time_async_replay(
 
 
 def main() -> None:
-    runner = create_runner(__doc__ or "History and replay benchmarks")
+    runner = create_runner(
+        __doc__ or "History and replay benchmarks",
+        add_cmdline_args=forward_cli_arguments("events", "replay"),
+    )
     runner.argparser.add_argument("--events", type=int, default=100_000)
     runner.argparser.add_argument("--replay", type=int, default=1)
     args = runner.parse_args()

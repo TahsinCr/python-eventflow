@@ -24,7 +24,8 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Forward custom benchmark arguments to pyperf worker processes so publisher
-  counts and benchmark names remain consistent across the whole run.
+  counts, workload sizes and benchmark metadata remain consistent across every
+  worker process.
 
 ### Removed
 

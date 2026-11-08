@@ -43,6 +43,21 @@ class Runner(Protocol):
     ) -> object: ...
 
 
+def forward_cli_arguments(*names: str) -> Callable[[list[str], Namespace], None]:
+    options = tuple((name, f"--{name.replace('_', '-')}") for name in names)
+
+    def add_arguments(command: list[str], args: Namespace) -> None:
+        for name, option in options:
+            value = getattr(args, name)
+            command.append(option)
+            if isinstance(value, (list, tuple)):
+                command.extend(str(item) for item in value)
+            else:
+                command.append(str(value))
+
+    return add_arguments
+
+
 def _is_source_path(relative: bytes | str) -> bool:
     path = PurePosixPath(os.fsdecode(relative) if isinstance(relative, bytes) else relative)
     if path == PurePosixPath("pyproject.toml"):

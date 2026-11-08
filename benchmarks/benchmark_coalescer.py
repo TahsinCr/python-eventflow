@@ -9,7 +9,7 @@ from time import perf_counter
 
 from eventflow import KeyedCoalescer
 
-from ._runner import bench_time_func, create_runner
+from ._runner import bench_time_func, create_runner, forward_cli_arguments
 
 
 def _positive(value: str) -> int:
@@ -106,7 +106,10 @@ def _time_coalescer(
 
 
 def main() -> None:
-    runner = create_runner(__doc__ or "Keyed coalescer benchmarks")
+    runner = create_runner(
+        __doc__ or "Keyed coalescer benchmarks",
+        add_cmdline_args=forward_cli_arguments("key_counts", "producers", "merge_updates"),
+    )
     runner.argparser.add_argument(
         "--key-counts", type=_positive, nargs="+", default=[128, 1024, 4096, 16384]
     )

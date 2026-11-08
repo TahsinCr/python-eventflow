@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import threading
-from argparse import Namespace
 from concurrent.futures import Future, ThreadPoolExecutor
 from time import perf_counter, process_time
 
@@ -12,7 +11,7 @@ from eventflow import EventBus
 from eventflow.bridges import AsyncEventQueue
 from eventflow.errors import EventQueueClosedError
 
-from ._runner import bench_time_func, create_runner
+from ._runner import bench_time_func, create_runner, forward_cli_arguments
 
 
 async def _sample(publishers: int, loops: int) -> tuple[float, float]:
@@ -90,14 +89,10 @@ def _cpu_time(loops: int, publishers: int) -> float:
     return asyncio.run(_sample(publishers, loops))[1]
 
 
-def _add_publisher_args(command: list[str], args: Namespace) -> None:
-    command.extend(("--publishers", *(str(publisher) for publisher in args.publishers)))
-
-
 def main() -> None:
     runner = create_runner(
         __doc__ or "Concurrent bridge publisher benchmarks",
-        add_cmdline_args=_add_publisher_args,
+        add_cmdline_args=forward_cli_arguments("publishers"),
     )
     runner.argparser.add_argument("--publishers", type=int, nargs="+", default=[2, 4, 8, 16])
     args = runner.parse_args()

@@ -6,11 +6,14 @@ from collections.abc import AsyncIterator
 
 from eventflow.stream import AsyncStream
 
-from ._runner import bench_async, create_runner
+from ._runner import bench_async, create_runner, forward_cli_arguments
 
 
 def main() -> None:
-    runner = create_runner(__doc__ or "AsyncStream benchmarks")
+    runner = create_runner(
+        __doc__ or "AsyncStream benchmarks",
+        add_cmdline_args=forward_cli_arguments("items"),
+    )
     runner.argparser.add_argument("--items", type=int, default=1_000)
     args = runner.parse_args()
     if args.items < 1:

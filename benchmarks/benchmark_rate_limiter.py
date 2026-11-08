@@ -9,7 +9,7 @@ from time import perf_counter
 
 from eventflow import KeyedRateLimiter
 
-from ._runner import bench_time_func, create_runner
+from ._runner import bench_time_func, create_runner, forward_cli_arguments
 
 
 def _positive_int(value: str) -> int:
@@ -124,7 +124,12 @@ def _time_rate_limiter(
 
 
 def main() -> None:
-    runner = create_runner(__doc__ or "Keyed rate limiter benchmarks")
+    runner = create_runner(
+        __doc__ or "Keyed rate limiter benchmarks",
+        add_cmdline_args=forward_cli_arguments(
+            "workers", "acquisitions", "rate", "cancel_fraction"
+        ),
+    )
     runner.argparser.add_argument("--workers", type=_positive_int, default=32)
     runner.argparser.add_argument("--acquisitions", type=_positive_int, default=16)
     runner.argparser.add_argument("--rate", type=_rate, default=1_000.0)

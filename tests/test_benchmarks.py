@@ -96,14 +96,15 @@ class PyperfRunnerTests(unittest.TestCase):
             package.mkdir()
             (package / "__init__.py").write_text("", encoding="utf-8")
             (package / "run.py").write_text(
-                "from benchmarks._runner import bench_async, bench_sync, create_runner\n"
-                "def add_worker_args(command, args):\n"
-                "    command.extend(('--case', str(args.case)))\n"
+                "from benchmarks._runner import (bench_async, bench_sync, create_runner, "
+                "forward_cli_arguments)\n"
                 "runner = create_runner('benchmark runner smoke test', "
-                "add_cmdline_args=add_worker_args)\n"
+                "add_cmdline_args=forward_cli_arguments('case', 'items'))\n"
                 "runner.argparser.add_argument('--case', default='default')\n"
+                "runner.argparser.add_argument('--items', type=int, nargs='+', default=[1])\n"
                 "args = runner.parse_args()\n"
-                "bench_sync(runner, f'sync-smoke-{args.case}', "
+                "case_name = '-'.join(map(str, args.items))\n"
+                "bench_sync(runner, f'sync-smoke-{args.case}-{case_name}', "
                 "lambda: sum((1, 2, 3)))\n"
                 "async def async_smoke():\n"
                 "    return sum((1, 2, 3))\n"
@@ -126,6 +127,9 @@ class PyperfRunnerTests(unittest.TestCase):
                     "--warmups=0",
                     "--loops=1",
                     "--case=custom",
+                    "--items",
+                    "2",
+                    "3",
                     "--output",
                     str(output),
                 ],
@@ -144,7 +148,7 @@ class PyperfRunnerTests(unittest.TestCase):
 
         benchmarks = document["benchmarks"]
         names = {item["metadata"]["name"] for item in benchmarks}
-        self.assertEqual(names, {"sync-smoke-custom", "async-smoke"})
+        self.assertEqual(names, {"sync-smoke-custom-2-3", "async-smoke"})
         metadata = document["metadata"]
         self.assertEqual(metadata["eventflow_implementation"], "python")
         self.assertIn(metadata["eventflow_gil"], {"enabled", "disabled", "unavailable"})
