@@ -35,7 +35,7 @@ def main() -> None:
         __doc__ or "History and replay benchmarks",
         add_cmdline_args=forward_cli_arguments("events", "replay"),
     )
-    runner.argparser.add_argument("--events", type=int, nargs="+", default=[100_000])
+    runner.argparser.add_argument("--events", type=int, nargs="+", default=[1_000, 10_000, 100_000])
     runner.argparser.add_argument("--replay", type=int, default=1)
     args = runner.parse_args()
     if any(event_count < 1 for event_count in args.events) or args.replay < 1:
