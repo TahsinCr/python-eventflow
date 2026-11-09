@@ -14,6 +14,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Move older benchmark records and their report into a clearly labeled legacy
+  archive; make the current 1.3.2 performance report and raw pyperf matrix the
+  active benchmark reference.
 - Rename the Python-version compatibility helper to `eventflow._compatibility`
   to mark it as an internal module.
 - Use pyperf as the shared timing and result engine for all benchmark modules.
