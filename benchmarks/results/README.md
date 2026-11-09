@@ -5,9 +5,9 @@
 
 This report is the current reference for benchmark results in this directory.
 Every result created for this snapshot records the same clean source revision
-and source fingerprint. Older releases and benchmark formats are kept under
-[`archive/legacy/`](archive/legacy/README.md) and are not mixed into the current
-summary.
+and source fingerprint. Benchmark records from earlier source revisions and
+older harnesses were removed, leaving only the current baseline and its
+matched GIL-on/free-threaded comparison.
 
 ## What was measured
 
@@ -92,12 +92,9 @@ excluded from the source fingerprint.
   contains each module's broad-screen data.
 - `paired_benchmark_{bridge_publishers,bridges,lifecycle}_cpython_3.15.2*_2026-11-09.json`
   contains the matched GIL-on and free-threaded runs.
-- The eight `history_sparse_filter_*` and `stream_transform_*` files preserve
-  earlier focused before/after experiments. They use their own source
-  revisions and are not part of the 142-case current screen.
-- [`archive/legacy/`](archive/legacy/README.md) contains 24 older reports and
-  raw files, including custom-harness JSON and CPython 3.15 bridge runs from
-  earlier source revisions. Their schemas and measurements were preserved.
+- Earlier-source result files and custom-harness records were removed. The
+  retained pyperf JSON files all measure the source revision named at the top
+  of this report.
 
 To repeat one module with the broad-screen settings, install the `dev` extra
 and run it from the repository root, for example:
@@ -171,23 +168,6 @@ scheduling, thread wakeups, locks and ownership cleanup. A native loop would
 still cross into Python for user callbacks and would not remove those scheduling
 costs. Any future native or Cython work should be limited to a CPU-heavy,
 measured loop whose inputs and outputs can stay native across the boundary.
-
-## Focused before/after records
-
-The earlier 2026-11-09 filter and stream experiments remain available as
-separate before/after pairs. They are not part of the current coverage matrix:
-
-- The 100,000-event sparse-history query fell from 42.5 ms to 9.48 ms (4.48×)
-  on CPython 3.14.9. The current screen independently measured 9.314 ms for
-  that workload.
-- The 5,000-item stream transform measured 9.89 ms before and 6.09 ms after
-  for the unbuffered case (1.63×) on CPython 3.14.9. Its 16-item buffered path
-  measured 19.9 ms before and 16.0 ms after (1.25×).
-
-Those focused pyperf runs still reported that their strict <1% variation target
-was not established. Read their raw files for each run's source revision,
-fingerprint and settings. The historical detail and earlier measurement methods
-are preserved in the [legacy report](archive/legacy/README.md).
 
 ## What remains unmeasured
 
