@@ -35,19 +35,27 @@ class BoundedWorkPool:
     """
 
     def __init__(
-        self, *, max_workers: int, max_pending: int, observer: OperationStats | None = None
+        self,
+        *,
+        max_workers: int,
+        max_pending: int,
+        observer: OperationStats | None = None,
+        thread_name_prefix: str = "EventFlowWorker",
     ) -> None:
         self._workers = validate_positive_capacity(max_workers, name="max_workers")
         if isinstance(max_pending, bool) or not isinstance(max_pending, int):
             raise TypeError("max_pending must be an integer")
         if max_pending < 0:
             raise ValueError("max_pending cannot be negative")
+        if not isinstance(thread_name_prefix, str) or not thread_name_prefix.strip():
+            raise ValueError("thread_name_prefix must be a non-empty string")
         _require_operation_stats(observer)
         self._pending_limit = max_pending
         self._observer = observer
         self._slots = threading.BoundedSemaphore(self._workers + max_pending)
         self._executor = ThreadPoolExecutor(
-            max_workers=self._workers, thread_name_prefix="EventFlowWorker"
+            max_workers=self._workers,
+            thread_name_prefix=thread_name_prefix.strip(),
         )
         self._lock = threading.Lock()
         self._pending = 0

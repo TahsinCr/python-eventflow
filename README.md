@@ -1,4 +1,4 @@
-[![Version: v1.3.2][version-shield]](https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md)
+[![Version: v1.4.0][version-shield]](https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md)
 [![Python 3.10+][python-shield]](https://www.python.org/downloads/)
 [![MIT License][license-shield]](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE)
 
@@ -123,7 +123,7 @@ The installed package exposes its version through `eventflow.__version__`:
 ~~~python
 from eventflow import __version__
 
-print(__version__)  # 1.3.2
+print(__version__)  # 1.4.0
 ~~~
 
 <a id="first-event"></a>
@@ -260,6 +260,21 @@ on a bus method; do not combine the two forms. For a handler that should stop
 after its first match, use `once=True` or `once(callback, ...)`. For a fixed
 number of matching deliveries, use `times=N`. These limits count matching
 events, not every event published to the bus.
+
+For high-volume streams, an `EventBus` can index subscriptions by one hashable
+routing key. The key extractor runs only while keyed subscriptions exist; a
+publish then visits that key's subscribers and wildcard subscribers in their
+original registration order. The extractor must return a non-`None` hashable
+value; `None` is reserved for wildcard subscriptions. Use `EventFilter` or
+`predicate` for any additional conditions:
+
+~~~python
+from eventflow import EventBus
+
+with EventBus[tuple[str, int]](routing_key=lambda event: event[0]) as bus:
+    bus.subscribe(print, routing_key="acct-7")
+    bus.publish(("acct-7", 12_500))
+~~~
 
 <a id="failures"></a>
 ### Failures and results
@@ -1018,7 +1033,10 @@ lazy top-level API or from its module when a narrower import is preferred.
 ### Event bridges and queues
 
 `AsyncEventQueue` subscribes to a synchronous `EventBus` and exposes received
-events through `receive()` or async iteration. It has a fixed item capacity,
+events through `receive()` or async iteration. It can receive the same
+`event_filter`, `event_type`, `predicate` and `routing_key` options as a bus
+subscription, so unrelated events are rejected before they use queue capacity.
+It has a fixed item capacity,
 accepts publishes from other threads, and supports `drop_oldest`,
 `drop_newest` and `error` overflow policies. The configured capacity includes
 events waiting to be delivered onto the owning loop. It allows one active
@@ -1036,16 +1054,22 @@ inside the synchronous subscriber; the bus applies its configured
 import asyncio
 from eventflow import AsyncEventQueue, EventBus
 
-bus = EventBus[int]()
+bus = EventBus[tuple[str, int]](routing_key=lambda event: event[0])
 
 
 async def receive_one():
-    async with AsyncEventQueue(bus, event_type=int, capacity=64, overflow="drop_oldest") as events:
-        await asyncio.to_thread(bus.publish, 42)
+    async with AsyncEventQueue(
+        bus,
+        routing_key="telemetry",
+        predicate=lambda event: event[1] > 0,
+        capacity=64,
+        overflow="drop_oldest",
+    ) as events:
+        await asyncio.to_thread(bus.publish, ("telemetry", 42))
         return await events.receive()
 
 
-assert asyncio.run(receive_one()) == 42
+assert asyncio.run(receive_one()) == ("telemetry", 42)
 bus.close()
 ~~~
 
@@ -1486,10 +1510,10 @@ that has already started may finish after `close()` returns.
 
 | Method | Behavior |
 | --- | --- |
-| `subscribe(callback, *, event_filter=None, event_type=None, predicate=None, once=False, times=None, replay=0)` | Register a handler. Supply either `event_filter` or direct filter arguments. |
-| `once(callback, *, event_filter=None, event_type=None, predicate=None, replay=0)` | Register for the first matching event. |
+| `subscribe(callback, *, event_filter=None, event_type=None, predicate=None, routing_key=None, once=False, times=None, replay=0)` | Register a handler. Supply either `event_filter` or direct filter arguments; `routing_key` selects an indexed event category. |
+| `once(callback, *, event_filter=None, event_type=None, predicate=None, routing_key=None, replay=0)` | Register for the first matching event. |
 | `publish(event)` | Deliver an event and return a `PublishResult`, unless the error policy raises. |
-| `wait_for(*, event_filter=None, event_type=None, predicate=None, timeout=None)` | Return one matching event or `None`. |
+| `wait_for(*, event_filter=None, event_type=None, predicate=None, routing_key=None, timeout=None)` | Return one matching event or `None`. |
 | `publish_every(event, interval, *, times=None, immediately=True)` | Start a cancellable periodic schedule. |
 | `latest(...)` / `query(..., limit=None)` | Read retained history. These queries are synchronous on both bus types. |
 | `clear()` / `close()` | Clear subscriptions (schedules continue) or close the bus (schedules stop). Both are awaited on `AsyncEventBus`. |
@@ -1506,9 +1530,10 @@ without `await` and returns a `concurrent.futures.Future`.
 `subscribe()`, `once()`, `wait_for()`, `publish_every()`, `start()`, and
 `stop()`. `channel()` and `add()` return directly.
 
-Engine `subscribe()` accepts `event_filter`, `event_type`, `predicate`, `once`,
-`times`, and `replay`. Engine `once()` accepts the filter options and `replay`.
-The async engine exposes the same typed options for async handlers.
+Engine `subscribe()` accepts `event_filter`, `event_type`, `predicate`,
+`routing_key`, `once`, `times`, and `replay`. Engine `once()` and `wait_for()`
+also forward `routing_key`. The async engine exposes the same typed options for
+async handlers except routing keys, which apply to synchronous `EventBus`.
 
 `AsyncEventEngine` provides the same operations for async buses. `channel()`
 and `add()` return directly; publishing, subscription, waiting, removal, start,
@@ -1615,6 +1640,6 @@ Copyright © 2026 TahsinCr. EventFlow is licensed under the MIT License.
 See [LICENSE](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE) and
 [CHANGELOG](https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md).
 
-[version-shield]: https://img.shields.io/badge/version-v1.3.2-b7a3e3.svg?style=for-the-badge
+[version-shield]: https://img.shields.io/badge/version-v1.4.0-b7a3e3.svg?style=for-the-badge
 [python-shield]: https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?style=for-the-badge&logo=python&logoColor=white
 [license-shield]: https://img.shields.io/badge/license-MIT-blue.svg?style=for-the-badge

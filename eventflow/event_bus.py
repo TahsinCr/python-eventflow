@@ -2,11 +2,12 @@
 
 from __future__ import annotations
 
+import heapq
 import inspect
 import threading
 import time
 from collections import deque
-from collections.abc import Callable
+from collections.abc import Callable, Hashable
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
 from dataclasses import dataclass, field
@@ -97,12 +98,20 @@ class _Subscriber(Generic[T]):
 
 
 class EventBus(BaseEventBus[T]):
-    """Publish events safely from any thread to synchronous subscribers."""
+    """Publish events safely from any thread to synchronous subscribers.
+
+    A routing key extractor enables indexed subscriptions by key. Publishing
+    visits matching keyed subscribers and wildcard subscribers in registration
+    order, without scanning unrelated keyed subscriptions. Extractors must
+    return a hashable non-``None`` value; ``None`` denotes a wildcard
+    subscription.
+    """
 
     def __init__(
         self,
         *,
         history: EventHistory[T] | int | None = None,
+        routing_key: Callable[[T], Hashable] | None = None,
         error_policy: ErrorPolicy = ErrorPolicy.ISOLATE,
         executor: ThreadPoolExecutor | None = None,
         replay_buffer_limit: int = 1_000,
@@ -143,10 +152,15 @@ class EventBus(BaseEventBus[T]):
             if action is not None and is_async_callable(action):
                 raise InvalidEventHandlerError("EventBus actions must be synchronous")
         self._executor = _validate_executor(executor)
+        if routing_key is not None and not callable(routing_key):
+            raise TypeError("routing_key must be callable or None")
+        self._routing_key = routing_key
         self._replay_buffer_limit = replay_buffer_limit
         self._max_schedules = max_schedules
         self._shutdown_timeout = shutdown_timeout
         self._subscribers: dict[int, _Subscriber[T]] = {}
+        self._unkeyed_subscribers: dict[int, _Subscriber[T]] = {}
+        self._keyed_subscribers: dict[Hashable, dict[int, _Subscriber[T]]] = {}
         self._next_id = 0
         self._closed = False
         self._lock = threading.RLock()
@@ -176,6 +190,7 @@ class EventBus(BaseEventBus[T]):
         event_filter: EventFilter[T] | None = None,
         event_type: EventType | None = None,
         predicate: Callable[[T], bool] | None = None,
+        routing_key: Hashable | None = None,
         once: bool = False,
         times: int | None = None,
         replay: int = 0,
@@ -193,20 +208,44 @@ class EventBus(BaseEventBus[T]):
             event_type=event_type,
             predicate=predicate,
         )
+        if routing_key is not None:
+            if self._routing_key is None:
+                raise ValueError("routing_key requires a bus routing_key function")
+            try:
+                hash(routing_key)
+            except TypeError as exc:
+                raise TypeError("routing_key values must be hashable") from exc
         with self._lock:
             self._ensure_open()
             history = self._history
             subscription_id = self._next_id
             self._next_id += 1
-            replay_snapshot = self._query_replay(
-                history,
-                replay,
-                any(option is not None for option in (event_filter, event_type, predicate)),
-            )
+            has_filter = any(option is not None for option in (event_filter, event_type, predicate))
+            if replay and routing_key is not None and history is not None:
+                replay_snapshot = history.query(
+                    EventFilter(
+                        predicate=lambda event: self._event_routing_key(event) == routing_key
+                    ),
+                    limit=replay,
+                )
+            else:
+                replay_snapshot = self._query_replay(
+                    history,
+                    replay,
+                    has_filter or routing_key is not None,
+                )
 
             def cancel() -> None:
                 with self._lock:
                     self._subscribers.pop(subscription_id, None)
+                    if routing_key is None:
+                        self._unkeyed_subscribers.pop(subscription_id, None)
+                    else:
+                        subscribers = self._keyed_subscribers.get(routing_key)
+                        if subscribers is not None:
+                            subscribers.pop(subscription_id, None)
+                            if not subscribers:
+                                self._keyed_subscribers.pop(routing_key, None)
 
             subscription = Subscription(subscription_id, cancel)
             subscriber = _Subscriber(
@@ -218,6 +257,10 @@ class EventBus(BaseEventBus[T]):
                 pending=deque(maxlen=self._replay_buffer_limit),
             )
             self._subscribers[subscription_id] = subscriber
+            if routing_key is None:
+                self._unkeyed_subscribers[subscription_id] = subscriber
+            else:
+                self._keyed_subscribers.setdefault(routing_key, {})[subscription_id] = subscriber
 
         try:
             replay_events = tuple(
@@ -263,6 +306,7 @@ class EventBus(BaseEventBus[T]):
         event_filter: EventFilter[T] | None = None,
         event_type: EventType | None = None,
         predicate: Callable[[T], bool] | None = None,
+        routing_key: Hashable | None = None,
         replay: int = 0,
     ) -> Subscription:
         """Subscribe a handler for its first matching event only."""
@@ -272,6 +316,7 @@ class EventBus(BaseEventBus[T]):
             event_filter=event_filter,
             event_type=event_type,
             predicate=predicate,
+            routing_key=routing_key,
             once=True,
             replay=replay,
         )
@@ -287,7 +332,8 @@ class EventBus(BaseEventBus[T]):
                 self._record(event)
                 self._published += 1
                 return PublishResult()
-            subscribers = tuple(self._subscribers.values())
+            event_key = self._event_routing_key(event) if self._keyed_subscribers else None
+            subscribers = self._subscriber_snapshot(event_key)
             self._record(event)
             self._published += 1
 
@@ -372,6 +418,31 @@ class EventBus(BaseEventBus[T]):
         if errors and self._error_policy is ErrorPolicy.RAISE:
             raise ExceptionGroup("Event delivery failed", errors)
         return result
+
+    def _subscriber_snapshot(self, event_key: Hashable | None) -> tuple[_Subscriber[T], ...]:
+        if self._routing_key is None:
+            return tuple(self._subscribers.values())
+        unkeyed = self._unkeyed_subscribers
+        keyed = self._keyed_subscribers.get(event_key, {}) if event_key is not None else {}
+        if not unkeyed:
+            return tuple(keyed.values())
+        if not keyed:
+            return tuple(unkeyed.values())
+        return tuple(
+            subscriber for _identifier, subscriber in heapq.merge(unkeyed.items(), keyed.items())
+        )
+
+    def _event_routing_key(self, event: T) -> Hashable | None:
+        if self._routing_key is None:
+            return None
+        key = self._routing_key(event)
+        if key is None:
+            raise TypeError("routing_key function must return a non-None hashable value")
+        try:
+            hash(key)
+        except TypeError as exc:
+            raise TypeError("routing_key function must return a hashable value") from exc
+        return key
 
     def _match_subscribers(
         self,
@@ -538,6 +609,7 @@ class EventBus(BaseEventBus[T]):
         event_filter: EventFilter[T] | None = None,
         event_type: EventType | None = None,
         predicate: Callable[[T], bool] | None = None,
+        routing_key: Hashable | None = None,
         timeout: float | None = None,
     ) -> T | None:
         if timeout is not None:
@@ -564,6 +636,7 @@ class EventBus(BaseEventBus[T]):
             subscription = self.subscribe(
                 capture,
                 event_filter=normalized_filter,
+                routing_key=routing_key,
                 once=True,
             )
         timed_out = False
@@ -593,6 +666,8 @@ class EventBus(BaseEventBus[T]):
                 subscriber.subscription for subscriber in self._subscribers.values()
             )
             self._subscribers.clear()
+            self._unkeyed_subscribers.clear()
+            self._keyed_subscribers.clear()
         for subscription in subscriptions:
             subscription._deactivate()
         with self._condition:
@@ -608,6 +683,8 @@ class EventBus(BaseEventBus[T]):
             )
             schedules = tuple(self._schedules.values())
             self._subscribers.clear()
+            self._unkeyed_subscribers.clear()
+            self._keyed_subscribers.clear()
             self._condition.notify_all()
         for subscription in subscriptions:
             subscription._deactivate()

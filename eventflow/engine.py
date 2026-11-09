@@ -3,7 +3,7 @@
 from __future__ import annotations
 
 import threading
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Hashable
 from concurrent.futures import ThreadPoolExecutor
 from typing import Any, Generic, TypeVar
 
@@ -204,6 +204,7 @@ class EventEngine:
         event_filter: EventFilter[Any] | None = None,
         event_type: EventType | None = None,
         predicate: Callable[[Any], bool] | None = None,
+        routing_key: Hashable | None = None,
         once: bool = False,
         times: int | None = None,
         replay: int = 0,
@@ -213,6 +214,7 @@ class EventEngine:
             event_filter=event_filter,
             event_type=event_type,
             predicate=predicate,
+            routing_key=routing_key,
             once=once,
             times=times,
             replay=replay,
@@ -226,6 +228,7 @@ class EventEngine:
         event_filter: EventFilter[Any] | None = None,
         event_type: EventType | None = None,
         predicate: Callable[[Any], bool] | None = None,
+        routing_key: Hashable | None = None,
         replay: int = 0,
     ) -> Subscription:
         return self.channel(channel).once(
@@ -233,6 +236,7 @@ class EventEngine:
             event_filter=event_filter,
             event_type=event_type,
             predicate=predicate,
+            routing_key=routing_key,
             replay=replay,
         )
 
@@ -259,12 +263,14 @@ class EventEngine:
         event_filter: EventFilter[Any] | None = None,
         event_type: EventType | None = None,
         predicate: Callable[[Any], bool] | None = None,
+        routing_key: Hashable | None = None,
         timeout: float | None = None,
     ) -> Any | None:
         return self.channel(channel).wait_for(
             event_filter=event_filter,
             event_type=event_type,
             predicate=predicate,
+            routing_key=routing_key,
             timeout=timeout,
         )
 

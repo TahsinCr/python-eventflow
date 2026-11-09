@@ -8,7 +8,7 @@ import inspect
 import threading
 import time
 from collections import deque
-from collections.abc import AsyncIterator, Awaitable, Callable
+from collections.abc import AsyncIterator, Awaitable, Callable, Hashable
 from dataclasses import dataclass
 from typing import Any, Generic, Literal, TypeVar, cast
 
@@ -17,6 +17,7 @@ from ._lifecycle import bind_running_loop
 from .base import validate_nonnegative_timeout, validate_positive_capacity
 from .errors import EventQueueClosedError, LoopPortalClosedError, QueueOverflowError
 from .event_bus import EventBus
+from .filtering import EventFilter, EventType
 from .observability import OperationStats, _require_operation_stats
 from .subscription import Subscription
 
@@ -46,7 +47,10 @@ class AsyncEventQueue(Generic[T]):
         self,
         bus: EventBus[T],
         *,
-        event_type: type[T] | tuple[type[Any], ...] | None = None,
+        event_filter: EventFilter[T] | None = None,
+        event_type: EventType | None = None,
+        predicate: Callable[[T], bool] | None = None,
+        routing_key: Hashable | None = None,
         capacity: int = 128,
         overflow: Literal["drop_oldest", "drop_newest", "error"] = "error",
         observer: OperationStats | None = None,
@@ -70,7 +74,11 @@ class AsyncEventQueue(Generic[T]):
         self._overflow_errors = 0
         self._closed = False
         self._subscription: Subscription | None = bus.subscribe(
-            self._on_event, event_type=event_type
+            self._on_event,
+            event_filter=event_filter,
+            event_type=event_type,
+            predicate=predicate,
+            routing_key=routing_key,
         )
 
     def _bind_loop(self) -> asyncio.AbstractEventLoop:

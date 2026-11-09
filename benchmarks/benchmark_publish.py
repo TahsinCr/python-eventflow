@@ -119,6 +119,17 @@ def main() -> None:
                 metadata={"filter": kind, "subscribers": 10},
             )
 
+    for subscribers in (10, 100, 1_000):
+        with EventBus[int](routing_key=lambda event: event) as bus:
+            for key in range(subscribers):
+                bus.subscribe(receive, routing_key=key)
+            bench_sync(
+                runner,
+                f"sync/routing-key/{subscribers}",
+                lambda bus=bus: bus.publish(0),
+                metadata={"routing_key_subscribers": subscribers, "matched_subscribers": 1},
+            )
+
     for failure_ratio in (0.0, 0.1, 1.0):
         failed_callbacks = round(10 * failure_ratio)
         with EventBus[int](error_policy=ErrorPolicy.ISOLATE) as bus:

@@ -6,6 +6,13 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Add indexed routing keys to synchronous `EventBus` subscriptions and named
+  `EventEngine` channels. Keyed and wildcard callbacks retain registration
+  order, while unrelated keyed subscribers are skipped.
+- Let `AsyncEventQueue` apply EventFlow event filters, predicates and routing
+  keys before bounded queue capacity is consumed.
+- Allow `BoundedWorkPool` users to set the worker thread name prefix.
+- Add routing-key correctness tests and pyperf publisher-scaling cases.
 - Add a root-level `run_tests.py` command that prints each test result and
   returns a failure status when the suite fails.
 - Extend the pyperf matrix to measure named engine channels, cache and state
@@ -17,7 +24,7 @@ All notable changes to this project are documented in this file.
 ### Changed
 
 - Remove 31 benchmark result files from earlier source revisions and harnesses,
-  along with their legacy guide, so the current 1.3.2 performance baseline is
+  along with their legacy guide, so the current 1.4.0 performance baseline is
   unambiguous.
 - Refresh the performance report and CSV with 409 results from corrected
   benchmark source `4af998d`: 180 broad CPython 3.14.9 cases, 81 Python 3.10.22

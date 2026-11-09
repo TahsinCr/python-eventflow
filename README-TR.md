@@ -1,4 +1,4 @@
-[![Sürüm: v1.3.2][version-shield]](https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md)
+[![Sürüm: v1.4.0][version-shield]](https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md)
 [![Python 3.10+][python-shield]](https://www.python.org/downloads/)
 [![MIT Lisansı][license-shield]](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE)
 
@@ -127,7 +127,7 @@ Kurulu paketin sürüm numarasına `eventflow.__version__` üzerinden erişebili
 ~~~python
 from eventflow import __version__
 
-print(__version__)  # 1.3.2
+print(__version__)  # 1.4.0
 ~~~
 
 <a id="first-event"></a>
@@ -268,6 +268,21 @@ alternatif kullanımlardır; ikisini birlikte vermeyin. İlk eşleşmeden sonra
 bitecek bir abonelik için `once=True` veya `once(callback, ...)` kullanın.
 Belirli sayıda eşleşen teslimat için `times=N` verin. Limitler bus'a gelen
 bütün event'leri değil, filtreyle eşleşenleri sayar.
+
+Yoğun akışlarda `EventBus` abonelikleri hash alabilen bir routing key ile
+indeksleyebilir. Key çıkarıcı yalnızca key ile abone varken çalışır; yayın,
+ilgili key abonelerini ve wildcard abonelerini kayıt sırasını koruyarak çağırır.
+Key çıkarıcı `None` olmayan hash alabilir bir değer döndürmelidir; `None`
+wildcard aboneliği için ayrılmıştır. Ek koşullar için `EventFilter` veya
+`predicate` kullanın:
+
+~~~python
+from eventflow import EventBus
+
+with EventBus[tuple[str, int]](routing_key=lambda event: event[0]) as bus:
+    bus.subscribe(print, routing_key="acct-7")
+    bus.publish(("acct-7", 12_500))
+~~~
 
 <a id="failures"></a>
 ### Hatalar ve sonuçlar
@@ -1041,7 +1056,9 @@ olarak veya daha dar bir bağımlılık için doğrudan kendi modüllerinden al�
 ### Event köprüleri ve kuyruklar
 
 `AsyncEventQueue`, senkron `EventBus`'a abone olur ve olayları `receive()` veya
-async iterator ile sunar. Sabit bir öğe kapasitesi vardır, başka thread'lerden
+async iterator ile sunar. Bus aboneliğindeki `event_filter`, `event_type`,
+`predicate` ve `routing_key` seçeneklerini kabul eder; ilgisiz event'ler kuyruk
+kapasitesini tüketmeden elenir. Sabit bir öğe kapasitesi vardır, başka thread'lerden
 yayın alabilir ve `drop_oldest`, `drop_newest`, `error` taşma politikalarını
 destekler. Kapasite, sahip loop'a aktarılmayı bekleyen event'leri de kapsar.
 Aynı anda yalnızca bir consumer task çalışabilir; bu task tamamlandıktan sonra
@@ -1058,16 +1075,22 @@ değerlendirir.
 import asyncio
 from eventflow import AsyncEventQueue, EventBus
 
-bus = EventBus[int]()
+bus = EventBus[tuple[str, int]](routing_key=lambda event: event[0])
 
 
 async def receive_one():
-    async with AsyncEventQueue(bus, event_type=int, capacity=64, overflow="drop_oldest") as events:
-        await asyncio.to_thread(bus.publish, 42)
+    async with AsyncEventQueue(
+        bus,
+        routing_key="telemetry",
+        predicate=lambda event: event[1] > 0,
+        capacity=64,
+        overflow="drop_oldest",
+    ) as events:
+        await asyncio.to_thread(bus.publish, ("telemetry", 42))
         return await events.receive()
 
 
-assert asyncio.run(receive_one()) == 42
+assert asyncio.run(receive_one()) == ("telemetry", 42)
 bus.close()
 ~~~
 
@@ -1510,10 +1533,10 @@ bekletmez; başlamış bir callback `close()` döndükten sonra tamamlanabilir.
 
 | Metot | Davranış |
 | --- | --- |
-| `subscribe(callback, *, event_filter=None, event_type=None, predicate=None, once=False, times=None, replay=0)` | Handler kaydeder. `event_filter` veya doğrudan filtre argümanlarını kullanın. |
-| `once(callback, *, event_filter=None, event_type=None, predicate=None, replay=0)` | İlk eşleşen event için kayıt yapar. |
+| `subscribe(callback, *, event_filter=None, event_type=None, predicate=None, routing_key=None, once=False, times=None, replay=0)` | Handler kaydeder. `event_filter` veya doğrudan filtre argümanlarını kullanın; `routing_key` indeksli kategori seçer. |
+| `once(callback, *, event_filter=None, event_type=None, predicate=None, routing_key=None, replay=0)` | İlk eşleşen event için kayıt yapar. |
 | `publish(event)` | Event'i teslim eder ve hata politikası yükseltmiyorsa `PublishResult` döndürür. |
-| `wait_for(*, event_filter=None, event_type=None, predicate=None, timeout=None)` | Eşleşen bir event'i veya `None` döndürür. |
+| `wait_for(*, event_filter=None, event_type=None, predicate=None, routing_key=None, timeout=None)` | Eşleşen bir event'i veya `None` döndürür. |
 | `publish_every(event, interval, *, times=None, immediately=True)` | İptal edilebilir periyodik zamanlama başlatır. |
 | `latest(...)` / `query(..., limit=None)` | Saklanan geçmişi okur. Her iki bus'ta da senkron metotlardır. |
 | `clear()` / `close()` | Abonelikleri temizler (schedule'lar sürer) veya bus'ı kapatır (schedule'lar durur). `AsyncEventBus` üzerinde await edilir. |
@@ -1531,9 +1554,10 @@ await edilir. `publish_threadsafe(event)` başka bir thread'den await etmeden
 sunar. `channel()` ve `add()` doğrudan sonuç döndürür.
 
 Engine'in `subscribe()` metodu `event_filter`, `event_type`, `predicate`,
-`once`, `times` ve `replay` seçeneklerini açıkça sunar. `once()` filtre
-seçeneklerini ve `replay` parametresini kabul eder. Async engine aynı seçenekleri
-asenkron handler'lar için sağlar.
+`routing_key`, `once`, `times` ve `replay` seçeneklerini açıkça sunar. `once()`
+ve `wait_for()` da `routing_key` seçeneğini aktarır. Async engine async
+handler'lar için typed filter seçeneklerini sunar; routing key senkron
+`EventBus` içindir.
 
 `AsyncEventEngine` aynı işlemleri async bus'lar için sunar. `channel()` ve
 `add()` doğrudan sonuç verir; yayın, abonelik, bekleme, kaldırma, başlatma ve
@@ -1637,6 +1661,6 @@ Copyright © 2026 TahsinCr. EventFlow, MIT Lisansı ile lisanslanmıştır.
 [CHANGELOG](https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md)
 dosyalarına bakın.
 
-[version-shield]: https://img.shields.io/badge/version-v1.3.2-b7a3e3.svg?style=for-the-badge
+[version-shield]: https://img.shields.io/badge/version-v1.4.0-b7a3e3.svg?style=for-the-badge
 [python-shield]: https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?style=for-the-badge&logo=python&logoColor=white
 [license-shield]: https://img.shields.io/badge/license-MIT-blue.svg?style=for-the-badge

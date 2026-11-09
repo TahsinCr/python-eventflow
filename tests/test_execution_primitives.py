@@ -299,6 +299,19 @@ class PrimitiveTests(unittest.TestCase):
         pool.shutdown()
         self.assertTrue(pool.stats().closed)
 
+    def test_bounded_work_pool_uses_configured_thread_name_prefix(self):
+        pool = BoundedWorkPool(
+            max_workers=1,
+            max_pending=0,
+            thread_name_prefix="MavDispatcher",
+        )
+        try:
+            worker_name = pool.submit(lambda: threading.current_thread().name).result(1)
+        finally:
+            pool.shutdown()
+
+        self.assertEqual(worker_name, "MavDispatcher_0")
+
     def test_sync_retry_is_explicit_and_circuit_breaker_recovers(self):
         calls = []
         retry = RetryPolicy(max_attempts=3)
