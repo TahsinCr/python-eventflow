@@ -8,6 +8,7 @@ import asyncio
 from time import perf_counter
 
 from eventflow import AsyncEventBus, DeliveryMode, ErrorPolicy, EventBus
+from eventflow.engine import AsyncEventEngine, EventEngine
 
 from ._runner import bench_sync, bench_time_func, create_runner
 
@@ -39,6 +40,37 @@ def _time_async_publish(
             for _ in range(loops):
                 await bus.publish(1)
             return perf_counter() - started
+
+    return asyncio.run(measure())
+
+
+def _time_sync_engine_publish(loops: int, subscribers: int) -> float:
+    engine = EventEngine()
+    bus = engine.add("events", EventBus[int]())
+    for _ in range(subscribers):
+        bus.subscribe(lambda _event: None)
+    try:
+        started = perf_counter()
+        for _ in range(loops):
+            engine.publish("events", 1)
+        return perf_counter() - started
+    finally:
+        engine.stop()
+
+
+def _time_async_engine_publish(loops: int, subscribers: int) -> float:
+    async def measure() -> float:
+        engine = AsyncEventEngine()
+        bus = engine.add("events", AsyncEventBus[int]())
+        for _ in range(subscribers):
+            await bus.subscribe(_receive_async)
+        try:
+            started = perf_counter()
+            for _ in range(loops):
+                await engine.publish("events", 1)
+            return perf_counter() - started
+        finally:
+            await engine.stop()
 
     return asyncio.run(measure())
 
@@ -90,6 +122,15 @@ def main() -> None:
                 metadata={"error_rate": failure_ratio, "subscribers": 10},
             )
 
+    for subscribers in (0, 10):
+        bench_time_func(
+            runner,
+            f"sync-engine/{subscribers}",
+            _time_sync_engine_publish,
+            subscribers,
+            metadata={"subscribers": subscribers, "dispatch": "named-channel"},
+        )
+
     for mode in DeliveryMode:
         for subscribers in (0, 1, 10, 100):
             bench_time_func(
@@ -113,6 +154,15 @@ def main() -> None:
                 failure_ratio,
                 metadata={"delivery_mode": mode.value, "error_rate": failure_ratio},
             )
+
+    for subscribers in (0, 10):
+        bench_time_func(
+            runner,
+            f"async-engine/{subscribers}",
+            _time_async_engine_publish,
+            subscribers,
+            metadata={"subscribers": subscribers, "dispatch": "named-channel"},
+        )
 
 
 if __name__ == "__main__":

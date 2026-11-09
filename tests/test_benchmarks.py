@@ -189,6 +189,60 @@ class PyperfRunnerTests(unittest.TestCase):
         self.assertEqual(len(names), 21)
         self.assertIn("async/20/middleware", names)
 
+    def test_expanded_component_resilience_lifecycle_and_engine_benchmarks_launch(self) -> None:
+        cases = {
+            "benchmark_components": {
+                "cache/hit",
+                "state-machine/compare-and-transition",
+                "policy/evaluate-rules-16",
+                "operation-stats/record",
+            },
+            "benchmark_resilience": {
+                "retry/sync-one-retry",
+                "retry/async-one-retry",
+                "circuit-breaker/sync-success",
+            },
+            "benchmark_lifecycle": {
+                "callback/predicate-hooks-invoke",
+                "resource-scope/defer-close",
+                "bounded-work-pool/submit-result",
+                "single-flight/same-key-eight-waiters",
+            },
+            "benchmark_publish": {"sync-engine/0", "async-engine/0"},
+        }
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            root = Path(temporary_directory)
+            for module, expected in cases.items():
+                with self.subTest(module=module):
+                    output = root / f"{module}.json"
+                    result = subprocess.run(
+                        [
+                            sys.executable,
+                            "-m",
+                            f"benchmarks.{module}",
+                            "--quiet",
+                            "--processes=1",
+                            "--values=1",
+                            "--warmups=0",
+                            "--loops=1",
+                            "--output",
+                            str(output),
+                        ],
+                        cwd=REPOSITORY_ROOT,
+                        check=False,
+                        capture_output=True,
+                        text=True,
+                        timeout=120,
+                    )
+                    if result.returncode:
+                        self.fail(
+                            f"{module} benchmark failed\nstdout:\n{result.stdout}"
+                            f"\nstderr:\n{result.stderr}"
+                        )
+                    document = json.loads(output.read_text(encoding="utf-8"))
+                    names = {item["metadata"]["name"] for item in document["benchmarks"]}
+                    self.assertTrue(expected.issubset(names), (module, names))
+
 
 if __name__ == "__main__":
     unittest.main()

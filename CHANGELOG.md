@@ -8,6 +8,9 @@ All notable changes to this project are documented in this file.
 
 - Add a root-level `run_tests.py` command that prints each test result and
   returns a failure status when the suite fails.
+- Extend the pyperf matrix to measure named engine channels, cache and state
+  operations, context and metrics, policy evaluation, resilience paths, callback
+  policies, lifecycle scopes, bounded work submission and shared async work.
 
 ### Changed
 
