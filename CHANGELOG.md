@@ -19,6 +19,10 @@ All notable changes to this project are documented in this file.
 - Remove 31 benchmark result files from earlier source revisions and harnesses,
   along with their legacy guide, so the current 1.3.2 performance baseline is
   unambiguous.
+- Refresh the performance report and CSV with 409 results from corrected
+  benchmark source `4af998d`: 180 broad CPython 3.14.9 cases, 81 Python 3.10.22
+  focus cases, matched GIL-on/off sets, bridge latency distributions and
+  repeated 100k history queries. Remove the 19 superseded result files.
 - Rename the Python-version compatibility helper to `eventflow._compatibility`
   to mark it as an internal module.
 - Use pyperf as the shared timing and result engine for all benchmark modules.
@@ -47,8 +51,6 @@ All notable changes to this project are documented in this file.
   GIL-disabled CPython 3.15.2t. The 16-item buffered case measured 1.25x
   faster on CPython 3.14.9; its free-threaded baseline was too noisy to use.
 
-### Fixed
-
 - Forward custom benchmark arguments to pyperf worker processes so publisher
   counts, workload sizes and benchmark metadata remain consistent across every
   worker process, including list-valued and comma-separated options.
@@ -58,8 +60,8 @@ All notable changes to this project are documented in this file.
 ### Removed
 
 - Remove the custom benchmark sampler and comparison command in favor of
-  pyperf's worker, statistics, JSON and comparison tools. Historical benchmark
-  result files remain unchanged.
+  pyperf's worker, statistics, JSON and comparison tools. Earlier result
+  snapshots are removed when their source revision is no longer current.
 
 ## [v1.3.2] - 2026-11-08
 
