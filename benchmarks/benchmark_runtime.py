@@ -114,9 +114,9 @@ def _time_async_memory(loops: int, operations: int, history_capacity: int | None
 
 
 def _time_sync_schedules(loops: int, count: int) -> float:
-    with EventBus[int]() as bus:
-        elapsed = 0.0
-        for _ in range(loops):
+    elapsed = 0.0
+    for _ in range(loops):
+        with EventBus[int]() as bus:
             started = perf_counter()
             handles = [
                 bus.publish_every(index, _SCHEDULE_INTERVAL, immediately=False)
@@ -125,7 +125,7 @@ def _time_sync_schedules(loops: int, count: int) -> float:
             elapsed += perf_counter() - started
             for handle in handles:
                 handle.cancel()
-        return elapsed
+    return elapsed
 
 
 def _time_async_schedules(loops: int, count: int) -> float:

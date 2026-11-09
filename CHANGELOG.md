@@ -28,6 +28,12 @@ All notable changes to this project are documented in this file.
 - Measure bridge-publisher wall time and process CPU time per delivered event
   after queue and thread setup, so GIL-enabled and free-threaded runs can be
   compared with the same workload and result format.
+
+### Fixed
+
+- Close each synchronous schedule benchmark bus after cancelling its handles,
+  so pyperf loop calibration cannot accumulate still-exiting schedule threads
+  and hit the bus capacity limit.
 - Skip generic awaitable inspection for exact boolean event-filter results;
   the sparse 100,000-event history query measured 4.48x faster on CPython
   3.14.9 and 4.85x faster on GIL-disabled CPython 3.15.2t. These are local
