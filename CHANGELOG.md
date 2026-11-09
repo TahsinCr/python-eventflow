@@ -31,6 +31,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Measure cross-thread queue roundtrips with a publisher thread that calls
+  `EventBus.publish()` directly. Remove the benchmark-only per-event request
+  queue and future handoff that inflated the measured bridge path.
 - Close each synchronous schedule benchmark bus after cancelling its handles,
   so pyperf loop calibration cannot accumulate still-exiting schedule threads
   and hit the bus capacity limit.

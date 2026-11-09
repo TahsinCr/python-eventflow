@@ -3,9 +3,8 @@
 from __future__ import annotations
 
 import asyncio
-from collections import deque
 from concurrent.futures import Future
-from queue import Queue
+from threading import Event as ThreadEvent
 from threading import Thread
 from time import perf_counter
 
@@ -21,48 +20,53 @@ async def _noop() -> None:
 
 
 async def _queue_roundtrip_batch(loops: int, *, cross_thread: bool) -> float:
-    with EventBus[int]() as bus:
+    with EventBus[tuple[int, asyncio.Future[int] | ThreadEvent]]() as bus:
         queue = AsyncEventQueue(bus, capacity=1)
-        async with queue:
-            loop = asyncio.get_running_loop()
-            acknowledgements: deque[asyncio.Future[int]] = deque()
-            consumer_ready = asyncio.Event()
+        loop = asyncio.get_running_loop()
+        consumer_ready = asyncio.Event()
 
-            async def consume() -> None:
-                consumer_ready.set()
-                try:
-                    while True:
-                        received = await queue.receive()
-                        acknowledgement = acknowledgements.popleft()
+        async def consume() -> None:
+            consumer_ready.set()
+            try:
+                while True:
+                    event, acknowledgement = await queue.receive()
+                    if isinstance(acknowledgement, asyncio.Future):
                         if not acknowledgement.done():
-                            acknowledgement.set_result(received)
-                except EventQueueClosedError:
-                    return
+                            acknowledgement.set_result(event)
+                    else:
+                        acknowledgement.set()
+            except EventQueueClosedError:
+                return
 
-            consumer = asyncio.create_task(consume())
-            await consumer_ready.wait()
+        consumer = asyncio.create_task(consume())
+        await consumer_ready.wait()
 
+        try:
             if not cross_thread:
                 started = perf_counter()
                 for event in range(loops):
                     acknowledgement = loop.create_future()
-                    acknowledgements.append(acknowledgement)
-                    bus.publish(event)
+                    bus.publish((event, acknowledgement))
                     if await acknowledgement != event:
                         raise RuntimeError("bridge delivered an unexpected event")
                 elapsed = perf_counter() - started
             else:
-                requests: Queue[tuple[int, Future[None]] | None] = Queue()
+                completed: Future[float] = Future()
 
                 def publish_from_thread() -> None:
-                    while (request := requests.get()) is not None:
-                        event, completed = request
-                        try:
-                            bus.publish(event)
-                        except BaseException as error:
-                            completed.set_exception(error)
-                        else:
-                            completed.set_result(None)
+                    started = perf_counter()
+                    try:
+                        for event in range(loops):
+                            acknowledgement = ThreadEvent()
+                            bus.publish((event, acknowledgement))
+                            if not acknowledgement.wait(timeout=10):
+                                raise RuntimeError(
+                                    "bridge benchmark consumer did not acknowledge an event"
+                                )
+                    except BaseException as error:
+                        completed.set_exception(error)
+                    else:
+                        completed.set_result(perf_counter() - started)
 
                 producer = Thread(
                     target=publish_from_thread,
@@ -70,24 +74,17 @@ async def _queue_roundtrip_batch(loops: int, *, cross_thread: bool) -> float:
                     daemon=True,
                 )
                 producer.start()
-                started = perf_counter()
                 try:
-                    for event in range(loops):
-                        acknowledgement = loop.create_future()
-                        acknowledgements.append(acknowledgement)
-                        completed: Future[None] = Future()
-                        requests.put((event, completed))
-                        await asyncio.wrap_future(completed)
-                        if await acknowledgement != event:
-                            raise RuntimeError("bridge delivered an unexpected event")
-                    elapsed = perf_counter() - started
+                    elapsed = await asyncio.wrap_future(completed)
                 finally:
-                    requests.put(None)
-                    producer.join(timeout=2)
+                    producer.join(timeout=10)
                     if producer.is_alive():
                         raise RuntimeError("bridge benchmark publisher did not stop")
-
-        await consumer
+        finally:
+            try:
+                await queue.aclose()
+            finally:
+                await consumer
     return elapsed
 
 
