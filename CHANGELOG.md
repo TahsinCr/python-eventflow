@@ -11,6 +11,8 @@ All notable changes to this project are documented in this file.
 - Extend the pyperf matrix to measure named engine channels, cache and state
   operations, context and metrics, policy evaluation, resilience paths, callback
   policies, lifecycle scopes, bounded work submission and shared async work.
+- Add a single-publisher bridge baseline, history-size and filter-selectivity
+  cases, and async fan-out callbacks that yield once to the event loop.
 
 ### Changed
 

@@ -17,6 +17,10 @@ async def _receive_async(_event: int) -> None:
     pass
 
 
+async def _yield_async(_event: int) -> None:
+    await asyncio.sleep(0)
+
+
 async def _fail_async(_event: int) -> None:
     raise ValueError("benchmark callback failure")
 
@@ -26,6 +30,7 @@ def _time_async_publish(
     mode: DeliveryMode,
     subscribers: int,
     failure_ratio: float | None,
+    yield_once: bool = False,
 ) -> float:
     failed_callbacks = round(10 * failure_ratio) if failure_ratio is not None else 0
 
@@ -33,7 +38,11 @@ def _time_async_publish(
         error_policy = ErrorPolicy.ISOLATE if failure_ratio is not None else ErrorPolicy.RAISE
         async with AsyncEventBus[int](delivery_mode=mode, error_policy=error_policy) as bus:
             for index in range(subscribers):
-                callback = _fail_async if index < failed_callbacks else _receive_async
+                callback = (
+                    _fail_async
+                    if index < failed_callbacks
+                    else (_yield_async if yield_once else _receive_async)
+                )
                 await bus.subscribe(callback)
 
             started = perf_counter()
@@ -141,6 +150,23 @@ def main() -> None:
                 subscribers,
                 None,
                 metadata={"delivery_mode": mode.value, "subscribers": subscribers},
+            )
+
+    for mode in DeliveryMode:
+        for subscribers in (10, 100):
+            bench_time_func(
+                runner,
+                f"async-{mode.value}/yield-once/{subscribers}",
+                _time_async_publish,
+                mode,
+                subscribers,
+                None,
+                True,
+                metadata={
+                    "delivery_mode": mode.value,
+                    "subscribers": subscribers,
+                    "callback_behavior": "yield-once",
+                },
             )
 
     for mode in DeliveryMode:

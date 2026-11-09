@@ -35,65 +35,93 @@ def main() -> None:
         __doc__ or "History and replay benchmarks",
         add_cmdline_args=forward_cli_arguments("events", "replay"),
     )
-    runner.argparser.add_argument("--events", type=int, default=100_000)
+    runner.argparser.add_argument("--events", type=int, nargs="+", default=[100_000])
     runner.argparser.add_argument("--replay", type=int, default=1)
     args = runner.parse_args()
-    if args.events < 1 or args.replay < 1:
-        runner.argparser.error("events and replay must be positive")
-
-    history = MemoryEventHistory[int](capacity=args.events)
-    for event in range(args.events):
-        history.append(event)
-
-    sync_bus = EventBus[int](history=history)
-    async_bus = AsyncEventBus[int](history=history)
-    sparse_filter = EventFilter[int](predicate=lambda event: event == 0)
+    if any(event_count < 1 for event_count in args.events) or args.replay < 1:
+        runner.argparser.error("event counts and replay must be positive")
+    if len(set(args.events)) != len(args.events):
+        runner.argparser.error("event counts must be unique")
 
     def receive_sync(_event: int) -> None:
         pass
 
-    operations = (
-        ("history/query-all", history.query),
-        ("history/query-window", lambda: history.query(limit=args.replay)),
-        (
-            "history/query-sparse-filter",
-            lambda: history.query(sparse_filter, limit=args.replay),
-        ),
-        ("history/latest", history.latest),
-        ("sync-bus/latest", sync_bus.latest),
-        ("sync-bus/query-window", lambda: sync_bus.query(limit=args.replay)),
-        ("async-bus/latest", async_bus.latest),
-        ("async-bus/query-window", lambda: async_bus.query(limit=args.replay)),
-    )
-    for name, operation in operations:
-        bench_sync(
-            runner,
-            name,
-            operation,
-            metadata={"history_events": args.events, "replay_window": args.replay},
+    for event_count in args.events:
+        history = MemoryEventHistory[int](capacity=event_count)
+        for event in range(event_count):
+            history.append(event)
+
+        sync_bus = EventBus[int](history=history)
+        async_bus = AsyncEventBus[int](history=history)
+        filters = (
+            ("oldest-match", EventFilter[int](predicate=lambda event: event == 0)),
+            (
+                "newest-match",
+                EventFilter[int](predicate=lambda event, newest=event_count - 1: event == newest),
+            ),
+            ("no-match", EventFilter[int](predicate=lambda event: event < 0)),
         )
-
-    with sync_bus:
-
-        def subscribe_sync() -> None:
-            subscription = sync_bus.subscribe(receive_sync, replay=args.replay)
-            subscription.cancel()
-
-        bench_sync(
-            runner,
-            "sync-bus/replay-subscribe-cancel",
-            subscribe_sync,
-            metadata={"history_events": args.events, "replay_window": args.replay},
+        operations = (
+            (f"history/query-all/{event_count}", history.query),
+            (f"history/latest/{event_count}", history.latest),
+            (
+                f"history/query-window/{event_count}/replay-{args.replay}",
+                lambda history=history: history.query(limit=args.replay),
+            ),
+            (f"sync-bus/latest/{event_count}", sync_bus.latest),
+            (
+                f"sync-bus/query-window/{event_count}/replay-{args.replay}",
+                lambda sync_bus=sync_bus: sync_bus.query(limit=args.replay),
+            ),
+            (f"async-bus/latest/{event_count}", async_bus.latest),
+            (
+                f"async-bus/query-window/{event_count}/replay-{args.replay}",
+                lambda async_bus=async_bus: async_bus.query(limit=args.replay),
+            ),
         )
+        for name, operation in operations:
+            bench_sync(
+                runner,
+                name,
+                operation,
+                metadata={"history_events": event_count, "replay_window": args.replay},
+            )
 
-    bench_time_func(
-        runner,
-        "async-bus/replay-subscribe-cancel",
-        _time_async_replay,
-        history,
-        args.replay,
-        metadata={"history_events": args.events, "replay_window": args.replay},
-    )
+        for filter_name, event_filter in filters:
+            bench_sync(
+                runner,
+                f"history/query-filter/{filter_name}/{event_count}/replay-{args.replay}",
+                lambda event_filter=event_filter, history=history: history.query(
+                    event_filter, limit=args.replay
+                ),
+                metadata={
+                    "history_events": event_count,
+                    "replay_window": args.replay,
+                    "filter_case": filter_name,
+                },
+            )
+
+        with sync_bus:
+
+            def subscribe_sync(bus: EventBus[int] = sync_bus) -> None:
+                subscription = bus.subscribe(receive_sync, replay=args.replay)
+                subscription.cancel()
+
+            bench_sync(
+                runner,
+                f"sync-bus/replay-subscribe-cancel/{event_count}/replay-{args.replay}",
+                subscribe_sync,
+                metadata={"history_events": event_count, "replay_window": args.replay},
+            )
+
+        bench_time_func(
+            runner,
+            f"async-bus/replay-subscribe-cancel/{event_count}/replay-{args.replay}",
+            _time_async_replay,
+            history,
+            args.replay,
+            metadata={"history_events": event_count, "replay_window": args.replay},
+        )
 
 
 if __name__ == "__main__":

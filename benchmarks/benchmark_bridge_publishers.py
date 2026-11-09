@@ -94,7 +94,7 @@ def main() -> None:
         __doc__ or "Concurrent bridge publisher benchmarks",
         add_cmdline_args=forward_cli_arguments("publishers"),
     )
-    runner.argparser.add_argument("--publishers", type=int, nargs="+", default=[2, 4, 8, 16])
+    runner.argparser.add_argument("--publishers", type=int, nargs="+", default=[1, 2, 4, 8, 16])
     args = runner.parse_args()
     if any(count < 1 for count in args.publishers):
         runner.argparser.error("publisher counts must be positive")
