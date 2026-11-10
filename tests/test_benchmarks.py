@@ -253,6 +253,45 @@ class PyperfRunnerTests(unittest.TestCase):
                     names = {item["metadata"]["name"] for item in document["benchmarks"]}
                     self.assertTrue(expected.issubset(names), (module, names))
 
+    def test_native_routing_contention_benchmark_launches(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "native-routing.json"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "benchmarks.benchmark_native",
+                    "--implementation=python",
+                    "--matrix=smoke",
+                    "--quiet",
+                    "--processes=1",
+                    "--values=1",
+                    "--warmups=0",
+                    "--loops=1",
+                    "--output",
+                    str(output),
+                ],
+                cwd=REPOSITORY_ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if result.returncode:
+                self.fail(
+                    f"native routing benchmark failed\nstdout:\n{result.stdout}"
+                    f"\nstderr:\n{result.stderr}"
+                )
+            document = json.loads(output.read_text(encoding="utf-8"))
+            names = {item["metadata"]["name"] for item in document["benchmarks"]}
+            self.assertTrue(
+                {
+                    "routing_contention/python_two_pointer/2/subscriptions_64",
+                    "routing_contention_production/2/subscriptions_64",
+                }.issubset(names),
+                names,
+            )
+
 
 if __name__ == "__main__":
     unittest.main()

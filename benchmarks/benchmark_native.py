@@ -4,11 +4,14 @@ from __future__ import annotations
 
 import sys
 from collections.abc import Callable
+from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from importlib import import_module
+from threading import Barrier
+from time import perf_counter
 from typing import cast
 
-from benchmarks._runner import bench_sync, create_runner, forward_cli_arguments
+from benchmarks._runner import bench_sync, bench_time_func, create_runner, forward_cli_arguments
 from benchmarks.native import python_kernels
 from benchmarks.native._contracts import FilterKernel, MergeKernel
 from benchmarks.native.provenance import native_build_metadata
@@ -304,7 +307,7 @@ def _routing_cases(
                 finally:
                     bus.close()
 
-                if implementation == "python" and kernel_name == "python_heapq":
+                if implementation == "python" and kernel_name == "python_two_pointer":
                     production_bus = _subscribe_fixture(
                         count,
                         merge=None,
@@ -321,7 +324,7 @@ def _routing_cases(
                             metadata={
                                 **metadata,
                                 "candidate_implementation": "production_python",
-                                "candidate_algorithm": "heapq_merge",
+                                "candidate_algorithm": "two_pointer_merge",
                                 "case": "event_bus_production_routing_snapshot",
                             },
                         )
@@ -394,7 +397,7 @@ def _routing_cases(
                     finally:
                         bus.close()
 
-                    if implementation == "python" and kernel_name == "python_heapq":
+                    if implementation == "python" and kernel_name == "python_two_pointer":
                         production_bus = _subscribe_fixture(
                             count,
                             merge=None,
@@ -419,12 +422,115 @@ def _routing_cases(
                                 metadata={
                                     **metadata,
                                     "candidate_implementation": "production_python",
-                                    "candidate_algorithm": "heapq_merge",
+                                    "candidate_algorithm": "two_pointer_merge",
                                     "case": "production_event_bus_publish",
                                 },
                             )
                         finally:
                             production_bus.close()
+
+
+def _time_concurrent_publish(
+    loops: int,
+    bus: EventBus[RoutingEvent],
+    event: RoutingEvent,
+    publishers: int,
+) -> float:
+    barrier = Barrier(publishers + 1)
+
+    def publish_many() -> None:
+        barrier.wait(timeout=10)
+        for _ in range(loops):
+            bus.publish(event)
+
+    with ThreadPoolExecutor(max_workers=publishers) as executor:
+        futures = [executor.submit(publish_many) for _ in range(publishers)]
+        started = perf_counter()
+        barrier.wait(timeout=10)
+        for future in futures:
+            future.result()
+        return perf_counter() - started
+
+
+def _routing_contention_cases(
+    runner,
+    implementation: str,
+    merge_kernels: tuple[tuple[str, MergeKernel], ...],
+    matrix: str,
+) -> None:
+    if matrix == "smoke":
+        publishers_counts, subscriptions = (2,), 64
+    elif matrix == "decision":
+        publishers_counts, subscriptions = (1, 4, 8), 2_048
+    else:
+        publishers_counts, subscriptions = (1, 2, 4, 8, 16), 2_048
+
+    event = RoutingEvent(0, 17)
+    for kernel_name, merge in merge_kernels:
+        bus = _subscribe_fixture(
+            subscriptions,
+            merge=merge,
+            key_count=7,
+            wildcard_percent=20,
+        )
+        try:
+            for publishers in publishers_counts:
+                metadata = {
+                    "candidate_implementation": implementation,
+                    "candidate_algorithm": kernel_name,
+                    "case": "concurrent_event_bus_publish",
+                    "subscriptions": subscriptions,
+                    "selected_subscriptions": len(bus._subscriber_snapshot(event.key)),
+                    "wildcard_percent": 20,
+                    "key_count": 7,
+                    "publishers": publishers,
+                }
+                bench_time_func(
+                    runner,
+                    f"routing_contention/{kernel_name}/{publishers}/subscriptions_{subscriptions}",
+                    _time_concurrent_publish,
+                    bus,
+                    event,
+                    publishers,
+                    inner_loops=publishers,
+                    metadata=metadata,
+                )
+        finally:
+            bus.close()
+
+        if implementation == "python" and kernel_name == "python_two_pointer":
+            production_bus = _subscribe_fixture(
+                subscriptions,
+                merge=None,
+                key_count=7,
+                wildcard_percent=20,
+            )
+            try:
+                for publishers in publishers_counts:
+                    metadata = {
+                        "candidate_implementation": "production_python",
+                        "candidate_algorithm": "two_pointer_merge",
+                        "case": "production_concurrent_event_bus_publish",
+                        "subscriptions": subscriptions,
+                        "selected_subscriptions": len(
+                            production_bus._subscriber_snapshot(event.key)
+                        ),
+                        "wildcard_percent": 20,
+                        "key_count": 7,
+                        "publishers": publishers,
+                    }
+                    bench_time_func(
+                        runner,
+                        f"routing_contention_production/{publishers}/subscriptions_{subscriptions}",
+                        _time_concurrent_publish,
+                        production_bus,
+                        event,
+                        publishers,
+                        inner_loops=publishers,
+                        metadata=metadata,
+                    )
+            finally:
+                production_bus.close()
 
 
 def main() -> int:
@@ -451,6 +557,7 @@ def main() -> int:
         )
     _history_cases(runner, args.implementation, filter_by_type, args.matrix)
     _routing_cases(runner, args.implementation, merge_kernels, args.matrix)
+    _routing_contention_cases(runner, args.implementation, merge_kernels, args.matrix)
     return 0
 
 

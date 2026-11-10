@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import unittest
 
+from benchmarks.benchmark_native import RoutingEvent, _subscribe_fixture
 from benchmarks.native.python_kernels import (
     filter_by_type,
     merge_subscribers,
@@ -29,6 +30,16 @@ class _Other(_Event):
 
 
 class NativeBenchmarkReferenceTests(unittest.TestCase):
+    def test_single_key_routing_fixture_publishes_on_its_registered_key(self) -> None:
+        bus = _subscribe_fixture(64, merge=None, key_count=1, wildcard_percent=0)
+        try:
+            result = bus.publish(RoutingEvent(0, 17))
+        finally:
+            bus.close()
+
+        self.assertEqual(result.matched, 64)
+        self.assertEqual(result.delivered, 64)
+
     def test_filter_uses_isinstance_and_preserves_event_order(self) -> None:
         events = (_Event(), _Selected(), _SelectedChild(), _Event())
 

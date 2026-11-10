@@ -37,12 +37,18 @@ All notable changes to this project are documented in this file.
 - Record Cython, compiler flags and native binary SHA-256 values with native
   pyperf runs, and validate candidate routing under concurrent publishing and
   subscription churn.
+- Compare routed EventBus publication with one, four and eight publisher threads
+  in the native decision matrix, including the active production Python path.
+- Cover skewed keyed/wildcard indexes and concurrent subscription churn in the
+  synchronous routing regression tests.
 
 ### Changed
 
 - Merge keyed and wildcard subscriber indexes with a linear two-pointer path in
   synchronous `EventBus` snapshots, preserving registration order and the
   existing one-index fast paths.
+- Label the current production EventBus merge as the Python benchmark baseline;
+  retain `heapq` only as an explicit comparison candidate.
 - Consolidate repeated benchmark callback and positive-integer parser helpers,
   and reuse one event-type fixture across the native reference tests.
 - Include committed C and Cython benchmark sources in the pyperf source
