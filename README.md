@@ -1660,7 +1660,9 @@ routing subscriber merges, and complete synchronous bus publishes with both
 no-op callbacks and type-rejected subscribers. They are not part of the
 EventFlow runtime or package build. Use the same interpreter, GIL mode, machine,
 affinity and pyperf options for each candidate; the comparative report and raw
-results are kept in `benchmarks/results`.
+results are kept in `benchmarks/results`. See the
+[native benchmark report](benchmarks/results/README.md) for source-pinned
+Python/Cython/C measurements, variance and limitations.
 
 Copyright © 2026 TahsinCr. EventFlow is licensed under the MIT License.
 See [LICENSE](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE) and

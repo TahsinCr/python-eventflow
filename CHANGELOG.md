@@ -50,6 +50,12 @@ All notable changes to this project are documented in this file.
 - Measure bridge-publisher wall time and process CPU time per delivered event
   after queue and thread setup, so GIL-enabled and free-threaded runs can be
   compared with the same workload and result format.
+- Record 240 source-pinned Python/Cython/C benchmark cases across CPython
+  3.10.18, 3.14.9, 3.15.2 with the GIL and 3.15.2t without it. For
+  2,048-subscriber publishes, candidate latency was 11–30% lower with no-op
+  callbacks and 25–54% lower when filters rejected delivery; the 3.15.2
+  GIL-on filtered pair was high-variance. These benchmark results do not change
+  runtime behavior.
 
 ### Fixed
 

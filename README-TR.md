@@ -1681,7 +1681,9 @@ abonelerle tam senkron bus publish işlemini karşılaştırır. Yalnızca bench
 adayıdır; EventFlow runtime'ına ve paket derlemesine dahil edilmez. Adayları
 karşılaştırırken yorumlayıcıyı, GIL durumunu, makineyi, CPU affinity ayarını ve
 pyperf seçeneklerini aynı tutun. Karşılaştırmalı rapor ve ham ölçümler
-`benchmarks/results` altında bulunur.
+`benchmarks/results` altında bulunur. Kaynak revizyonlarını, Python/Cython/C
+sonuçlarını, varyansı ve sınırları görmek için
+[performans raporuna](benchmarks/results/README.md) bakın.
 
 Copyright © 2026 TahsinCr. EventFlow, MIT Lisansı ile lisanslanmıştır.
 [LICENSE](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE) ve

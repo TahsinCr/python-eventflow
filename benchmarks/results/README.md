@@ -4,11 +4,16 @@
 `4af998df85e8fa779e4fec709a01765ed5018ca3` · **Source SHA-256:**
 `5276989cf35716861fd9104c3a795ff961acdceca1c45172b1fcf0052d38bdae`
 
-This report and the 31 pyperf JSON files cover one clean source revision. The
-summary CSV contains 409 case/build rows from a broad benchmark screen, focused
-interpreter comparisons, one-operation latency distributions and repeated
-large-history measurements. Previous-source result JSON was removed so it
-cannot be mistaken for this baseline.
+This file contains two source-pinned snapshots. The 2026-11-09 broad screen and
+its 31 pyperf JSON files cover the source revision above. The native comparison
+at the end uses a separate 2026-11-10 revision and its own 12 JSON files and
+CSV. Compare results only within the source and interpreter matrix named in
+each section.
+
+The 2026-11-09 summary CSV contains 409 case/build rows from a broad benchmark
+screen, focused interpreter comparisons, one-operation latency distributions
+and repeated large-history measurements. Previous-source result JSON was
+removed so it cannot be mistaken for that baseline.
 
 ## Scope
 
@@ -204,16 +209,178 @@ defaults or behavior change.
   CPU budget.
 - Filtered history cost grows with history size, while snapshot consistency
   and arbitrary Python predicates limit safe optimization options.
-- No runtime EventFlow implementation code was changed. The measurements do
-  not yet establish a stable CPU-heavy hot loop that justifies C/Cython or a
-  semantic change. The next useful bridge step is a separately measured
-  producer publish duration and consumer wake/ack duration, followed by a
-  repeated run on a second machine before considering runtime changes.
+- No runtime EventFlow implementation code was changed in the 2026-11-09
+  broad-screen work. The native candidate measurements and their limits are
+  reported separately below.
 - The free-threaded matrix covers bridges, publisher scaling, lifecycle and
   publish, not all 13 modules. This work did not model application payloads,
   real I/O, long-term memory retention, startup/import time, multi-host variance
   or end-to-end production latency.
-- This benchmark-only work did not rerun the full application test suite or
-  hosted GitHub Actions. All 13 benchmark modules completed on the broad
-  screen; the bridge change passed focused smoke runs, Ruff, formatting and
-  Pyright. No push, release or publication was performed.
+- At the time of the 2026-11-09 broad screen, the full application test suite
+  and hosted GitHub Actions were not rerun. No push, release or publication was
+  performed.
+
+## Native Python, Cython and C comparison (2026-11-10)
+
+**Measured source:** `b16851c7613374f6c51ad06249c321fdc1e3bbd7` ·
+**Source SHA-256:** `c3a0d1f254f75bf46773ba39abe863291e635bd4a7bd0b27a8d93c056b363538` ·
+**Working source state:** clean · **Results:** 12 pyperf JSON files, 240 case
+rows, 40 measured values per case
+
+The EventFlow runtime remained Python in every run. C and Cython extensions
+were experimental benchmark backends, built outside the checkout and excluded
+from the wheel. This comparison measured two candidate areas: type-only
+`MemoryEventHistory` filtering and the keyed subscriber snapshot used by a
+synchronous `EventBus` publish.
+
+### Workloads and validation
+
+- History sizes were 1,000, 10,000 and 100,000 events. The selected event type
+  occurred every 2nd or 8th record. Each candidate first called
+  `MemoryEventHistory.query()` to obtain the same lock-protected snapshot, then
+  filtered by event type. Its returned objects and order were checked against
+  `query(EventFilter(event_type=...))`; subclass instances were included in
+  the match set.
+- Routing used 64, 512 and 2,048 subscribers, seven route keys and 20%
+  wildcard subscriptions. The tests timed the subscriber snapshot and the
+  complete synchronous `EventBus.publish()` path. The publish cases used
+  no-op callbacks or event-type filters that rejected delivery; publish result
+  counts were checked against the expected route selection.
+- Every case used five pyperf worker processes, eight measured values per
+  process, two warmups, a 100 ms minimum sample and CPU affinity 4. That is 40
+  measured values per case. The CPython 3.10.18 environment had pyperf 2.10.0;
+  3.14.9 and both 3.15.2 builds used pyperf 2.11.0.
+- All result files identify the same clean source revision and hash. On
+  CPython 3.15.2t, `PYTHON_GIL=0` was set and the worker confirmed that the GIL
+  remained disabled after importing each native candidate. CPython 3.10 does
+  not expose the runtime GIL query used by the metadata helper; its GIL is
+  enabled by the interpreter build.
+
+### 100,000-event type-filter query
+
+Times are means. The production path and each candidate use the same
+lock-protected snapshot. The Python candidate replaces the per-event
+`EventFilter.matches()` call with a direct type check; Cython and C compile
+that filtering loop.
+
+| Interpreter | Production `query(filter)` | Python type-filter candidate | Cython | C |
+| --- | ---: | ---: | ---: | ---: |
+| CPython 3.10.18 | 23.84 ms | 6.69 ms | 3.74 ms | 4.09 ms |
+| CPython 3.14.9 | 9.45 ms | 6.17 ms | 3.75 ms | 3.94 ms |
+| CPython 3.15.2, GIL on | 10.08 ms | 6.17 ms | 4.28 ms | 4.47 ms |
+| CPython 3.15.2t, GIL off | 14.67 ms | 10.01 ms | 8.18 ms | 8.42 ms |
+
+The Cython filter ran 1.22–1.79x faster than the equivalent Python candidate;
+C ran 1.19–1.64x faster. Relative to the current production query, the Cython
+candidate was 1.79–6.38x faster across these interpreter builds. The benefit
+was smaller on free-threaded CPython 3.15.2t, where even the Python kernel was
+slower than its GIL-enabled counterpart. The result applies to a filter whose
+only criterion is event type; arbitrary predicates and additional filter
+fields were not moved into native code.
+
+### 2,048-subscriber routing snapshot
+
+| Interpreter | Production Python | Cython | C |
+| --- | ---: | ---: | ---: |
+| CPython 3.10.18 | 163.43 µs | 17.32 µs | 11.90 µs |
+| CPython 3.14.9 | 118.30 µs | 17.93 µs | 8.14 µs |
+| CPython 3.15.2, GIL on | 146.06 µs | 21.57 µs | 12.67 µs |
+| CPython 3.15.2t, GIL off | 196.37 µs | 32.08 µs | 14.34 µs |
+
+C was 1.46–2.24x faster than Cython for this isolated merge. Cython still cut
+the snapshot time by 6.1–9.5x against the Python candidate. These kernel
+ratios overstate the gain in a complete publish because callback delivery also
+costs time.
+
+### Complete publish with 2,048 subscriptions
+
+The production Python row is the reference. Cython and C use the native
+snapshot merge while retaining the EventFlow bus and callback path.
+
+| Interpreter | Workload | Production Python | Cython | C |
+| --- | --- | ---: | ---: | ---: |
+| CPython 3.10.18 | No-op callbacks | 1.561 ms | 1.386 ms | 1.368 ms |
+| CPython 3.14.9 | No-op callbacks | 554.81 µs | 454.92 µs | 446.93 µs |
+| CPython 3.15.2, GIL on | No-op callbacks | 539.09 µs | 405.35 µs | 397.39 µs |
+| CPython 3.15.2t, GIL off | No-op callbacks | 632.64 µs | 463.91 µs | 443.05 µs |
+| CPython 3.10.18 | Filters reject delivery | 605.18 µs | 453.10 µs | 442.09 µs |
+| CPython 3.14.9 | Filters reject delivery | 258.74 µs | 160.07 µs | 149.24 µs |
+| CPython 3.15.2, GIL on | Filters reject delivery | 284.37 µs* | 151.05 µs | 144.56 µs* |
+| CPython 3.15.2t, GIL off | Filters reject delivery | 348.84 µs | 180.75 µs | 161.44 µs |
+
+For no-op callback publishes, the native candidates reduced latency by 11–30%
+across the four interpreter modes. When the route was selected but event
+filters rejected all callbacks, the measured reduction was 25–54%. The 3.15.2
+GIL-on filtered production row had 11.89% coefficient of variation (CV), and
+its C candidate had 9.07% CV; treat those two values as exploratory. The
+independent Python candidate for that case was 278.94 µs at 0.79% CV, which
+still shows a large native difference but needs a repeat run.
+
+Cython and C were close in complete publishes: C was about 1–4% faster in most
+stable GIL-enabled cases and about 4–11% faster in the filtered cases. Cython
+was faster for history filtering on every interpreter. C therefore wins the
+isolated route merge, but the full-path gain over Cython is small; these data
+do not justify the extra C maintenance burden as the default implementation.
+
+### Stability, test coverage and limits
+
+Across the 240 result rows, 71 had CV at or above 1%; 14 had CV at or above
+5%. The noisy rows are listed in the machine-readable summary with each mean,
+median, standard deviation, minimum, maximum, sample count and source metadata.
+The host was Arch Linux x86_64 on an Intel Core i7-12700H (20 logical CPUs),
+with serial runs pinned to CPU 4. The CPU used the powersave governor with
+turbo enabled. This is one machine, not a multi-host result.
+
+The full test suite passed 399 tests on CPython 3.10.18 (one expected skip),
+3.14.9, 3.15.2 with the GIL and 3.15.2t with the GIL disabled. Branch coverage
+on CPython 3.14.9 was 93.71% of statements and 84.19% of branches, with 91.40%
+combined coverage. The lowest combined module was `resilience.py` at 86.26%;
+`bridges.py` was 87.64% and `timing.py` 87.78%. This work added focused tests
+for retry deadline capping, observer failures and cancellation, awaitable
+cleanup, and callback predicate behavior.
+
+This native comparison changes no EventFlow runtime code. It does not model
+CPU-heavy user callbacks, external I/O, concurrent subscription mutation,
+custom history providers, startup cost, package install overhead or another
+machine. No C/Cython prototypes were built for async queues, pipelines, locks
+or lifecycle operations: their Python callback, event-loop and synchronization
+costs are not represented by these candidate kernels. The prior 13-module
+Python benchmark matrix remains the broad workload screen; this native matrix
+is intentionally limited to two code paths with measured CPU-loop potential.
+
+The results support a Cython prototype for a type-only history fast path and
+routing merge if runtime integration is pursued. First compare it with a pure
+Python fast path in the production implementation, then repeat the complete
+publish measurements with representative callback work and on a second host.
+Consider C for the route merge only if the remaining few-percent full-publish
+difference is worth its extra maintenance and free-threading-specific code.
+
+### Native result files
+
+- [`native_summary_2026-11-10.csv`](native/native_summary_2026-11-10.csv)
+  contains all 240 case rows and CV statistics. Its `backend` column is
+  derived from the result-file suffix; the C and Cython JSON files do not
+  contain a per-case `candidate_implementation` field.
+- CPython 3.10.18: [Python](native/native_2026-11-10_b16851c_py31018_gil-on_python.json),
+  [Cython](native/native_2026-11-10_b16851c_py31018_gil-on_cython.json),
+  [C](native/native_2026-11-10_b16851c_py31018_gil-on_c.json).
+- CPython 3.14.9: [Python](native/native_2026-11-10_b16851c_py3149_gil-on_python.json),
+  [Cython](native/native_2026-11-10_b16851c_py3149_gil-on_cython.json),
+  [C](native/native_2026-11-10_b16851c_py3149_gil-on_c.json).
+- CPython 3.15.2, GIL on: [Python](native/native_2026-11-10_b16851c_py3152_gil-on_python.json),
+  [Cython](native/native_2026-11-10_b16851c_py3152_gil-on_cython.json),
+  [C](native/native_2026-11-10_b16851c_py3152_gil-on_c.json).
+- CPython 3.15.2t, GIL off: [Python](native/native_2026-11-10_b16851c_py3152t_gil-off_python.json),
+  [Cython](native/native_2026-11-10_b16851c_py3152t_gil-off_cython.json),
+  [C](native/native_2026-11-10_b16851c_py3152t_gil-off_c.json).
+
+The Python, Cython and C values are also reproducible with `pyperf compare_to`
+using each interpreter's three files from `benchmarks/results`. For example:
+
+```bash
+python -m pyperf compare_to \
+  -b routing_publish/publish_noop_callbacks/2048 \
+  native/native_2026-11-10_b16851c_py3149_gil-on_python.json \
+  native/native_2026-11-10_b16851c_py3149_gil-on_cython.json \
+  native/native_2026-11-10_b16851c_py3149_gil-on_c.json
+```
