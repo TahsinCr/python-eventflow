@@ -11,14 +11,7 @@ from eventflow import AsyncEventBus, DeliveryMode, ErrorPolicy, EventBus
 from eventflow.engine import AsyncEventEngine, EventEngine
 
 from ._runner import bench_sync, bench_time_func, create_runner
-
-
-async def _receive_async(_event: int) -> None:
-    pass
-
-
-async def _yield_async(_event: int) -> None:
-    await asyncio.sleep(0)
+from ._support import ignore_event, ignore_event_async, yield_once_async
 
 
 async def _fail_async(_event: int) -> None:
@@ -41,7 +34,7 @@ def _time_async_publish(
                 callback = (
                     _fail_async
                     if index < failed_callbacks
-                    else (_yield_async if yield_once else _receive_async)
+                    else (yield_once_async if yield_once else ignore_event_async)
                 )
                 await bus.subscribe(callback)
 
@@ -72,7 +65,7 @@ def _time_async_engine_publish(loops: int, subscribers: int) -> float:
         engine = AsyncEventEngine()
         bus = engine.add("events", AsyncEventBus[int]())
         for _ in range(subscribers):
-            await bus.subscribe(_receive_async)
+            await bus.subscribe(ignore_event_async)
         try:
             started = perf_counter()
             for _ in range(loops):
@@ -88,16 +81,13 @@ def main() -> None:
     runner = create_runner(__doc__ or "Event publication benchmarks")
     runner.parse_args()
 
-    def receive(_event: int) -> None:
-        pass
-
     def fail_sync(_event: int) -> None:
         raise ValueError("benchmark callback failure")
 
     for subscribers in (0, 1, 10, 100):
         with EventBus[int]() as bus:
             for _ in range(subscribers):
-                bus.subscribe(receive)
+                bus.subscribe(ignore_event)
             bench_sync(
                 runner,
                 f"sync/{subscribers}",
@@ -109,9 +99,9 @@ def main() -> None:
         with EventBus[int]() as bus:
             for _ in range(10):
                 if kind == "type":
-                    bus.subscribe(receive, event_type=int)
+                    bus.subscribe(ignore_event, event_type=int)
                 else:
-                    bus.subscribe(receive, predicate=lambda event: event > 0)
+                    bus.subscribe(ignore_event, predicate=lambda event: event > 0)
             bench_sync(
                 runner,
                 f"sync/filter-{kind}",
@@ -122,7 +112,7 @@ def main() -> None:
     for subscribers in (10, 100, 1_000):
         with EventBus[int](routing_key=lambda event: event) as bus:
             for key in range(subscribers):
-                bus.subscribe(receive, routing_key=key)
+                bus.subscribe(ignore_event, routing_key=key)
             bench_sync(
                 runner,
                 f"sync/routing-key/{subscribers}",
@@ -134,7 +124,7 @@ def main() -> None:
         failed_callbacks = round(10 * failure_ratio)
         with EventBus[int](error_policy=ErrorPolicy.ISOLATE) as bus:
             for index in range(10):
-                bus.subscribe(fail_sync if index < failed_callbacks else receive)
+                bus.subscribe(fail_sync if index < failed_callbacks else ignore_event)
             bench_sync(
                 runner,
                 f"sync/callback-error-rate-{failure_ratio:.0%}",

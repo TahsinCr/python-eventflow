@@ -16,6 +16,8 @@ from eventflow.event_bus import EventBus
 from eventflow.filtering import EventFilter
 from eventflow.history import MemoryEventHistory
 
+from ._support import ignore_event
+
 
 class Event:
     __slots__ = ("payload",)
@@ -211,17 +213,13 @@ def _history_cases(
                         )
 
 
-def _ignore_event(_event: RoutingEvent) -> None:
-    return None
-
-
 def _subscribe_fixture(
     count: int,
     *,
     merge: Callable[[dict[int, object], dict[int, object]], tuple[object, ...]] | None,
     key_count: int = 7,
     wildcard_percent: int = 20,
-    callback: Callable[[RoutingEvent], None] = _ignore_event,
+    callback: Callable[[RoutingEvent], None] = ignore_event,
     filtered: bool = False,
 ) -> EventBus[RoutingEvent]:
     bus: EventBus[RoutingEvent]
@@ -257,9 +255,9 @@ def _routing_cases(
     else:
         profiles, snapshot_sizes = ((1, 0), (7, 20), (31, 50)), (0, 1, 4, 8, 64, 512, 2_048)
     publish_cases = (
-        ("noop", _ignore_event, False),
+        ("noop", ignore_event, False),
         ("light_cpu", _light_cpu_event, False),
-        ("filtered", _ignore_event, True),
+        ("filtered", ignore_event, True),
     )
 
     for kernel_name, merge in merge_kernels:

@@ -8,10 +8,7 @@ from time import perf_counter
 from eventflow import AsyncEventBus, EventBus, EventFilter, MemoryEventHistory
 
 from ._runner import bench_sync, bench_time_func, create_runner, forward_cli_arguments
-
-
-async def _receive_async(_event: int) -> None:
-    pass
+from ._support import ignore_event, ignore_event_async
 
 
 def _time_async_replay(
@@ -23,7 +20,7 @@ def _time_async_replay(
         async with AsyncEventBus[int](history=history) as bus:
             started = perf_counter()
             for _ in range(loops):
-                subscription = await bus.subscribe(_receive_async, replay=replay)
+                subscription = await bus.subscribe(ignore_event_async, replay=replay)
                 await subscription.cancel()
             return perf_counter() - started
 
@@ -42,9 +39,6 @@ def main() -> None:
         runner.argparser.error("event counts and replay must be positive")
     if len(set(args.events)) != len(args.events):
         runner.argparser.error("event counts must be unique")
-
-    def receive_sync(_event: int) -> None:
-        pass
 
     for event_count in args.events:
         history = MemoryEventHistory[int](capacity=event_count)
@@ -104,7 +98,7 @@ def main() -> None:
         with sync_bus:
 
             def subscribe_sync(bus: EventBus[int] = sync_bus) -> None:
-                subscription = bus.subscribe(receive_sync, replay=args.replay)
+                subscription = bus.subscribe(ignore_event, replay=args.replay)
                 subscription.cancel()
 
             bench_sync(

@@ -9,6 +9,7 @@ from importlib import import_module
 from threading import Barrier
 from typing import cast
 
+from benchmarks._support import ignore_event
 from benchmarks.native._contracts import FilterKernel, MergeKernel
 from benchmarks.native.python_kernels import filter_by_type, merge_subscribers
 from eventflow.engine import EventEngine
@@ -63,11 +64,8 @@ def _validate_concurrent_bus(merge: MergeKernel, name: str) -> None:
     engine.add("native-validation", bus)
     engine.start()
 
-    def callback(_event: RoutingEvent) -> None:
-        return None
-
     for key in (None, 0, 1, 2) * 3:
-        engine.subscribe("native-validation", callback, routing_key=key)
+        engine.subscribe("native-validation", ignore_event, routing_key=key)
     barrier = Barrier(5)
 
     def publish_many() -> int:
@@ -84,7 +82,9 @@ def _validate_concurrent_bus(merge: MergeKernel, name: str) -> None:
     def churn_subscriptions() -> int:
         barrier.wait()
         for index in range(500):
-            subscription = engine.subscribe("native-validation", callback, routing_key=index % 3)
+            subscription = engine.subscribe(
+                "native-validation", ignore_event, routing_key=index % 3
+            )
             subscription.cancel()
             if subscription.active:
                 raise AssertionError(f"{name} could not cancel a churned subscription")

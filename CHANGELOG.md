@@ -40,6 +40,8 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Consolidate repeated benchmark callback and positive-integer parser helpers,
+  and reuse one event-type fixture across the native reference tests.
 - Include committed C and Cython benchmark sources in the pyperf source
   fingerprint so native candidate results identify the exact kernels measured.
 - Remove 31 benchmark result files from earlier source revisions and harnesses,

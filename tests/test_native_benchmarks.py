@@ -12,45 +12,47 @@ from eventflow.filtering import EventFilter
 from eventflow.history import MemoryEventHistory
 
 
+class _Event:
+    pass
+
+
+class _Selected(_Event):
+    pass
+
+
+class _SelectedChild(_Selected):
+    pass
+
+
+class _Other(_Event):
+    pass
+
+
 class NativeBenchmarkReferenceTests(unittest.TestCase):
     def test_filter_uses_isinstance_and_preserves_event_order(self) -> None:
-        class Event:
-            pass
+        events = (_Event(), _Selected(), _SelectedChild(), _Event())
 
-        class Selected(Event):
-            pass
-
-        class SelectedChild(Selected):
-            pass
-
-        events = (Event(), Selected(), SelectedChild(), Event())
-
-        result = filter_by_type(events, Selected)
+        result = filter_by_type(events, _Selected)
 
         self.assertEqual(result, events[1:3])
         self.assertIs(result[0], events[1])
         self.assertIs(result[1], events[2])
 
     def test_type_filter_preserves_history_limits_and_type_tuples(self) -> None:
-        class Event:
-            pass
-
-        class Selected(Event):
-            pass
-
-        class SelectedChild(Selected):
-            pass
-
-        class Other(Event):
-            pass
-
-        events = (Selected(), Other(), SelectedChild(), Selected(), Other(), SelectedChild())
-        history = MemoryEventHistory[Event](capacity=len(events))
+        events = (
+            _Selected(),
+            _Other(),
+            _SelectedChild(),
+            _Selected(),
+            _Other(),
+            _SelectedChild(),
+        )
+        history = MemoryEventHistory[_Event](capacity=len(events))
         for event in events:
             history.append(event)
 
-        for event_type in (Selected, (Selected, Other)):
-            event_filter = EventFilter[Event](event_type=event_type)
+        for event_type in (_Selected, (_Selected, _Other)):
+            event_filter = EventFilter[_Event](event_type=event_type)
             for limit in (None, 1, 2, 10, 10**100):
                 with self.subTest(event_type=event_type, limit=limit):
                     expected = history.query(event_filter, limit=limit)
@@ -66,7 +68,7 @@ class NativeBenchmarkReferenceTests(unittest.TestCase):
         for invalid_limit in (0, -1, True):
             with self.subTest(invalid_limit=invalid_limit):
                 with self.assertRaises(ValueError):
-                    filter_by_type(events, Selected, invalid_limit)
+                    filter_by_type(events, _Selected, invalid_limit)
 
     def test_merge_matches_registration_order_and_empty_fast_paths(self) -> None:
         subscribers = {index: object() for index in (2, 5, 9, 14, 21)}

@@ -13,6 +13,7 @@ from time import perf_counter
 from eventflow import AsyncEventBus, DeliveryMode, EventBus
 
 from ._runner import bench_time_func, create_runner, forward_cli_arguments
+from ._support import ignore_event, positive_int, yield_once_async
 
 _SUBSCRIBERS = 4
 _SCHEDULE_INTERVAL = 3_600.0
@@ -31,28 +32,10 @@ def _counts(value: str) -> tuple[int, ...]:
     return values
 
 
-def _positive(value: str) -> int:
-    try:
-        result = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("value must be a positive integer") from exc
-    if result < 1:
-        raise argparse.ArgumentTypeError("value must be a positive integer")
-    return result
-
-
-def _receive_sync(_event: object) -> None:
-    pass
-
-
-async def _receive_async(_event: object) -> None:
-    await asyncio.sleep(0)
-
-
 def _time_sync_contention(loops: int, publishers: int, batch_size: int) -> float:
     barrier = threading.Barrier(publishers)
     with EventBus[int]() as bus:
-        bus.subscribe(_receive_sync)
+        bus.subscribe(ignore_event)
 
         def publish_many(_publisher: int) -> None:
             barrier.wait(timeout=10)
@@ -78,7 +61,7 @@ def _time_async_contention(
             max_concurrency=limit,
         ) as bus:
             for _ in range(_SUBSCRIBERS):
-                await bus.subscribe(_receive_async)
+                await bus.subscribe(yield_once_async)
 
             async def publish_many() -> None:
                 for _ in range(batch_size):
@@ -94,7 +77,7 @@ def _time_async_contention(
 
 def _time_sync_memory(loops: int, operations: int, history_capacity: int | None) -> float:
     with EventBus[bytes](history=history_capacity) as bus:
-        bus.subscribe(_receive_sync)
+        bus.subscribe(ignore_event)
         started = perf_counter()
         for index in range(loops * operations):
             bus.publish(f"{index}:".encode() + b"x" * _PAYLOAD_BYTES)
@@ -104,7 +87,7 @@ def _time_sync_memory(loops: int, operations: int, history_capacity: int | None)
 def _time_async_memory(loops: int, operations: int, history_capacity: int | None) -> float:
     async def measure() -> float:
         async with AsyncEventBus[bytes](history=history_capacity) as bus:
-            await bus.subscribe(_receive_async)
+            await bus.subscribe(yield_once_async)
             started = perf_counter()
             for index in range(loops * operations):
                 await bus.publish(f"{index}:".encode() + b"x" * _PAYLOAD_BYTES)
@@ -152,8 +135,8 @@ def main() -> None:
             "batch_size", "soak_operations", "publisher_counts", "schedule_counts"
         ),
     )
-    runner.argparser.add_argument("--batch-size", type=_positive, default=100)
-    runner.argparser.add_argument("--soak-operations", type=_positive, default=10_000)
+    runner.argparser.add_argument("--batch-size", type=positive_int, default=100)
+    runner.argparser.add_argument("--soak-operations", type=positive_int, default=10_000)
     runner.argparser.add_argument("--publisher-counts", type=_counts, default=(1, 4, 16))
     runner.argparser.add_argument("--schedule-counts", type=_counts, default=(1, 10, 50))
     args = runner.parse_args()

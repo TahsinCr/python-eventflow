@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import argparse
 import threading
 from concurrent.futures import ThreadPoolExecutor
 from time import perf_counter
@@ -10,16 +9,7 @@ from time import perf_counter
 from eventflow import KeyedCoalescer
 
 from ._runner import bench_time_func, create_runner, forward_cli_arguments
-
-
-def _positive(value: str) -> int:
-    try:
-        result = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("value must be a positive integer") from exc
-    if result < 1:
-        raise argparse.ArgumentTypeError("value must be a positive integer")
-    return result
+from ._support import positive_int
 
 
 def _sample(
@@ -111,10 +101,10 @@ def main() -> None:
         add_cmdline_args=forward_cli_arguments("key_counts", "producers", "merge_updates"),
     )
     runner.argparser.add_argument(
-        "--key-counts", type=_positive, nargs="+", default=[128, 1024, 4096, 16384]
+        "--key-counts", type=positive_int, nargs="+", default=[128, 1024, 4096, 16384]
     )
-    runner.argparser.add_argument("--producers", type=_positive, default=4)
-    runner.argparser.add_argument("--merge-updates", type=_positive, default=8)
+    runner.argparser.add_argument("--producers", type=positive_int, default=4)
+    runner.argparser.add_argument("--merge-updates", type=positive_int, default=8)
     args = runner.parse_args()
     if len(set(args.key_counts)) != len(args.key_counts):
         runner.argparser.error("key counts must be unique")

@@ -8,11 +8,21 @@ import subprocess
 import sys
 import tempfile
 import unittest
+from argparse import ArgumentTypeError
 from pathlib import Path
 
 from benchmarks._runner import benchmark_metadata, source_provenance
+from benchmarks._support import positive_int
 
 REPOSITORY_ROOT = Path(__file__).resolve().parents[1]
+
+
+class BenchmarkSupportTests(unittest.TestCase):
+    def test_positive_int_parser_rejects_invalid_values(self) -> None:
+        self.assertEqual(positive_int("17"), 17)
+        for value in ("0", "-1", "1.5", "invalid"):
+            with self.subTest(value=value), self.assertRaises(ArgumentTypeError):
+                positive_int(value)
 
 
 class BenchmarkMetadataTests(unittest.TestCase):

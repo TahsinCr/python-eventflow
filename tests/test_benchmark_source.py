@@ -6,8 +6,9 @@ from benchmarks._runner import _is_source_path
 
 
 class BenchmarkSourceTests(unittest.TestCase):
-    def test_fingerprint_includes_native_kernel_sources(self) -> None:
+    def test_fingerprint_includes_benchmark_helper_and_native_sources(self) -> None:
         for path in (
+            "benchmarks/_support.py",
             "benchmarks/native/kernels.c",
             "benchmarks/native/kernels.pyx",
             "benchmarks/native/build.py",

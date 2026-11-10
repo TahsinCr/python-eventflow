@@ -10,16 +10,7 @@ from time import perf_counter
 from eventflow import KeyedRateLimiter
 
 from ._runner import bench_time_func, create_runner, forward_cli_arguments
-
-
-def _positive_int(value: str) -> int:
-    try:
-        result = int(value)
-    except ValueError as exc:
-        raise argparse.ArgumentTypeError("value must be a positive integer") from exc
-    if result < 1:
-        raise argparse.ArgumentTypeError("value must be a positive integer")
-    return result
+from ._support import positive_int
 
 
 def _rate(value: str) -> float:
@@ -130,8 +121,8 @@ def main() -> None:
             "workers", "acquisitions", "rate", "cancel_fraction"
         ),
     )
-    runner.argparser.add_argument("--workers", type=_positive_int, default=32)
-    runner.argparser.add_argument("--acquisitions", type=_positive_int, default=16)
+    runner.argparser.add_argument("--workers", type=positive_int, default=32)
+    runner.argparser.add_argument("--acquisitions", type=positive_int, default=16)
     runner.argparser.add_argument("--rate", type=_rate, default=1_000.0)
     runner.argparser.add_argument("--cancel-fraction", type=_cancellation_fraction, default=0.05)
     args = runner.parse_args()
