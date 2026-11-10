@@ -355,6 +355,54 @@ publish measurements with representative callback work and on a second host.
 Consider C for the route merge only if the remaining few-percent full-publish
 difference is worth its extra maintenance and free-threading-specific code.
 
+### Follow-up comparison harness
+
+The follow-up work keeps the EventFlow runtime unchanged and expands the
+benchmark-only candidates so algorithm choice can be compared separately from
+implementation language:
+
+- Routing includes the production `heapq.merge`, a Python two-pointer merge,
+  Python `sorted()`, the original Cython key-then-lookup loop, a Cython
+  `dict.items()` loop, and the C two-pointer kernel. The C kernel handles
+  arbitrary-size Python integer identifiers with a native-size fast path and
+  Python integer comparison fallback.
+- History measures snapshot creation separately from filtering and the combined
+  path. It covers single and tuple event types, limits of 1 and 10 as well as
+  the unlimited path, and a production type-plus-predicate control. Native
+  candidates remain type-only and are checked against `MemoryEventHistory`
+  query order and object identity.
+- Routing snapshots cover 0, 1, 4, 8, 64, 512 and 2,048 subscriptions across
+  1, 7 and 31 keys with 0%, 20% and 50% wildcard subscriptions. Full-publish
+  cases include no-op callbacks, a small deterministic CPU callback and a
+  filter-rejected delivery. The `decision` matrix selects representative large
+  history and routing cases; `full` runs the complete matrix; `smoke` only
+  checks benchmark registration and worker argument forwarding.
+- `benchmarks/native/validate.py` checks filter limits and tuple types, merge
+  order and identity over randomized maps and very large IDs, then exercises
+  concurrent publish and subscription churn through an `EventEngine`. The
+  validators run on CPython 3.10, 3.14, 3.15 with the GIL and 3.15t without it.
+- `benchmarks/native/build.py` writes a build manifest beside the extensions.
+  Each native pyperf file records the manifest and binary SHA-256, CPython and
+  Cython versions, compiler identity and effective compiler/linker flags. The
+  generated files stay outside the checkout and are not part of the package.
+
+Install the optional benchmark dependencies and build candidates outside the
+repository:
+
+```bash
+python -m pip install '.[native-bench]'
+python benchmarks/native/build.py --build-dir /tmp/eventflow-native-build
+PYTHONPATH="/tmp/eventflow-native-build:$PWD" python -m benchmarks.native.validate cython
+PYTHONPATH="/tmp/eventflow-native-build:$PWD" python -m benchmarks.native.validate c
+PYTHONPATH="/tmp/eventflow-native-build:$PWD" python -m benchmarks.benchmark_native \
+  --implementation cython --matrix decision -o /tmp/eventflow-native-cython.json
+```
+
+Run the benchmark command separately with `--implementation python` and `c`
+to produce the comparable result files. Use `--matrix smoke` to check setup;
+smoke timings are not performance evidence. The original 2026-11-10 result
+tables above remain historical measurements of the earlier, narrower matrix.
+
 ### Native result files
 
 - [`native_summary_2026-11-10.csv`](native/native_summary_2026-11-10.csv)

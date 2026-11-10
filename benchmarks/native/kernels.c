@@ -4,20 +4,91 @@
 static PyObject *filter_by_type(PyObject *self, PyObject *args) {
     PyObject *events;
     PyObject *event_type;
+    PyObject *limit = Py_None;
     PyObject *iterator;
     PyObject *matched;
     PyObject *event;
+    Py_ssize_t maximum_matches = -1;
 
-    if (!PyArg_ParseTuple(args, "OO:filter_by_type", &events, &event_type)) {
+    if (!PyArg_ParseTuple(args, "OO|O:filter_by_type", &events, &event_type, &limit)) {
         return NULL;
     }
-    iterator = PyObject_GetIter(events);
-    if (iterator == NULL) {
-        return NULL;
+    if (limit != Py_None) {
+        PyObject *zero;
+        PyObject *event_count;
+        int is_positive;
+        int limit_covers_history;
+        if (PyBool_Check(limit) || !PyLong_Check(limit)) {
+            PyErr_SetString(PyExc_ValueError, "history query limit must be a positive integer");
+            return NULL;
+        }
+        if (!PyTuple_Check(events)) {
+            PyErr_SetString(PyExc_TypeError, "limited type filtering requires a tuple snapshot");
+            return NULL;
+        }
+        zero = PyLong_FromLong(0);
+        if (zero == NULL) {
+            return NULL;
+        }
+        is_positive = PyObject_RichCompareBool(limit, zero, Py_GT);
+        Py_DECREF(zero);
+        if (is_positive < 0) {
+            return NULL;
+        }
+        if (!is_positive) {
+            PyErr_SetString(PyExc_ValueError, "history query limit must be a positive integer");
+            return NULL;
+        }
+        event_count = PyLong_FromSsize_t(PyTuple_GET_SIZE(events));
+        if (event_count == NULL) {
+            return NULL;
+        }
+        limit_covers_history = PyObject_RichCompareBool(limit, event_count, Py_GE);
+        Py_DECREF(event_count);
+        if (limit_covers_history < 0) {
+            return NULL;
+        }
+        if (!limit_covers_history) {
+            maximum_matches = PyLong_AsSsize_t(limit);
+            if (maximum_matches < 0 || PyErr_Occurred()) {
+                PyErr_Clear();
+                PyErr_SetString(PyExc_ValueError, "history query limit must be a positive integer");
+                return NULL;
+            }
+        } else {
+            maximum_matches = PyTuple_GET_SIZE(events);
+        }
     }
+
     matched = PyList_New(0);
     if (matched == NULL) {
-        Py_DECREF(iterator);
+        return NULL;
+    }
+    if (limit != Py_None) {
+        Py_ssize_t index;
+        for (index = PyTuple_GET_SIZE(events); index > 0; --index) {
+            event = PyTuple_GET_ITEM(events, index - 1);
+            int is_match = PyObject_IsInstance(event, event_type);
+            if (is_match < 0 || (is_match && PyList_Append(matched, event) < 0)) {
+                Py_DECREF(matched);
+                return NULL;
+            }
+            if (is_match && PyList_GET_SIZE(matched) == maximum_matches) {
+                break;
+            }
+        }
+        if (PyList_Reverse(matched) < 0) {
+            Py_DECREF(matched);
+            return NULL;
+        }
+        PyObject *result = PyList_AsTuple(matched);
+        Py_DECREF(matched);
+        return result;
+    }
+
+    iterator = PyObject_GetIter(events);
+    if (iterator == NULL) {
+        Py_DECREF(matched);
         return NULL;
     }
 
@@ -40,6 +111,21 @@ static PyObject *filter_by_type(PyObject *self, PyObject *args) {
     PyObject *result = PyList_AsTuple(matched);
     Py_DECREF(matched);
     return result;
+}
+
+static int subscriber_key_le(PyObject *left_key, PyObject *right_key) {
+    Py_ssize_t left_id = PyLong_AsSsize_t(left_key);
+    if (left_id != -1 || !PyErr_Occurred()) {
+        Py_ssize_t right_id = PyLong_AsSsize_t(right_key);
+        if (right_id != -1 || !PyErr_Occurred()) {
+            return left_id <= right_id;
+        }
+    }
+    if (!PyErr_ExceptionMatches(PyExc_OverflowError)) {
+        return -1;
+    }
+    PyErr_Clear();
+    return PyObject_RichCompareBool(left_key, right_key, Py_LE);
 }
 
 static PyObject *merge_subscribers(PyObject *self, PyObject *args) {
@@ -82,15 +168,14 @@ static PyObject *merge_subscribers(PyObject *self, PyObject *args) {
     has_left = PyDict_Next(unkeyed, &left_position, &left_key, &left_value);
     has_right = PyDict_Next(keyed, &right_position, &right_key, &right_value);
     while (has_left && has_right) {
-        Py_ssize_t left_id = PyLong_AsSsize_t(left_key);
-        Py_ssize_t right_id = PyLong_AsSsize_t(right_key);
+        int left_precedes = subscriber_key_le(left_key, right_key);
         PyObject *value;
 
-        if (PyErr_Occurred()) {
+        if (left_precedes < 0) {
             failed = 1;
             break;
         }
-        if (left_id <= right_id) {
+        if (left_precedes) {
             value = left_value;
             has_left = PyDict_Next(unkeyed, &left_position, &left_key, &left_value);
         } else {
@@ -101,23 +186,11 @@ static PyObject *merge_subscribers(PyObject *self, PyObject *args) {
         PyTuple_SET_ITEM(result, output_index++, value);
     }
     while (!failed && has_left) {
-        Py_ssize_t identifier = PyLong_AsSsize_t(left_key);
-        if (PyErr_Occurred()) {
-            failed = 1;
-            break;
-        }
-        (void)identifier;
         Py_INCREF(left_value);
         PyTuple_SET_ITEM(result, output_index++, left_value);
         has_left = PyDict_Next(unkeyed, &left_position, &left_key, &left_value);
     }
     while (!failed && has_right) {
-        Py_ssize_t identifier = PyLong_AsSsize_t(right_key);
-        if (PyErr_Occurred()) {
-            failed = 1;
-            break;
-        }
-        (void)identifier;
         Py_INCREF(right_value);
         PyTuple_SET_ITEM(result, output_index++, right_value);
         has_right = PyDict_Next(keyed, &right_position, &right_key, &right_value);

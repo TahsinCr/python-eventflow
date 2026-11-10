@@ -21,6 +21,7 @@ class SourceProvenance(TypedDict):
 
 class Runner(Protocol):
     argparser: ArgumentParser
+    metadata: dict[str, object]
 
     def parse_args(self) -> Namespace: ...
 

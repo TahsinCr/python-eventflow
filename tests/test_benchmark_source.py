@@ -11,6 +11,9 @@ class BenchmarkSourceTests(unittest.TestCase):
             "benchmarks/native/kernels.c",
             "benchmarks/native/kernels.pyx",
             "benchmarks/native/build.py",
+            "benchmarks/native/provenance.py",
+            "benchmarks/native/python_kernels.py",
+            "benchmarks/native/validate.py",
             "benchmarks/benchmark_native.py",
         ):
             with self.subTest(path=path):

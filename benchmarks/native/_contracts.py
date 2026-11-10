@@ -9,7 +9,8 @@ class FilterKernel(Protocol):
     def __call__(
         self,
         events: tuple[object, ...],
-        event_type: type[object],
+        event_type: type[object] | tuple[type[object], ...],
+        limit: int | None = None,
     ) -> tuple[object, ...]: ...
 
 

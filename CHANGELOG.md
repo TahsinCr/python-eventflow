@@ -29,6 +29,14 @@ All notable changes to this project are documented in this file.
 - Add seven focused regression tests for synchronous awaitable cleanup, retry
   deadline limits, retry observer failures and cancellation, and callback
   predicate awaitables.
+- Expand the native benchmark with `heapq`, two-pointer and `sorted()` Python
+  routing candidates, Cython key-lookup and item-iterator variants, history
+  type tuples and limits, small subscriber counts, routing profiles and bounded
+  callback work. Add smoke and decision matrices for quick checks and focused
+  comparisons.
+- Record Cython, compiler flags and native binary SHA-256 values with native
+  pyperf runs, and validate candidate routing under concurrent publishing and
+  subscription churn.
 
 ### Changed
 
@@ -62,6 +70,9 @@ All notable changes to this project are documented in this file.
 - Keep optional Cython and C benchmark imports out of the default development
   dependency path while type-checking benchmark kernels and call signatures in
   clean Python 3.10 and 3.14 environments.
+- Preserve arbitrary-size Python integer ordering in the C routing candidate,
+  support limited tuple history filtering, and remove redundant integer
+  conversions from the merge tails.
 - Measure cross-thread queue roundtrips with a publisher thread that calls
   `EventBus.publish()` directly. Remove the benchmark-only per-event request
   queue and future handoff that inflated the measured bridge path.
