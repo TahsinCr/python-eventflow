@@ -577,6 +577,13 @@ per order, 126 summary rows and 2,646 measured values in total. The host was an
 Intel Core i7-12700H with 20 logical CPUs on Arch Linux x86_64; workers were
 pinned to CPUs 4–7 and the governor was `powersave`.
 
+Across the 63 paired workload/backend cases, forward-order CV was at least 1%
+for 43 cases and at least 5% for 25; reverse-order CV crossed those thresholds
+for 29 and 24 cases. Pooling the two orders gave 45/63 cases at CV ≥1% and
+28/63 at CV ≥5%. The absolute shift between paired order means had a 2.18%
+median and 4.17% average; 17/63 cases shifted by at least 5%, and 7/63 by at
+least 10%. Keep the order-specific values in the CSV when judging a candidate.
+
 The primary comparison uses 2,048 subscribers, seven route keys, 20% wildcard
 subscriptions and a route selecting 653 callbacks. Publish paths include the
 EventFlow bus and callbacks. The C and Cython modules remain optional benchmark
