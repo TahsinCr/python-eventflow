@@ -3,7 +3,10 @@
 from __future__ import annotations
 
 import argparse
+from collections.abc import Callable
+from importlib import import_module
 from pathlib import Path
+from typing import cast
 
 
 def main() -> int:
@@ -11,8 +14,12 @@ def main() -> int:
     parser.add_argument("--build-dir", type=Path, required=True)
     args = parser.parse_args()
 
-    from Cython.Build import cythonize
     from setuptools import Distribution, Extension
+
+    cythonize = cast(
+        Callable[..., list[Extension]],
+        import_module("Cython.Build").cythonize,
+    )
 
     root = Path(__file__).resolve().parents[2]
     output = args.build_dir.resolve()

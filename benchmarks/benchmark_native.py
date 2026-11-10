@@ -5,9 +5,12 @@ from __future__ import annotations
 import sys
 from collections.abc import Callable
 from dataclasses import dataclass
+from importlib import import_module
+from typing import cast
 
 from benchmarks._runner import bench_sync, create_runner, forward_cli_arguments
 from benchmarks.native import python_kernels
+from benchmarks.native._contracts import FilterKernel, MergeKernel
 from eventflow.event_bus import EventBus
 from eventflow.filtering import EventFilter
 from eventflow.history import MemoryEventHistory
@@ -55,22 +58,24 @@ class CandidateBus(EventBus[RoutingEvent]):
         return self._candidate_merge(unkeyed, keyed)  # type: ignore[arg-type]
 
 
-def _kernels(implementation: str):
+def _kernels(implementation: str) -> tuple[FilterKernel, MergeKernel]:
     if implementation == "python":
         return python_kernels.filter_by_type, python_kernels.merge_subscribers
-    if implementation == "cython":
-        from eventflow_native_cython import filter_by_type, merge_subscribers
-    elif implementation == "c":
-        from eventflow_native_c import filter_by_type, merge_subscribers
-    else:
+    module_names = {"cython": "eventflow_native_cython", "c": "eventflow_native_c"}
+    module_name = module_names.get(implementation)
+    if module_name is None:
         raise ValueError(f"unknown implementation: {implementation}")
-    return filter_by_type, merge_subscribers
+    module = import_module(module_name)
+    return (
+        cast(FilterKernel, module.filter_by_type),
+        cast(MergeKernel, module.merge_subscribers),
+    )
 
 
 def _history_cases(
     runner,
     implementation: str,
-    filter_by_type: Callable[[tuple[object, ...], type[Event]], tuple[Event, ...]],
+    filter_by_type: FilterKernel,
 ) -> None:
     for size in (1_000, 10_000, 100_000):
         for selected_every in (2, 8):
@@ -126,11 +131,9 @@ def _subscribe_fixture(
         bus = CandidateBus(merge=merge)
     callback = _ignore_event
     for index in range(count):
-        options = {"event_type": RejectedEvent} if filtered else {}
-        if index % 5 == 0:
-            bus.subscribe(callback, **options)
-        else:
-            bus.subscribe(callback, routing_key=index % 7, **options)
+        routing_key = None if index % 5 == 0 else index % 7
+        event_type = RejectedEvent if filtered else None
+        bus.subscribe(callback, event_type=event_type, routing_key=routing_key)
     return bus
 
 

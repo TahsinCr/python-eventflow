@@ -59,6 +59,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Keep optional Cython and C benchmark imports out of the default development
+  dependency path while type-checking benchmark kernels and call signatures in
+  clean Python 3.10 and 3.14 environments.
 - Measure cross-thread queue roundtrips with a publisher thread that calls
   `EventBus.publish()` directly. Remove the benchmark-only per-event request
   queue and future handoff that inflated the measured bridge path.

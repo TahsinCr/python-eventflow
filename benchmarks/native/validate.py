@@ -4,23 +4,25 @@ from __future__ import annotations
 
 import random
 import sys
-from collections.abc import Callable
+from importlib import import_module
+from typing import cast
 
+from benchmarks.native._contracts import FilterKernel, MergeKernel
 from benchmarks.native.python_kernels import filter_by_type, merge_subscribers
 from eventflow.filtering import EventFilter
 from eventflow.history import MemoryEventHistory
 
 
-def _load(name: str) -> tuple[Callable[..., object], Callable[..., object]]:
-    if name == "cython":
-        from eventflow_native_cython import filter_by_type as native_filter
-        from eventflow_native_cython import merge_subscribers as native_merge
-    elif name == "c":
-        from eventflow_native_c import filter_by_type as native_filter
-        from eventflow_native_c import merge_subscribers as native_merge
-    else:
+def _load(name: str) -> tuple[FilterKernel, MergeKernel]:
+    module_names = {"cython": "eventflow_native_cython", "c": "eventflow_native_c"}
+    module_name = module_names.get(name)
+    if module_name is None:
         raise ValueError(f"unsupported native implementation: {name}")
-    return native_filter, native_merge
+    module = import_module(module_name)
+    return (
+        cast(FilterKernel, module.filter_by_type),
+        cast(MergeKernel, module.merge_subscribers),
+    )
 
 
 def validate(name: str) -> int:
