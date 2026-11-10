@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import heapq
+import inspect
 import threading
 import time
 import unittest
@@ -286,3 +287,46 @@ class CoalescerEdgeTests(unittest.TestCase):
         discarded.push("pending")
         discarded.close(flush=False)
         self.assertEqual(discarded.stats().discarded, 1)
+
+    def test_coalescer_closes_awaitable_delivery_and_error_callbacks(self):
+        callback_coroutines = []
+        observer_coroutines = []
+
+        async def async_callback(_value):
+            return None
+
+        async def async_observer(_error):
+            return None
+
+        def callback(value):
+            coroutine = async_callback(value)
+            callback_coroutines.append(coroutine)
+            return coroutine
+
+        def on_error(error):
+            coroutine = async_observer(error)
+            observer_coroutines.append(coroutine)
+            return coroutine
+
+        coalescer = KeyedCoalescer(
+            interval=60,
+            key=lambda value: value,
+            merge=lambda _first, second: second,
+            callback=callback,
+            on_error=on_error,
+        )
+        try:
+            coalescer.push("value")
+            with self.assertRaises(ExceptionGroup) as raised:
+                coalescer.flush(timeout=1)
+
+            self.assertEqual(
+                [type(error) for error in raised.exception.exceptions], [TypeError, TypeError]
+            )
+            self.assertEqual(len(callback_coroutines), 1)
+            self.assertEqual(len(observer_coroutines), 1)
+            self.assertEqual(inspect.getcoroutinestate(callback_coroutines[0]), inspect.CORO_CLOSED)
+            self.assertEqual(inspect.getcoroutinestate(observer_coroutines[0]), inspect.CORO_CLOSED)
+            self.assertEqual(coalescer.stats().failures, 1)
+        finally:
+            coalescer.close(timeout=1)

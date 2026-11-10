@@ -448,3 +448,25 @@ class PrimitiveTests(unittest.TestCase):
                         create()
         finally:
             bus.close()
+
+    def test_operation_stats_reject_invalid_public_record_values(self):
+        observer = OperationStats()
+        invalid_records = (
+            ("", {}, ValueError),
+            ("publish", {"status": "unknown"}, ValueError),
+            ("publish", {"elapsed": True}, TypeError),
+            ("publish", {"elapsed": float("nan")}, ValueError),
+            ("publish", {"elapsed": -1}, ValueError),
+            ("publish", {"queue_depth": True}, ValueError),
+            ("publish", {"queue_depth": -1}, ValueError),
+            ("publish", {"dropped": 1.5}, ValueError),
+            ("publish", {"retries": True}, ValueError),
+            ("publish", {"rejected": -1}, ValueError),
+            ("publish", {"timeouts": 1.0}, ValueError),
+            ("publish", {"shutdown_seconds": float("inf")}, ValueError),
+        )
+
+        for name, values, error_type in invalid_records:
+            with self.subTest(name=name, values=values):
+                with self.assertRaises(error_type):
+                    observer.record(name, **values)

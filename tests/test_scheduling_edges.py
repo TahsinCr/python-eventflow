@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import asyncio
+import inspect
 import unittest
 
 from eventflow.observability import OperationStats
@@ -170,3 +171,54 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
             await delayed.join(1)
         await scheduler.aclose()
         self.assertTrue(scheduler.snapshot().closed)
+
+    async def test_scheduler_rejects_self_close_from_a_scheduled_job(self):
+        reported = []
+        scheduler = AsyncScheduler(on_error=reported.append)
+
+        async def close_scheduler():
+            await scheduler.aclose()
+
+        handle = scheduler.schedule_once(close_scheduler)
+        with self.assertRaisesRegex(RuntimeError, "cannot close its own scheduler"):
+            await handle.join(1)
+        await asyncio.sleep(0)
+        self.assertEqual(len(reported), 1)
+
+        await scheduler.aclose()
+        self.assertTrue(scheduler.snapshot().closed)
+
+    async def test_scheduler_closes_async_error_observer_and_reports_both_failures(self):
+        loop = asyncio.get_running_loop()
+        previous_handler = loop.get_exception_handler()
+        reported = []
+        observer_coroutines = []
+
+        async def async_observer(_error):
+            return None
+
+        def invalid_observer(error):
+            coroutine = async_observer(error)
+            observer_coroutines.append(coroutine)
+            return coroutine
+
+        loop.set_exception_handler(lambda _loop, context: reported.append(context))
+        scheduler = AsyncScheduler(on_error=invalid_observer)
+
+        async def fail():
+            raise ValueError("scheduled operation")
+
+        try:
+            handle = scheduler.schedule_once(fail)
+            with self.assertRaisesRegex(ValueError, "scheduled operation"):
+                await handle.join(1)
+            await asyncio.sleep(0)
+
+            self.assertEqual(len(reported), 1)
+            errors = reported[0]["exception"].exceptions
+            self.assertEqual([type(error) for error in errors], [ValueError, TypeError])
+            self.assertEqual(len(observer_coroutines), 1)
+            self.assertEqual(inspect.getcoroutinestate(observer_coroutines[0]), inspect.CORO_CLOSED)
+        finally:
+            loop.set_exception_handler(previous_handler)
+            await scheduler.aclose()

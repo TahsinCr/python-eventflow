@@ -33,6 +33,37 @@ class EventBusRoutingTests(unittest.TestCase):
         self.assertEqual(result.matched, 4)
         self.assertEqual(result.delivered, 4)
 
+    def test_routing_index_preserves_order_after_cancellations(self) -> None:
+        seen: list[int] = []
+        expected: list[int] = []
+
+        with EventBus[int](routing_key=lambda event: event % 7) as bus:
+            for index in range(280):
+                route = index % 4
+                if route == 0:
+                    subscription = bus.subscribe(lambda _event, index=index: seen.append(index))
+                    selected = True
+                else:
+                    key = 3 if route == 1 else index % 7
+                    subscription = bus.subscribe(
+                        lambda _event, index=index: seen.append(index), routing_key=key
+                    )
+                    selected = key == 3
+                if index % 9 == 0:
+                    subscription.cancel()
+                elif selected:
+                    expected.append(index)
+
+            for index in range(280, 300):
+                bus.subscribe(lambda _event, index=index: seen.append(index), routing_key=3)
+                expected.append(index)
+
+            result = bus.publish(10)
+
+        self.assertEqual(seen, expected)
+        self.assertEqual(result.matched, len(expected))
+        self.assertEqual(result.delivered, len(expected))
+
     def test_routed_replay_returns_latest_matching_events_and_applies_filter(self) -> None:
         seen: list[tuple[str, int]] = []
         with EventBus[tuple[str, int]](history=8, routing_key=lambda event: event[0]) as bus:

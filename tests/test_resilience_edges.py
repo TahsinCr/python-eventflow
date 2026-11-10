@@ -6,6 +6,7 @@ import asyncio
 import threading
 import unittest
 from concurrent.futures import ThreadPoolExecutor
+from unittest.mock import patch
 
 from _support import ManualClock
 
@@ -167,6 +168,23 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(cooldowns.stats().waiters, 0)
         cooldowns.clear("wait")
 
+    async def test_cooldown_clear_wakes_all_async_waiters(self):
+        cooldowns = CooldownRegistry()
+        cooldowns.block("shared", 60)
+        waiters = [asyncio.create_task(cooldowns.wait_async("shared")) for _ in range(4)]
+
+        for _ in range(10):
+            if cooldowns.stats().waiters == len(waiters):
+                break
+            await asyncio.sleep(0)
+
+        self.assertEqual(cooldowns.stats().waiters, len(waiters))
+        self.assertTrue(cooldowns.clear("shared"))
+        results = await asyncio.wait_for(asyncio.gather(*waiters), timeout=1)
+
+        self.assertEqual(results, [True] * len(waiters))
+        self.assertEqual(cooldowns.stats().waiters, 0)
+
     async def test_retry_policy_async_deadline_and_invalid_operation(self):
         policy = RetryPolicy(max_attempts=3, initial_delay=0, backoff="fixed")
         attempts = []
@@ -208,6 +226,55 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
 
             result = await RetryPolicy(max_attempts=1).run_async(async_operation, deadline=deadline)
             self.assertEqual(result, "completed")
+
+    async def test_async_retry_cancellation_is_not_retried_and_is_observed(self):
+        attempts = 0
+        observations = []
+        policy = RetryPolicy(max_attempts=4, observer=observations.append)
+
+        async def cancel():
+            nonlocal attempts
+            attempts += 1
+            raise asyncio.CancelledError
+
+        with self.assertRaises(asyncio.CancelledError):
+            await policy.run_async(cancel)
+
+        self.assertEqual(attempts, 1)
+        self.assertEqual([item.status for item in observations], ["error"])
+
+    async def test_retry_deadline_caps_sync_and_async_backoff(self):
+        clock = ManualClock()
+        policy = RetryPolicy(max_attempts=3, initial_delay=5, backoff="fixed")
+
+        def fail_sync():
+            raise OSError("sync retry")
+
+        with patch("eventflow.resilience.time.sleep") as sleep:
+            with self.assertRaises(TimeoutError):
+                policy.run(
+                    fail_sync,
+                    should_retry=lambda _error: True,
+                    deadline=Deadline.after(1, clock=clock),
+                )
+        sleep.assert_called_once_with(1)
+
+        async def fail_async():
+            raise OSError("async retry")
+
+        async_delays = []
+
+        async def record_sleep(delay):
+            async_delays.append(delay)
+
+        with patch("eventflow.resilience.asyncio.sleep", new=record_sleep):
+            with self.assertRaises(TimeoutError):
+                await policy.run_async(
+                    fail_async,
+                    should_retry=lambda _error: True,
+                    deadline=Deadline.after(1, clock=clock),
+                )
+        self.assertEqual(async_delays, [1])
 
     async def test_circuit_breaker_half_open_and_classifier_behavior(self):
         clock = ManualClock()

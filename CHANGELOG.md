@@ -20,6 +20,9 @@ All notable changes to this project are documented in this file.
   policies, lifecycle scopes, bounded work submission and shared async work.
 - Add a single-publisher bridge baseline, history-size and filter-selectivity
   cases, and async fan-out callbacks that yield once to the event loop.
+- Add focused regression tests for retry deadlines and cancellation, cooldown
+  waiter release, scheduler/coalescer callback failures, strict operation metric
+  validation and routing order after subscription cancellation.
 
 ### Changed
 
