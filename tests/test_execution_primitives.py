@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import unittest
+from unittest.mock import patch
 
 from _support import ManualClock
 
@@ -332,6 +333,52 @@ class PrimitiveTests(unittest.TestCase):
         self.assertEqual(len(single_attempt), 1)
         bounded = RetryPolicy(max_attempts=1_000_000, initial_delay=0.1, max_delay=1)
         self.assertEqual(bounded._delay(1_000_000), 1)
+
+    def test_retry_closes_awaitable_returned_by_sync_operation(self):
+        async def operation():
+            return "wrong mode"
+
+        pending = operation()
+        with self.assertRaisesRegex(TypeError, "synchronous operation"):
+            RetryPolicy(max_attempts=3).run(lambda: pending)
+
+        self.assertIsNone(pending.cr_frame)
+
+    def test_retry_observer_failure_keeps_the_operation_error(self):
+        operation_error = OSError("operation failed")
+        observer_error = RuntimeError("observer failed")
+        attempts = []
+
+        def operation():
+            attempts.append(None)
+            raise operation_error
+
+        def observer(_observation):
+            raise observer_error
+
+        retry = RetryPolicy(max_attempts=3, observer=observer)
+        with self.assertRaises(ExceptionGroup) as caught:
+            retry.run(operation, should_retry=lambda _error: True)
+
+        self.assertEqual(caught.exception.exceptions, (operation_error, observer_error))
+        self.assertEqual(len(attempts), 1)
+
+    def test_sync_retry_delay_is_capped_to_its_deadline(self):
+        clock = ManualClock(10)
+        deadline = Deadline.after(1, clock=clock)
+        attempts = []
+        retry = RetryPolicy(max_attempts=3, initial_delay=2)
+
+        def operation():
+            attempts.append(None)
+            raise OSError("temporary")
+
+        with patch("eventflow.resilience.time.sleep", side_effect=clock.advance) as sleep:
+            with self.assertRaisesRegex(TimeoutError, "before another attempt"):
+                retry.run(operation, should_retry=lambda _error: True, deadline=deadline)
+
+        self.assertEqual(len(attempts), 1)
+        sleep.assert_called_once_with(1)
 
     def test_circuit_breaker_rejects_async_callable_on_sync_path(self):
         breaker = CircuitBreaker(failure_threshold=1)

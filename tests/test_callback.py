@@ -115,6 +115,9 @@ class CallbackTests(unittest.TestCase):
         self.assertEqual(hooks[-1], "timeout")
 
     def test_invalid_options(self):
+        async def async_predicate(_event):
+            return True
+
         for options in (
             {"once": True, "max_calls": 1},
             {"frequency_hz": 0},
@@ -123,6 +126,22 @@ class CallbackTests(unittest.TestCase):
         ):
             with self.assertRaises(ValueError):
                 CallbackSubscription(1, lambda: None, lambda event: None, **options)
+        with self.assertRaisesRegex(TypeError, "synchronous callable"):
+            CallbackSubscription(1, lambda: None, lambda event: None, predicate=async_predicate)
+
+    def test_sync_predicate_awaitable_is_closed_and_rejected(self):
+        async def predicate(_event):
+            return True
+
+        pending = predicate(1)
+        subscription = CallbackSubscription(
+            1, lambda: None, lambda event: None, predicate=lambda _event: pending
+        )
+
+        with self.assertRaisesRegex(TypeError, "predicate returned an awaitable"):
+            subscription.invoke(1)
+
+        self.assertIsNone(pending.cr_frame)
 
 
 class AsyncCallbackTests(unittest.IsolatedAsyncioTestCase):

@@ -26,6 +26,9 @@ All notable changes to this project are documented in this file.
 - Add an optional Python/Cython/C benchmark suite for history type filtering,
   routing subscriber merges and complete synchronous EventBus publish paths.
   Native extensions stay outside the EventFlow runtime and package.
+- Add seven focused regression tests for synchronous awaitable cleanup, retry
+  deadline limits, retry observer failures and cancellation, and callback
+  predicate awaitables.
 
 ### Changed
 

@@ -204,6 +204,68 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
         with self.assertRaises(TypeError):
             await policy.run_async(transient, should_retry=object())
 
+    async def test_retry_observer_failure_does_not_replace_cancellation(self):
+        entered = asyncio.Event()
+        observations = []
+
+        async def blocked():
+            entered.set()
+            await asyncio.Event().wait()
+
+        def observer(observation):
+            observations.append(observation)
+            raise RuntimeError("observer failed during cancellation")
+
+        task = asyncio.create_task(
+            RetryPolicy(max_attempts=3, observer=observer).run_async(
+                blocked, should_retry=lambda _error: True
+            )
+        )
+        await entered.wait()
+        task.cancel()
+
+        with self.assertRaises(asyncio.CancelledError) as caught:
+            await task
+
+        self.assertIsInstance(caught.exception, asyncio.CancelledError)
+        self.assertEqual(len(observations), 1)
+        self.assertEqual(observations[0].status, "error")
+
+    async def test_retry_observer_error_is_chained_to_operation_cancellation(self):
+        async def cancelled():
+            raise asyncio.CancelledError
+
+        def observer(_observation):
+            raise RuntimeError("observer failed")
+
+        with self.assertRaises(asyncio.CancelledError) as caught:
+            await RetryPolicy(max_attempts=3, observer=observer).run_async(cancelled)
+
+        self.assertIsInstance(caught.exception.__cause__, RuntimeError)
+
+    async def test_async_retry_delay_is_capped_to_its_deadline(self):
+        clock = ManualClock(10)
+        deadline = Deadline.after(1, clock=clock)
+        attempts = []
+        retry = RetryPolicy(max_attempts=3, initial_delay=2)
+
+        async def operation():
+            attempts.append(None)
+            raise OSError("temporary")
+
+        async def advance_clock(seconds):
+            clock.advance(seconds)
+
+        with patch("eventflow.resilience.asyncio.sleep", new=advance_clock):
+            with self.assertRaisesRegex(TimeoutError, "before another attempt"):
+                await retry.run_async(
+                    operation,
+                    should_retry=lambda _error: True,
+                    deadline=deadline,
+                )
+
+        self.assertEqual(len(attempts), 1)
+
     async def test_retry_deadline_does_not_interrupt_started_operations(self):
         with self.subTest(mode="sync"):
             clock = ManualClock()
