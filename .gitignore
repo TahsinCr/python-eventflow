@@ -14,9 +14,7 @@ dist/
 *.egg-info/
 
 .serena/*
-!.serena/memories/
 .serena/memories/*
-!.serena/memories/MEMORY.md
 .idea/
 .vscode/
 *.swp
