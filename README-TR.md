@@ -1656,6 +1656,33 @@ benchmark kaynakları ile `pyproject.toml` üzerinden hesaplanan SHA-256 parmak
 izini kaydeder. Oluşturulan sonuç dosyaları parmak izine katılmaz. pyperf ayrıca
 ölçümde kullanılan Python yorumlayıcısı ve makine bilgilerini kaydeder.
 
+Deneysel Python/Cython/C karşılaştırmalarını çalıştırmak için isteğe bağlı
+benchmark araçlarını kurun ve iki uzantıyı depo dışında derleyin:
+
+```bash
+python -m pip install -e ".[native-bench]"
+python -m benchmarks.native.build --build-dir /tmp/eventflow-native-build
+PYTHONPATH="/tmp/eventflow-native-build:$PYTHONPATH" python -m benchmarks.native.validate cython
+PYTHONPATH="/tmp/eventflow-native-build:$PYTHONPATH" python -m benchmarks.native.validate c
+PYTHONPATH="/tmp/eventflow-native-build:$PYTHONPATH" \
+  python -m benchmarks.benchmark_native --implementation python --rigorous \
+  --output native-python.json
+PYTHONPATH="/tmp/eventflow-native-build:$PYTHONPATH" \
+  python -m benchmarks.benchmark_native --implementation cython --rigorous \
+  --output native-cython.json
+PYTHONPATH="/tmp/eventflow-native-build:$PYTHONPATH" \
+  python -m benchmarks.benchmark_native --implementation c --rigorous \
+  --output native-c.json
+```
+
+Bu benchmark'lar type filtreli history snapshot'larını, routing subscriber
+birleşimlerini ve hem no-op callback'lerle hem de type filtresinden dönen
+abonelerle tam senkron bus publish işlemini karşılaştırır. Yalnızca benchmark
+adayıdır; EventFlow runtime'ına ve paket derlemesine dahil edilmez. Adayları
+karşılaştırırken yorumlayıcıyı, GIL durumunu, makineyi, CPU affinity ayarını ve
+pyperf seçeneklerini aynı tutun. Karşılaştırmalı rapor ve ham ölçümler
+`benchmarks/results` altında bulunur.
+
 Copyright © 2026 TahsinCr. EventFlow, MIT Lisansı ile lisanslanmıştır.
 [LICENSE](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE) ve
 [CHANGELOG](https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md)

@@ -67,7 +67,7 @@ def _is_source_path(relative: bytes | str) -> bool:
     if not path.parts or (path.parts[0] == "benchmarks" and "results" in path.parts):
         return False
     return (path.parts[0] == "eventflow" and (path.suffix == ".py" or path.name == "py.typed")) or (
-        path.parts[0] == "benchmarks" and path.suffix == ".py"
+        path.parts[0] == "benchmarks" and path.suffix in {".c", ".py", ".pyx"}
     )
 
 

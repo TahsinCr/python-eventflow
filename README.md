@@ -1636,6 +1636,32 @@ SHA-256 fingerprint of the package, benchmark sources and `pyproject.toml`.
 Generated result files are excluded from the fingerprint. pyperf also records
 the interpreter and machine metadata used for each run.
 
+For exploratory Python/Cython/C comparisons, install the optional native
+benchmark tools and build the two extensions outside the repository:
+
+```bash
+python -m pip install -e ".[native-bench]"
+python -m benchmarks.native.build --build-dir /tmp/eventflow-native-build
+PYTHONPATH="/tmp/eventflow-native-build:$PYTHONPATH" python -m benchmarks.native.validate cython
+PYTHONPATH="/tmp/eventflow-native-build:$PYTHONPATH" python -m benchmarks.native.validate c
+PYTHONPATH="/tmp/eventflow-native-build:$PYTHONPATH" \
+  python -m benchmarks.benchmark_native --implementation python --rigorous \
+  --output native-python.json
+PYTHONPATH="/tmp/eventflow-native-build:$PYTHONPATH" \
+  python -m benchmarks.benchmark_native --implementation cython --rigorous \
+  --output native-cython.json
+PYTHONPATH="/tmp/eventflow-native-build:$PYTHONPATH" \
+  python -m benchmarks.benchmark_native --implementation c --rigorous \
+  --output native-c.json
+```
+
+These benchmark-only candidates compare type-filtered history snapshots,
+routing subscriber merges, and complete synchronous bus publishes with both
+no-op callbacks and type-rejected subscribers. They are not part of the
+EventFlow runtime or package build. Use the same interpreter, GIL mode, machine,
+affinity and pyperf options for each candidate; the comparative report and raw
+results are kept in `benchmarks/results`.
+
 Copyright © 2026 TahsinCr. EventFlow is licensed under the MIT License.
 See [LICENSE](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE) and
 [CHANGELOG](https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md).

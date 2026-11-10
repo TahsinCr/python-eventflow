@@ -23,9 +23,14 @@ All notable changes to this project are documented in this file.
 - Add focused regression tests for retry deadlines and cancellation, cooldown
   waiter release, scheduler/coalescer callback failures, strict operation metric
   validation and routing order after subscription cancellation.
+- Add an optional Python/Cython/C benchmark suite for history type filtering,
+  routing subscriber merges and complete synchronous EventBus publish paths.
+  Native extensions stay outside the EventFlow runtime and package.
 
 ### Changed
 
+- Include committed C and Cython benchmark sources in the pyperf source
+  fingerprint so native candidate results identify the exact kernels measured.
 - Remove 31 benchmark result files from earlier source revisions and harnesses,
   along with their legacy guide, so the current 1.4.0 performance baseline is
   unambiguous.
