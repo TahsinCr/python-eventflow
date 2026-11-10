@@ -66,20 +66,40 @@ class NativeBenchmarkReferenceTests(unittest.TestCase):
             event_filter = EventFilter[_Event](event_type=event_type)
             for limit in (None, 1, 2, 10, 10**100):
                 with self.subTest(event_type=event_type, limit=limit):
-                    expected = history.query(event_filter, limit=limit)
+                    expected = tuple(event for event in events if isinstance(event, event_type))
+                    if limit is not None:
+                        expected = expected[-limit:]
+                    actual_query = history.query(event_filter, limit=limit)
                     actual = filter_by_type(events, event_type, limit)
-                    self.assertEqual(len(actual), len(expected))
-                    self.assertTrue(
-                        all(
-                            item is reference
-                            for item, reference in zip(actual, expected, strict=True)
+                    for result in (actual_query, actual):
+                        self.assertEqual(len(result), len(expected))
+                        self.assertTrue(
+                            all(
+                                item is reference
+                                for item, reference in zip(result, expected, strict=True)
+                            )
                         )
-                    )
 
         for invalid_limit in (0, -1, True):
             with self.subTest(invalid_limit=invalid_limit):
                 with self.assertRaises(ValueError):
                     filter_by_type(events, _Selected, invalid_limit)
+
+    def test_history_query_preserves_custom_filter_matching(self) -> None:
+        selected = _Selected()
+
+        class CustomFilter(EventFilter[_Event]):
+            def matches(self, event: _Event) -> bool:
+                return event is selected
+
+        history = MemoryEventHistory[_Event](capacity=2)
+        history.append(selected)
+        history.append(_Other())
+
+        result = history.query(CustomFilter(event_type=_Other))
+
+        self.assertEqual(len(result), 1)
+        self.assertIs(result[0], selected)
 
     def test_merge_matches_registration_order_and_empty_fast_paths(self) -> None:
         subscribers = {index: object() for index in (2, 5, 9, 14, 21)}

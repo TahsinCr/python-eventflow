@@ -48,6 +48,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Optimize `MemoryEventHistory` type-only queries with a direct `isinstance`
+  loop while preserving filtered result order, limits and custom filter
+  subclass behavior.
 - Merge keyed and wildcard subscriber indexes with a linear two-pointer path in
   synchronous `EventBus` snapshots, preserving registration order and the
   existing one-index fast paths.

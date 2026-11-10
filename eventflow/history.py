@@ -8,7 +8,7 @@ from collections import deque
 from itertools import islice
 from typing import Generic, TypeVar
 
-from .filtering import EventFilter
+from .filtering import EventFilter, EventType
 
 T = TypeVar("T")
 
@@ -16,6 +16,24 @@ T = TypeVar("T")
 def _validate_query_limit(limit: int | None) -> None:
     if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0):
         raise ValueError("Event history query limit must be a positive integer")
+
+
+def _query_by_type(
+    events: tuple[T, ...],
+    event_type: EventType,
+    limit: int | None,
+) -> tuple[T, ...]:
+    if limit is None:
+        return tuple(event for event in events if isinstance(event, event_type))
+
+    matched: list[T] = []
+    for event in reversed(events):
+        if isinstance(event, event_type):
+            matched.append(event)
+            if len(matched) == limit:
+                break
+    matched.reverse()
+    return tuple(matched)
 
 
 class EventHistory(Generic[T], ABC):
@@ -90,6 +108,12 @@ class MemoryEventHistory(EventHistory[T]):
                 recent.reverse()
                 return tuple(recent)
             events = tuple(self._events)
+        if (
+            type(event_filter) is EventFilter
+            and event_filter.predicate is None
+            and event_filter.event_type is not None
+        ):
+            return _query_by_type(events, event_filter.event_type, limit)
         if limit is None:
             return tuple(event for event in events if event_filter.matches(event))
         matched: list[T] = []
