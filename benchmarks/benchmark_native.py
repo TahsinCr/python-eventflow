@@ -253,6 +253,8 @@ def _routing_cases(
 ) -> None:
     if matrix == "smoke":
         profiles, snapshot_sizes = ((7, 20),), (64,)
+    elif matrix == "routing":
+        profiles, snapshot_sizes = ((7, 20),), (2_048,)
     elif matrix == "decision":
         profiles, snapshot_sizes = ((7, 20),), (64, 512, 2_048)
     else:
@@ -333,6 +335,15 @@ def _routing_cases(
 
         if matrix == "smoke":
             publish_profiles, publish_sizes = ((7, 20, ("noop",)),), (64,)
+        elif matrix == "routing":
+            publish_profiles, publish_sizes = (
+                (
+                    (7, 20, ("noop", "light_cpu", "filtered")),
+                    (1, 0, ("noop",)),
+                    (31, 50, ("noop",)),
+                ),
+                (2_048,),
+            )
         elif matrix == "decision":
             publish_profiles, publish_sizes = (
                 (
@@ -460,6 +471,8 @@ def _routing_contention_cases(
 ) -> None:
     if matrix == "smoke":
         publishers_counts, subscriptions = (2,), 64
+    elif matrix == "routing":
+        publishers_counts, subscriptions = (1, 4, 8), 2_048
     elif matrix == "decision":
         publishers_counts, subscriptions = (1, 4, 8), 2_048
     else:
@@ -541,7 +554,9 @@ def main() -> int:
     runner.argparser.add_argument(
         "--implementation", choices=("python", "cython", "c"), default="python"
     )
-    runner.argparser.add_argument("--matrix", choices=("smoke", "decision", "full"), default="full")
+    runner.argparser.add_argument(
+        "--matrix", choices=("smoke", "routing", "decision", "full"), default="full"
+    )
     args = runner.parse_args()
     runner.metadata["eventflow_native_matrix"] = args.matrix
     if args.implementation == "python":
@@ -555,7 +570,8 @@ def main() -> int:
         raise RuntimeError(
             f"importing the {args.implementation} candidate re-enabled the free-threaded GIL"
         )
-    _history_cases(runner, args.implementation, filter_by_type, args.matrix)
+    if args.matrix != "routing":
+        _history_cases(runner, args.implementation, filter_by_type, args.matrix)
     _routing_cases(runner, args.implementation, merge_kernels, args.matrix)
     _routing_contention_cases(runner, args.implementation, merge_kernels, args.matrix)
     return 0

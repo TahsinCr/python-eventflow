@@ -39,6 +39,8 @@ All notable changes to this project are documented in this file.
   subscription churn.
 - Compare routed EventBus publication with one, four and eight publisher threads
   in the native decision matrix, including the active production Python path.
+- Add a routing-only pyperf matrix for targeted snapshot, publish and contention
+  comparisons without unrelated history workloads.
 - Cover skewed keyed/wildcard indexes and concurrent subscription churn in the
   synchronous routing regression tests.
 
