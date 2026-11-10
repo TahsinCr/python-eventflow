@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import threading
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 
 from eventflow import AsyncEventQueue, EventBus, EventFilter, QueueOverflowError
 from eventflow.engine import EventEngine
@@ -63,6 +64,82 @@ class EventBusRoutingTests(unittest.TestCase):
         self.assertEqual(seen, expected)
         self.assertEqual(result.matched, len(expected))
         self.assertEqual(result.delivered, len(expected))
+
+    def test_routing_merge_preserves_order_with_skewed_indexes(self) -> None:
+        for wildcard_count, keyed_count in ((3, 257), (257, 3)):
+            seen: list[int] = []
+            expected: list[int] = []
+
+            with self.subTest(wildcard_count=wildcard_count, keyed_count=keyed_count):
+                with EventBus[int](routing_key=lambda event: event % 2) as bus:
+                    subscriptions = []
+                    for index in range(wildcard_count + keyed_count):
+                        route_key = None if index < wildcard_count else 0
+                        subscription = bus.subscribe(
+                            lambda _event, value=index: seen.append(value),
+                            routing_key=route_key,
+                        )
+                        subscriptions.append((subscription, route_key, index))
+
+                    for index, (subscription, route_key, value) in enumerate(subscriptions):
+                        if index % 17 == 0:
+                            subscription.cancel()
+                        elif route_key is None or route_key == 0:
+                            expected.append(value)
+
+                    result = bus.publish(0)
+
+                self.assertEqual(seen, expected)
+                self.assertEqual(result.matched, len(expected))
+                self.assertEqual(result.delivered, len(expected))
+
+    def test_routing_order_survives_concurrent_publish_and_subscription_churn(self) -> None:
+        seen: dict[int, list[str]] = {}
+        seen_lock = threading.Lock()
+
+        def record(name: str):
+            def callback(event: int) -> None:
+                with seen_lock:
+                    seen.setdefault(event, []).append(name)
+
+            return callback
+
+        with EventBus[int](routing_key=lambda event: event % 2) as bus:
+            bus.subscribe(record("wildcard-1"))
+            bus.subscribe(record("keyed-1"), routing_key=0)
+            bus.subscribe(record("wildcard-2"))
+            bus.subscribe(record("keyed-2"), routing_key=0)
+            barrier = threading.Barrier(5)
+
+            def publish_many(worker: int) -> None:
+                barrier.wait(timeout=5)
+                for offset in range(100):
+                    event = worker * 1_000 + offset
+                    result = bus.publish(event)
+                    stable_count = 4 if event % 2 == 0 else 2
+                    if result.matched < stable_count or result.delivered < stable_count:
+                        raise AssertionError("concurrent publish lost a stable subscriber")
+
+            def churn() -> None:
+                barrier.wait(timeout=5)
+                for _ in range(250):
+                    subscription = bus.subscribe(lambda _event: None, routing_key=0)
+                    subscription.cancel()
+
+            with ThreadPoolExecutor(max_workers=5) as executor:
+                futures = [executor.submit(publish_many, worker) for worker in range(4)]
+                futures.append(executor.submit(churn))
+                for future in futures:
+                    future.result(timeout=10)
+
+        self.assertEqual(len(seen), 400)
+        for event, callbacks in seen.items():
+            expected = (
+                ["wildcard-1", "keyed-1", "wildcard-2", "keyed-2"]
+                if event % 2 == 0
+                else ["wildcard-1", "wildcard-2"]
+            )
+            self.assertEqual(callbacks, expected)
 
     def test_routed_replay_returns_latest_matching_events_and_applies_filter(self) -> None:
         seen: list[tuple[str, int]] = []

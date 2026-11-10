@@ -2,7 +2,6 @@
 
 from __future__ import annotations
 
-import heapq
 import inspect
 import threading
 import time
@@ -428,9 +427,27 @@ class EventBus(BaseEventBus[T]):
             return tuple(keyed.values())
         if not keyed:
             return tuple(unkeyed.values())
-        return tuple(
-            subscriber for _identifier, subscriber in heapq.merge(unkeyed.items(), keyed.items())
-        )
+
+        unkeyed_items = iter(unkeyed.items())
+        keyed_items = iter(keyed.items())
+        unkeyed_item = next(unkeyed_items, None)
+        keyed_item = next(keyed_items, None)
+        merged: list[_Subscriber[T]] = []
+        while unkeyed_item is not None and keyed_item is not None:
+            if unkeyed_item[0] <= keyed_item[0]:
+                merged.append(unkeyed_item[1])
+                unkeyed_item = next(unkeyed_items, None)
+            else:
+                merged.append(keyed_item[1])
+                keyed_item = next(keyed_items, None)
+
+        if unkeyed_item is not None:
+            merged.append(unkeyed_item[1])
+            merged.extend(subscriber for _identifier, subscriber in unkeyed_items)
+        if keyed_item is not None:
+            merged.append(keyed_item[1])
+            merged.extend(subscriber for _identifier, subscriber in keyed_items)
+        return tuple(merged)
 
     def _event_routing_key(self, event: T) -> Hashable | None:
         if self._routing_key is None:

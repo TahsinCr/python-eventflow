@@ -40,6 +40,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Merge keyed and wildcard subscriber indexes with a linear two-pointer path in
+  synchronous `EventBus` snapshots, preserving registration order and the
+  existing one-index fast paths.
 - Consolidate repeated benchmark callback and positive-integer parser helpers,
   and reuse one event-type fixture across the native reference tests.
 - Include committed C and Cython benchmark sources in the pyperf source
