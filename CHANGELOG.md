@@ -41,6 +41,8 @@ All notable changes to this project are documented in this file.
   in the native decision matrix, including the active production Python path.
 - Add a routing-only pyperf matrix for targeted snapshot, publish and contention
   comparisons without unrelated history workloads.
+- Add a history-only native benchmark matrix for focused 100,000-event query
+  comparisons without routing workloads.
 - Cover skewed keyed/wildcard indexes and concurrent subscription churn in the
   synchronous routing regression tests.
 

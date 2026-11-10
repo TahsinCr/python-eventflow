@@ -253,6 +253,41 @@ class PyperfRunnerTests(unittest.TestCase):
                     names = {item["metadata"]["name"] for item in document["benchmarks"]}
                     self.assertTrue(expected.issubset(names), (module, names))
 
+    def test_native_history_matrix_runs_without_routing_cases(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "history.json"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "benchmarks.benchmark_native",
+                    "--implementation=python",
+                    "--matrix=history",
+                    "--quiet",
+                    "--processes=1",
+                    "--values=1",
+                    "--warmups=0",
+                    "--loops=1",
+                    "--output",
+                    str(output),
+                ],
+                cwd=REPOSITORY_ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if result.returncode:
+                self.fail(
+                    f"native history benchmark failed\nstdout:\n{result.stdout}"
+                    f"\nstderr:\n{result.stderr}"
+                )
+            document = json.loads(output.read_text(encoding="utf-8"))
+
+        names = {item["metadata"]["name"] for item in document["benchmarks"]}
+        self.assertIn("history_production_query/100000/one_in_2/single_type/limit_all", names)
+        self.assertFalse(any(name.startswith("routing_") for name in names))
+
     def test_native_routing_contention_benchmark_launches(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             output = Path(temporary_directory) / "native-routing.json"

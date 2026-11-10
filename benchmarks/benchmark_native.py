@@ -95,7 +95,7 @@ def _history_cases(
 ) -> None:
     if matrix == "smoke":
         sizes, selectivities = (1_000,), (2,)
-    elif matrix == "decision":
+    elif matrix in {"decision", "history"}:
         sizes, selectivities = (100_000,), (2,)
     else:
         sizes, selectivities = (1_000, 10_000, 100_000), (2, 8)
@@ -555,7 +555,7 @@ def main() -> int:
         "--implementation", choices=("python", "cython", "c"), default="python"
     )
     runner.argparser.add_argument(
-        "--matrix", choices=("smoke", "routing", "decision", "full"), default="full"
+        "--matrix", choices=("smoke", "routing", "history", "decision", "full"), default="full"
     )
     args = runner.parse_args()
     runner.metadata["eventflow_native_matrix"] = args.matrix
@@ -572,8 +572,9 @@ def main() -> int:
         )
     if args.matrix != "routing":
         _history_cases(runner, args.implementation, filter_by_type, args.matrix)
-    _routing_cases(runner, args.implementation, merge_kernels, args.matrix)
-    _routing_contention_cases(runner, args.implementation, merge_kernels, args.matrix)
+    if args.matrix != "history":
+        _routing_cases(runner, args.implementation, merge_kernels, args.matrix)
+        _routing_contention_cases(runner, args.implementation, merge_kernels, args.matrix)
     return 0
 
 
