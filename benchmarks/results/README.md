@@ -830,3 +830,44 @@ python -m benchmarks.benchmark_native \
 - [Before optimization](native/native_history_2026-11-10_a9af2fc_py3149_gil-on_pre_python_fast_path.json)
   and [after optimization](native/native_history_2026-11-10_297dbb9_py3149_gil-on_post_python_fast_path.json)
   contain the raw pyperf results.
+
+### Native history candidates after the Python fast path
+
+The focused matrix was repeated after the Python optimization on clean source
+revision `7150827` with CPython 3.14.9, the GIL enabled, an Intel Core i7-12700H,
+and CPUs 4–7. Each case used three processes with seven measured values per
+process, three warmups and a 30 ms minimum value duration. Cython ran before C
+in the first pass; C ran before Cython in the reversed pass. A Python production
+query run after both native passes checks for timing drift.
+
+The Python column measures `MemoryEventHistory.query()` with its actual
+`EventFilter`. Each native candidate first takes the same Python history
+snapshot, then applies its C or Cython type-filter kernel. It therefore measures
+snapshot plus native filtering, not a native history implementation or a
+replacement production backend.
+
+| Query over 100,000 events, one match in two | Python production before → post-native repeat | Cython snapshot + filter, forward / reversed | C snapshot + filter, forward / reversed |
+| --- | ---: | ---: | ---: |
+| Single event type, unlimited | 6.23 ms (CV 1.73%) → 7.45 ms (CV 12.35%) | 3.62 ms (CV 6.32%) / 3.49 ms (CV 4.80%) | 4.34 ms (CV 25.06%) / 4.01 ms (CV 2.26%) |
+| Tuple of event types, unlimited | 7.61 ms (CV 2.68%) → 8.44 ms (CV 10.20%) | 4.85 ms (CV 1.51%) / 4.82 ms (CV 1.97%) | 5.44 ms (CV 19.66%) / 5.43 ms (CV 4.36%) |
+
+Across the two orders, Cython averaged 3.55 ms for the single-type case and
+4.84 ms for the tuple case; C averaged 4.18 ms and 5.43 ms. Against the earlier
+stable Python production run, those means are respectively about 43% and 36%
+lower for Cython, and 33% and 29% lower for C. Treat these as candidate
+measurements, not expected application-level speedups: the later Python control
+was 19.5% and 11.0% slower and had 10–12% CV, while the forward C full-path
+cases were also noisy. The observed run-to-run spread limits the precision of
+these ratios. No C or Cython code was moved into EventFlow's runtime.
+
+- [`Cython, first order`](native/native_history_2026-11-10_7150827_py3149_gil-on_cython.json)
+  and [`C, first order`](native/native_history_2026-11-10_7150827_py3149_gil-on_c.json)
+- [`C, reversed order`](native/native_history_2026-11-10_7150827_py3149_gil-on_c_reverse.json)
+  and [`Cython, reversed order`](native/native_history_2026-11-10_7150827_py3149_gil-on_cython_reverse.json)
+- [Python control after native runs](native/native_history_2026-11-10_7150827_py3149_gil-on_python_after_native.json)
+- [Combined history measurements and source fingerprints](native/native_history_2026-11-10_type_filter_summary.csv)
+
+The combined CSV contains 115 rows: the original 42 pre/post Python rows, 52
+native candidate rows across both orders, and 21 post-native Python control
+rows. It includes the per-case CV, interpreter, source hash, and native build
+metadata.

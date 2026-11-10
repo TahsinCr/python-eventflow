@@ -51,6 +51,9 @@ All notable changes to this project are documented in this file.
 - Update the native benchmark report with repeated routing and focused history
   query measurements; document the Python optimizations, native candidate
   comparisons, per-order stability statistics and source-pinned results.
+- Repeat the native history comparison in both backend orders and add a Python
+  production control after the native runs, recording per-order variance and
+  candidate measurement scope.
 - Optimize `MemoryEventHistory` type-only queries with a direct `isinstance`
   loop while preserving filtered result order, limits and custom filter
   subclass behavior.
