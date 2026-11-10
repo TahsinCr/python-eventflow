@@ -4,12 +4,16 @@
 `4af998df85e8fa779e4fec709a01765ed5018ca3` · **Source SHA-256:**
 `5276989cf35716861fd9104c3a795ff961acdceca1c45172b1fcf0052d38bdae`
 
-This file contains three source-pinned snapshots. The 2026-11-09 broad screen
+This file contains six source-pinned snapshots. The 2026-11-09 broad screen
 and its 31 pyperf JSON files cover the source revision above. The initial
 native comparison uses a separate 2026-11-10 revision and its own 12 JSON files
 and CSV. A reversed-order follow-up uses another clean 2026-11-10 source
-revision, six JSON files and a separate CSV. Compare results only within the
-source and interpreter matrix named in each section.
+revision, six JSON files and a separate CSV. The second-round routing matrix
+uses the Python two-pointer production merge at a newer source revision, with
+six JSON files and its own CSV. Compare results only within the source and
+interpreter matrix named in each section. A separate history query comparison
+records clean pre-optimization and optimized Python sources with two JSON files
+and its own CSV.
 
 The 2026-11-09 summary CSV contains 409 case/build rows from a broad benchmark
 screen, focused interpreter comparisons, one-operation latency distributions
@@ -553,3 +557,269 @@ can consume most of the routing improvement.
 - Reversed-order repeat: [Python](native/native_followup_2026-11-10_5882841_py3149_gil-on_python_repeat2.json),
   [Cython](native/native_followup_2026-11-10_5882841_py3149_gil-on_cython_repeat2.json),
   [C](native/native_followup_2026-11-10_5882841_py3149_gil-on_c_repeat2.json).
+
+
+## Second-round native routing and quality review (2026-11-10)
+
+**Measured source:** `d9ffb1ad40887067832f5e65a4a517df68ca5072` ·
+**Source SHA-256:**
+`a1081799198f144acb917403155565c548146df67c688dbc5973c1dd25a73208` ·
+**Working source state:** clean · **Interpreter:** CPython 3.14.9, GIL enabled ·
+**pyperf:** 2.11.0 · **Cython:** 3.3.1 · **C compiler:** GCC 16.2.1
+
+This pass measures the real EventFlow Python two-pointer routing merge and the
+benchmark-only Cython and C candidates on the same host. It runs the candidates
+in forward order (Python, Cython, C) and reverse order (C, Cython, Python) to
+expose order effects. Each JSON file contains three worker processes and seven
+measured values per process, after three warmups, with a 30 ms minimum sample.
+There are 21 values for each workload in each order: 63 workload/backend rows
+per order, 126 summary rows and 2,646 measured values in total. The host was an
+Intel Core i7-12700H with 20 logical CPUs on Arch Linux x86_64; workers were
+pinned to CPUs 4–7 and the governor was `powersave`.
+
+The primary comparison uses 2,048 subscribers, seven route keys, 20% wildcard
+subscriptions and a route selecting 653 callbacks. Publish paths include the
+EventFlow bus and callbacks. The C and Cython modules remain optional benchmark
+candidates; they are not imported by the runtime or included in the package.
+The native binaries, compiler flags and source hashes are recorded in the JSON
+metadata and summary CSV.
+
+### Audit report verification and corrections
+
+The earlier reversed-order follow-up reported 346 rows: 173 workload/backend
+cases in each order, with 15 observations per case and order. Recomputing the
+statistics from those raw JSON files confirms the pooled counts: 168/173 cases
+had CV at least 1%, and 86/173 had CV at least 5%. The per-order counts were
+64/173 and 78/173 at CV ≥5%, and 134/173 and 148/173 at CV ≥1%. Comparing the
+two run means also shows a median order shift of 2.59%, a mean shift of 3.37%,
+and 34/173 cases with at least a 5% shift (four were at least 10%). These
+results support the report's caution about small differences and show why the
+per-order results belong alongside pooled statistics.
+
+One criticism in that report was based on a mistaken reading of the routing
+event fixture. `RoutingEvent` is constructed as `(key, payload)`, so
+`RoutingEvent(0, 17)` has route key `0`. The single-key fixture therefore does
+match the event and is not an invalid workload. In the 2,048-subscriber matrix,
+the one-key/no-wildcard case selects all 2,048 subscribers; it is a valid
+full-fan-out control, not a selective-routing case. The focused fixture test
+also confirms that the one-key, zero-wildcard setup selects its keyed
+subscribers.
+
+### Current production merge and full publish
+
+The production Python path now uses the tested two-pointer merge. The
+`python_heapq` rows below are explicit benchmark references for the previous
+merge algorithm, while `routing_snapshot_production` and
+`routing_publish_production` call the current EventFlow implementation.
+Numbers in paired columns are forward-order mean / reverse-order mean. All
+publish times are per event.
+
+| Candidate | Snapshot, µs | No-op publish, µs | Light CPU callback, µs | Filter rejects, µs |
+| --- | ---: | ---: | ---: | ---: |
+| Python `heapq` reference | 110.81 / 110.49 | 565.13 / 545.91 | 1,766.44 / 1,754.72 | 273.42 / 253.34 |
+| Python two-pointer candidate | 52.55 / 51.42 | 523.31 / 488.30 | 1,720.71 / 1,707.03 | 193.77 / 192.43 |
+| Current EventFlow Python | 54.35 / 51.77 | 493.65 / 486.70 | 1,708.82 / 1,715.34 | 192.03 / 190.72 |
+
+The `heapq` and two-pointer candidate rows both use the benchmark's
+`CandidateBus`, which overrides `_subscriber_snapshot()` and calls the selected
+merge kernel. That common harness makes candidate-to-candidate comparison more
+useful for estimating the algorithm change, though it still includes the
+subclass and kernel-call overhead. The current production row calls
+`EventBus._subscriber_snapshot()` directly. It did not run the pre-change
+EventBus source in this exact harness, so a production-to-`heapq` full-publish
+ratio is not a clean source-to-source A/B result.
+
+Within the common candidate harness, the Python two-pointer candidate averaged
+51.99 µs per snapshot versus 110.65 µs for `heapq` (53.0% lower). Full publish
+averages were 505.81 µs versus 555.52 µs for no-op callbacks (9.0% lower),
+1.714 ms versus 1.761 ms with the light CPU callback (2.7% lower), and 193.10
+µs versus 263.38 µs when filters rejected delivery (26.7% lower). The last
+comparison is particularly noisy: the heapq filter-rejected case had 20.4% CV
+in the forward pass, although the reversed pass was 1.4%. The current direct
+production path measured 53.06 µs for its snapshot and 490.18 / 1,712.08 /
+191.37 µs for those three publish cases. Its same-algorithm two-pointer
+`CandidateBus` row is about 3% slower on no-op publish, illustrating the small
+harness-call difference between the paths. These measurements support the
+algorithm choice, but are not an exact old-production versus new-production
+percentage claim.
+
+### Native candidates against the current Python path
+
+The table gives the mean per order for the current Python baseline and the
+native candidates on the same 2,048-subscriber, seven-key workload. Native
+candidates also run through `CandidateBus`, so these are benchmark integration
+comparisons, not source-to-source production builds. The Cython `dict.items()`
+variant is included because it was stable in both orders; the Cython key-lookup
+no-op publish had a 13.96% reverse-order CV and should be treated as noisy.
+
+| Candidate | No-op publish, µs | Light CPU callback, µs | Filter rejects, µs |
+| --- | ---: | ---: | ---: |
+| Current EventFlow Python | 493.65 / 486.70 | 1,708.82 / 1,715.34 | 192.03 / 190.72 |
+| Cython key lookup | 449.61 / 467.49 | 1,676.36 / 1,678.73 | 157.65 / 157.67 |
+| Cython `dict.items()` | 455.80 / 456.16 | 1,677.46 / 1,688.57 | 165.13 / 164.11 |
+| C two-pointer | 443.17 / 438.04 | 1,666.37 / 1,671.91 | 146.58 / 146.34 |
+
+Across the two orders, Cython `dict.items()` averaged about 7.0% lower latency
+for no-op publish, 1.7% for the light callback and 14.0% for filter-rejected
+publish. C averaged 10.1%, 2.5% and 23.5% lower latency for those same cases.
+The candidate harness overhead is proportionally material to the small light
+callback deltas; do not treat the measured 1.7–2.5% as a confirmed native
+runtime gain. The gap between C and Cython is smaller in complete publish than
+in the isolated merge, and the light callback consumes most of the merge
+improvement. These data show native potential, but do not justify native
+runtime dependencies or distribution complexity by themselves.
+
+The isolated snapshot means were 53.06 µs for production Python, 51.99 µs for
+the two-pointer candidate, 18.52 µs for Cython key lookup and 6.84 µs for C.
+The Python replacement already captures most of the benefit over the old
+`heapq` merge. The native kernels are faster in isolation, but complete publish
+results are the relevant boundary for a runtime decision.
+
+The additional route shapes help identify when a native merge matters:
+
+| Workload | Current EventFlow Python | Cython key lookup | C two-pointer |
+| --- | ---: | ---: | ---: |
+| 2,048 subscribers, one key, no wildcards (all callbacks selected) | 1.398 ms | 1.408 ms | 1.405 ms |
+| 2,048 subscribers, 31 keys, 50% wildcards | 814.46 µs | 754.28 µs | 736.15 µs |
+
+The one-key workload is a full-fan-out control and shows no native benefit once
+callback dispatch dominates. The 31-key workload showed about 7.4% lower latency
+with Cython and 9.6% with C than current Python, with low serial-run variation.
+These profiles are still synthetic and single-host.
+
+### Concurrent publisher measurements
+
+The contention matrix publishes from 1, 4 or 8 threads against 2,048
+subscriptions. Values below are the mean elapsed microseconds per publish,
+averaged across the forward and reverse passes. Each individual case had 21
+samples per pass.
+
+| Publishers | Current EventFlow Python | Cython key lookup | C two-pointer |
+| ---: | ---: | ---: | ---: |
+| 1 | 541.81 µs | 484.29 µs | 474.36 µs |
+| 4 | 1.011 ms | 791.50 µs | 774.46 µs |
+| 8 | 988.64 µs | 887.52 µs | 814.45 µs |
+
+These contention rows are not stable enough for an implementation decision:
+pooled CV ranged from 13.3% to 26.2% for the displayed cases. The benchmark
+reports average time per publish in a contended batch; it does not report
+individual request p95/p99 latency or isolate lock-wait time. The apparent
+candidate differences need a quieter repeat, preferably on a second host, and
+an explicit latency-distribution workload before making a concurrency claim.
+
+### Test and implementation status
+
+The Python production change replaces `heapq.merge` with an in-place two-pointer
+walk over the sorted keyed and wildcard subscription indexes. Existing
+no-routing, keyed-only and wildcard-only fast paths remain. The result order is
+still registration order. New regression coverage exercises skewed index sizes,
+cancellation, callback ordering and concurrent publish/subscription churn.
+A focused benchmark fixture test ensures the one-key route selects the expected
+keyed subscriptions.
+
+The full 408-test suite passed on CPython 3.10.18 (one expected skip), 3.14.9,
+3.15.2 with the GIL and 3.15.2t with the GIL disabled. Ruff and Pyright passed,
+including Pyright configured for Python 3.10 and 3.14. Current-source native
+build and semantic validation passed on CPython 3.14.9. The same C and Cython
+kernel sources passed validation earlier on Python 3.10, 3.14, 3.15 GIL-on and
+3.15t GIL-off; after the routing-matrix CLI update, those four native build
+checks were not all repeated at the exact `d9ffb1a` source revision. Hosted CI
+was not run because these local commits were not pushed.
+
+### Decision and remaining evidence
+
+- Keep the Python two-pointer merge in production. It reduces the targeted
+  merge and full-publish costs compared with the previous Python `heapq` path,
+  has direct regression coverage, and adds no dependency or packaging burden.
+- Keep C and Cython as benchmark-only candidates. The C advantage is measurable
+  in selected serial publishes, while Cython is close on full delivery and has
+  lower development cost. The remaining evidence is not broad enough to choose
+  a native runtime backend.
+- Repeat the focused matrix on a second host and across the supported interpreter
+  range before estimating portable gains. Include realistic callback work,
+  per-operation latency distributions and separately measured lock waiting.
+- This benchmark still covers only keyed synchronous routing. It does not
+  compare native implementations for async buses, queues, pipelines, streams,
+  lifecycle, history APIs or the rest of EventFlow.
+- No push, release or PyPI publication was performed.
+
+### Second-round result files
+
+- [`native_routing_2026-11-10_d9ffb1a_py3149_gil-on_summary.csv`](native/native_routing_2026-11-10_d9ffb1a_py3149_gil-on_summary.csv)
+  contains the 126 rows, per-order statistics, source fingerprints and native
+  build provenance.
+- Forward order: [Python](native/native_routing_2026-11-10_d9ffb1a_py3149_gil-on_python_forward.json),
+  [Cython](native/native_routing_2026-11-10_d9ffb1a_py3149_gil-on_cython_forward.json),
+  [C](native/native_routing_2026-11-10_d9ffb1a_py3149_gil-on_c_forward.json).
+- Reverse order: [C](native/native_routing_2026-11-10_d9ffb1a_py3149_gil-on_c_reverse.json),
+  [Cython](native/native_routing_2026-11-10_d9ffb1a_py3149_gil-on_cython_reverse.json),
+  [Python](native/native_routing_2026-11-10_d9ffb1a_py3149_gil-on_python_reverse.json).
+
+
+## Python type-only history query fast path (2026-11-10)
+
+**Baseline source:** `a9af2fc8a16d1169c3a49c6b7893eb6d4909ba4a` ·
+**Optimized source:** `297dbb939b6385b6a1bb5fd5b7becacdefee340` ·
+**Interpreter:** CPython 3.14.9, GIL enabled · **pyperf:** 2.11.0 ·
+**Working source state:** clean for both runs
+
+The report identified large type-only `MemoryEventHistory.query()` calls as a
+worthwhile Python optimization candidate. Before changing the query, a focused
+`--matrix history` was added to the existing native benchmark runner so these
+measurements can run without routing cases. Both runs use the same 100,000-event
+history with one matching event every two records, 3 worker processes, 7 values
+per process, 3 warmups, a 30 ms minimum sample and CPUs 4–7. There are 21
+measured values per workload in each source revision. The JSON files record
+separate clean source fingerprints; the CSV contains 42 rows, per-run
+statistics and both revisions.
+
+The production path now uses a direct `isinstance` loop only when passed an
+exact `EventFilter` with an event type and no predicate. It keeps the existing
+lock-protected history snapshot, scans backward for limited queries, then
+reverses the matches so results remain in publication order. Predicates and
+`EventFilter` subclasses continue through `matches()`; this preserves custom
+filter behavior.
+
+| Production query | Before | After | Change |
+| --- | ---: | ---: | ---: |
+| Single event type, unlimited | 9.60 ms (CV 0.70%) | 6.23 ms (CV 1.73%) | 1.54× faster; 35.1% lower |
+| Tuple of event types, unlimited | 11.14 ms (CV 3.06%) | 7.61 ms (CV 2.68%) | 1.47× faster; 31.7% lower |
+| Single type, `limit=1` | 1.42 ms (CV 5.60%) | 1.30 ms (CV 4.05%) | 8.4% lower; snapshot cost dominates |
+| Single type, `limit=10` | 1.37 ms (CV 0.82%) | 1.37 ms (CV 1.18%) | No measurable change |
+
+The unlimited type-only improvements are stable in both samples and match
+`pyperf compare_to` results. Limited queries still copy a 100,000-item snapshot
+before filtering, so they remain around 1.3–1.4 ms. The `limit=1` difference is
+small relative to run variation, and the tuple `limit=10` baseline was noisy
+(CV 18.22%); neither supports a broad limited-query speed claim.
+
+Predicate queries remained effectively unchanged: the unbounded case moved
+from 12.42 ms (CV 0.96%) to 12.35 ms (CV 1.70%), and `limit=10` moved from
+1.36 ms (CV 3.75%) to 1.35 ms (CV 4.80%). The fast path intentionally does not
+cover user predicates, because they must still execute once for each candidate
+event and preserve the existing awaitable and strict-boolean checks. The test
+suite also verifies event subclasses, tuple types, identity, result order,
+limits and custom `EventFilter.matches()` overrides.
+
+This is a Python-only specialization for the built-in memory history. It does
+not change custom history providers, native runtime dependencies or package
+contents. The 100,000-event history is much larger than the default history
+capacity of 1,000; workloads with smaller histories may see smaller absolute
+gains, and were not measured in this focused before/after comparison.
+
+Reproduce the focused matrix with the `dev` and `native-bench` extras available:
+
+```bash
+python -m benchmarks.benchmark_native \
+  --implementation=python --matrix=history \
+  --processes=3 --values=7 --warmups=3 --min-time=0.03 --affinity=4-7 \
+  --output benchmarks/results/native/history.json
+```
+
+### History fast-path result files
+
+- [`native_history_2026-11-10_type_filter_summary.csv`](native/native_history_2026-11-10_type_filter_summary.csv)
+  contains the 42 pre/post rows and source fingerprints.
+- [Before optimization](native/native_history_2026-11-10_a9af2fc_py3149_gil-on_pre_python_fast_path.json)
+  and [after optimization](native/native_history_2026-11-10_297dbb9_py3149_gil-on_post_python_fast_path.json)
+  contain the raw pyperf results.

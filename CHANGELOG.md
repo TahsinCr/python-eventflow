@@ -48,6 +48,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Update the native benchmark report with repeated routing and focused history
+  query measurements; document the Python optimizations, native candidate
+  comparisons, stability limits and source-pinned results.
 - Optimize `MemoryEventHistory` type-only queries with a direct `isinstance`
   loop while preserving filtered result order, limits and custom filter
   subclass behavior.
