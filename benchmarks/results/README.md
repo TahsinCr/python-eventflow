@@ -4,11 +4,12 @@
 `4af998df85e8fa779e4fec709a01765ed5018ca3` · **Source SHA-256:**
 `5276989cf35716861fd9104c3a795ff961acdceca1c45172b1fcf0052d38bdae`
 
-This file contains two source-pinned snapshots. The 2026-11-09 broad screen and
-its 31 pyperf JSON files cover the source revision above. The native comparison
-at the end uses a separate 2026-11-10 revision and its own 12 JSON files and
-CSV. Compare results only within the source and interpreter matrix named in
-each section.
+This file contains three source-pinned snapshots. The 2026-11-09 broad screen
+and its 31 pyperf JSON files cover the source revision above. The initial
+native comparison uses a separate 2026-11-10 revision and its own 12 JSON files
+and CSV. A reversed-order follow-up uses another clean 2026-11-10 source
+revision, six JSON files and a separate CSV. Compare results only within the
+source and interpreter matrix named in each section.
 
 The 2026-11-09 summary CSV contains 409 case/build rows from a broad benchmark
 screen, focused interpreter comparisons, one-operation latency distributions
@@ -432,3 +433,123 @@ python -m pyperf compare_to \
   native/native_2026-11-10_b16851c_py3149_gil-on_cython.json \
   native/native_2026-11-10_b16851c_py3149_gil-on_c.json
 ```
+
+## Native candidate repeat run (2026-11-10)
+
+**Measured source:** `588284149cb55bb39ebe0fbff40c443c69925bdc` ·
+**Source SHA-256:**
+`1593cefb0b50138e2fc936e67c4116d0832466efd29156a4d5da51d430240c47` ·
+**Working source state:** clean · **Interpreter:** CPython 3.14.9, GIL enabled ·
+**pyperf:** 2.11.0 · **Cython:** 3.3.1 · **C compiler:** GCC 16.2.1
+
+This second measurement pass repeats the expanded candidate matrix on the same
+machine and interpreter as the first pass, but reverses candidate order to
+reduce order-related bias. The first pass ran Python, Cython, then C; the repeat
+ran C, Cython, then Python. Each pass used three worker processes, five values
+per process, one warmup and a 50 ms minimum sample. That gives 15 measured
+values per case in each pass and 30 pooled values per case. The worker pinned
+serial work to CPU 4 on an Intel Core i7-12700H (20 logical CPUs), Arch Linux
+x86_64; the CPU governor was `powersave`.
+
+The CSV contains 346 rows across the two passes: 173 workload/backend
+combinations in each order. All result files identify the same clean source
+revision;
+the native JSON metadata also records the Cython/compiler build manifest and
+binary SHA-256. This is a repeated single-host measurement, not independent
+hardware replication. Across 173 pooled cases, 168 had a coefficient of
+variation (CV) of at least 1%, and 86 had CV of at least 5%. Differences near
+those variation levels should not be treated as stable wins.
+
+### History filtering at 100,000 events
+
+The unlimited case selected every second event of one type. “Filter only”
+excludes snapshot creation; “snapshot + filter” includes a full history
+snapshot and type filtering. The production row is the complete
+`MemoryEventHistory.query(EventFilter(...))` operation.
+
+| Path | Mean | CV |
+| --- | ---: | ---: |
+| Production query | 9.73 ms | 1.9% |
+| Python type filter only | 4.83 ms | 2.1% |
+| Cython type filter only | 2.21 ms | 3.5% |
+| C type filter only | 2.50 ms | 1.1% |
+| Python snapshot + type filter | 6.85 ms | 13.4% |
+| Cython snapshot + type filter | 3.84 ms | 9.5% |
+| C snapshot + type filter | 4.09 ms | 5.5% |
+
+Cython's filter loop was about 2.2 times faster than the Python type-only
+candidate. With snapshot creation included, Cython was about 1.8 times faster
+than the Python candidate and 2.5 times faster than the production query in
+this run. The combined candidates have noticeably higher CV, so repeat on
+another host before using these ratios to justify a runtime path. For limits of
+1 and 10, the complete production and candidate paths clustered around
+1.34–1.42 ms; copying the history snapshot dominated and the native filter did
+not show a clear end-to-end gain.
+
+### Routing with 2,048 subscribers
+
+The selected route had seven keys and 20% wildcard subscriptions. Of 2,048
+registered subscribers, 653 were selected. The snapshot measurement isolates
+the merge; publish measurements include the regular EventFlow bus and callback
+path.
+
+| Candidate | Snapshot | No-op publish | Light CPU callback | Filter rejects delivery |
+| --- | ---: | ---: | ---: | ---: |
+| Production `heapq.merge` | 114.39 µs | 568.05 µs | 1.874 ms | 264.38 µs |
+| Python two-pointer | 52.49 µs | 511.89 µs | 1.800 ms | 200.58 µs |
+| Python `sorted()` | 53.44 µs | 520.50 µs | 1.899 ms | 204.17 µs |
+| Cython key lookup | 18.18 µs | 501.85 µs | 1.866 ms | 165.08 µs |
+| Cython `dict.items()` | 22.04 µs | 497.12 µs | 1.818 ms | 167.40 µs |
+| C two-pointer | 7.00 µs | 453.82 µs | 1.716 ms | 149.91 µs |
+
+The isolated kernel shows a large algorithm and language effect: the Python
+two-pointer merge was about 2.2 times faster than production `heapq.merge`,
+while C was about 2.6 times faster than the Cython key-lookup variant. The full
+publish path narrows that gap. Against production, C averaged about 20% lower
+latency for no-op callbacks and 43% lower latency when filters rejected all
+delivery. With a small CPU callback, C averaged 8% lower latency, while Cython
+was within 3% of production. The two Cython iteration variants were close on
+full publishes; for the isolated snapshot, `dict.items()` was about 21% slower
+than key lookup.
+
+The selected full-publish cases still varied: CV was 4.6–9.8% for no-op
+callbacks, 7.6–11.5% for the light CPU callback and 1.2–11.6% for rejected
+delivery, depending on candidate. The size of the C win in the no-op and
+filtered cases merits a repeat on a second host and with representative user
+callbacks before adopting it. The light-callback result suggests callback cost
+can consume most of the routing improvement.
+
+### Interpretation and next evidence
+
+- The result supports testing a direct Python two-pointer merge in the actual
+  EventBus before selecting a native backend. It nearly halves the measured
+  route-snapshot time in this workload and has a much smaller maintenance and
+  packaging cost than C or Cython.
+- C produced a measurable full-publish difference in this particular 3.14.9
+  workload, especially when selected callbacks were filtered out. The benchmark
+  does not include cross-host variation, extension installation/startup costs,
+  or the long-term cost of shipping and maintaining a native extension.
+- Cython wins the history filter loop and improves the combined snapshot/filter
+  candidate, but limits of 1 and 10 remain dominated by snapshot creation.
+  This does not establish that a native history API would be worthwhile.
+- Keep all candidates benchmark-only for now. Before runtime integration,
+  repeat the decision cases on a second host, include application-like callback
+  work, and run the publish comparisons on the supported Python range and
+  free-threaded builds. Preserve the current bus ordering and concurrency
+  semantics in any prototype.
+- The expanded matrix still covers only two native candidate areas: history
+  type filtering and synchronous keyed routing. It does not compare C/Cython
+  implementations for the async bus, queues, pipelines, streams, lifecycle,
+  locks or the rest of the library.
+
+### Follow-up result files
+
+- [`native_followup_2026-11-10_5882841_py3149_gil-on_summary.csv`](native/native_followup_2026-11-10_5882841_py3149_gil-on_summary.csv)
+  contains the 346 summary rows across both orders, sample statistics,
+  source fingerprints and native build provenance.
+- CPython 3.14.9, GIL enabled: [Python](native/native_followup_2026-11-10_5882841_py3149_gil-on_python.json),
+  [Cython](native/native_followup_2026-11-10_5882841_py3149_gil-on_cython.json),
+  [C](native/native_followup_2026-11-10_5882841_py3149_gil-on_c.json).
+- Reversed-order repeat: [Python](native/native_followup_2026-11-10_5882841_py3149_gil-on_python_repeat2.json),
+  [Cython](native/native_followup_2026-11-10_5882841_py3149_gil-on_cython_repeat2.json),
+  [C](native/native_followup_2026-11-10_5882841_py3149_gil-on_c_repeat2.json).

@@ -64,6 +64,10 @@ All notable changes to this project are documented in this file.
   callbacks and 25–54% lower when filters rejected delivery; the 3.15.2
   GIL-on filtered pair was high-variance. These benchmark results do not change
   runtime behavior.
+- Record a reversed-order repeat of the expanded native benchmark on CPython
+  3.14.9, with 346 summary rows across two orders and 30 pooled measurements
+  per case. Separate isolated merge/filter kernels from full publish results,
+  and record the observed variance and single-host limits.
 
 ### Fixed
 
