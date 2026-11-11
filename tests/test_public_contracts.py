@@ -27,7 +27,7 @@ _MODULE_ONLY_EXPORTS = {
 
 
 class PublicContractTests(unittest.TestCase):
-    def test_enum_values_preserve_published_string_configuration(self):
+    def test_enum_values_match_current_configuration_strings(self):
         self.assertIs(ErrorPolicy("isolate"), ErrorPolicy.ISOLATE)
         self.assertIs(ErrorPolicy("raise"), ErrorPolicy.RAISE)
         self.assertIs(DeliveryMode("sequential"), DeliveryMode.SEQUENTIAL)

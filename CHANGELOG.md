@@ -142,6 +142,8 @@ All notable changes to this project are documented in this file.
 
 ### Removed
 
+- Remove the unreferenced v1.3.1 API snapshot; keep the active v1.4.0 contract
+  as the only versioned API snapshot in the test suite.
 - Remove the custom benchmark sampler and comparison command in favor of
   pyperf's worker, statistics, JSON and comparison tools. Earlier result
   snapshots are removed when their source revision is no longer current.
