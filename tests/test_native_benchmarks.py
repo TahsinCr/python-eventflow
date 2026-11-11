@@ -56,9 +56,7 @@ class NativeBenchmarkReferenceTests(unittest.TestCase):
         )
 
         candidate_names = [
-            name
-            for name in runner.names
-            if name.startswith("history_filter_only/c_tuple_indexed/")
+            name for name in runner.names if name.startswith("history_filter_only/c_tuple_indexed/")
         ]
         self.assertEqual(len(candidate_names), 2)
         self.assertTrue(all("limit_all" in name for name in candidate_names))

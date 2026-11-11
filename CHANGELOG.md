@@ -108,6 +108,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Install the extracted source distribution and its declared runtime dependencies
+  before running the bundled test suite in CI, including on Python 3.10.
 - Compare the C tuple-indexed history candidate only with unlimited history
   queries, matching the experiment's supported input semantics.
 - Keep optional Cython and C benchmark imports out of the default development

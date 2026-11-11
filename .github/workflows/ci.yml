@@ -179,6 +179,7 @@ jobs:
       - name: Verify and test the source distribution
         run: |
           python - <<'PY'
+          import os
           import subprocess
           import sys
           import tarfile
@@ -215,6 +216,15 @@ jobs:
                   source_archive.extractall(temporary_directory)
                   source_root = Path(temporary_directory) / root_name
                   subprocess.run(
+                      [sys.executable, "-m", "pip", "install", str(source_root)],
+                      check=True,
+                  )
+                  environment = os.environ.copy()
+                  existing_pythonpath = environment.get("PYTHONPATH")
+                  environment["PYTHONPATH"] = str(source_root) + (
+                      os.pathsep + existing_pythonpath if existing_pythonpath else ""
+                  )
+                  subprocess.run(
                       [
                           sys.executable,
                           "-m",
@@ -224,6 +234,7 @@ jobs:
                           "tests",
                       ],
                       cwd=source_root,
+                      env=environment,
                       check=True,
                   )
           PY
