@@ -295,6 +295,8 @@ def _history_cases(
                     )
 
                     for candidate_name, candidate_filter in tuple_filter_kernels:
+                        if limit is not None:
+                            continue
                         candidate_result = candidate_filter(snapshot, event_type)
                         if len(candidate_result) != len(expected_query) or any(
                             actual is not expected

@@ -1,9 +1,11 @@
 from __future__ import annotations
 
 import unittest
+from typing import Any, cast
 
 from benchmarks.benchmark_native import (
     RoutingEvent,
+    _history_cases,
     _instrument_lock_wait,
     _percentile,
     _subscribe_fixture,
@@ -36,6 +38,31 @@ class _Other(_Event):
 
 
 class NativeBenchmarkReferenceTests(unittest.TestCase):
+    def test_tuple_indexed_history_candidate_only_registers_unlimited_cases(self) -> None:
+        class RecordingRunner:
+            def __init__(self) -> None:
+                self.names: list[str] = []
+
+            def bench_time_func(self, name: str, *_args: object, **_kwargs: object) -> None:
+                self.names.append(name)
+
+        runner = RecordingRunner()
+        _history_cases(
+            cast(Any, runner),
+            "c",
+            filter_by_type,
+            (("c_tuple_indexed", filter_by_type),),
+            "history",
+        )
+
+        candidate_names = [
+            name
+            for name in runner.names
+            if name.startswith("history_filter_only/c_tuple_indexed/")
+        ]
+        self.assertEqual(len(candidate_names), 2)
+        self.assertTrue(all("limit_all" in name for name in candidate_names))
+
     def test_latency_percentiles_use_nearest_rank(self) -> None:
         samples = [9, 1, 8, 2]
 

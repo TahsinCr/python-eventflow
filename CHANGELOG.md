@@ -104,6 +104,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Compare the C tuple-indexed history candidate only with unlimited history
+  queries, matching the experiment's supported input semantics.
 - Keep optional Cython and C benchmark imports out of the default development
   dependency path while type-checking benchmark kernels and call signatures in
   clean Python 3.10 and 3.14 environments.
