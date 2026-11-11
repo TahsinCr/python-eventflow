@@ -1,0 +1,91 @@
+{
+  "source_revision": "1fbef306cf2d3da238629543da208e9e87f674a2",
+  "source_sha256": "cf0213094b56b02230b5c4dbae89745aba8927a090e6154b183a9726893d5e42",
+  "source_dirty": "false",
+  "benchmark_revision_label": "1fbef30",
+  "python_version": "3.14.9 (64-bit)",
+  "gil": "enabled",
+  "platform": "Linux-7.2.14-arch1-1-x86_64-with-glibc2.44",
+  "machine": "x86_64",
+  "cpu_model": "12th Gen Intel(R) Core(TM) i7-12700H",
+  "pyperf_version": "2.11.0",
+  "compiler": "gcc (GCC) 16.2.1 20260810",
+  "cython": "3.3.1",
+  "combined_clean_build_seconds": 7.111,
+  "build_runs": 1,
+  "import_method": "20 new CPython processes per module; importtime self column; host page cache was not controlled",
+  "artifacts": {
+    "eventflow_native_c": {
+      "module": "eventflow_native_c",
+      "abi_filename": "eventflow_native_c.cpython-314-x86_64-linux-gnu.so",
+      "bytes": 40848,
+      "sha256": "8ec8b6804b5a09f49dc0818282bd901aa0ffde202f8385bd39f36417f928a438",
+      "importtime_self_us": {
+        "samples": [
+          133,
+          130,
+          127,
+          127,
+          135,
+          130,
+          128,
+          136,
+          127,
+          133,
+          121,
+          126,
+          139,
+          119,
+          127,
+          123,
+          121,
+          120,
+          129,
+          126
+        ],
+        "median": 127.0,
+        "p95_nearest_rank": 136,
+        "cv_percent": 4.29
+      }
+    },
+    "eventflow_native_cython": {
+      "module": "eventflow_native_cython",
+      "abi_filename": "eventflow_native_cython.cpython-314-x86_64-linux-gnu.so",
+      "bytes": 625512,
+      "sha256": "28d096fbf291fc497bb0b102b13a16fdd6b22407ee5aecff1aeee7bb4c1a7fcb",
+      "importtime_self_us": {
+        "samples": [
+          241,
+          228,
+          231,
+          232,
+          232,
+          232,
+          229,
+          240,
+          218,
+          230,
+          220,
+          228,
+          219,
+          217,
+          233,
+          217,
+          229,
+          239,
+          213,
+          232
+        ],
+        "median": 229.5,
+        "p95_nearest_rank": 240,
+        "cv_percent": 3.56
+      }
+    }
+  },
+  "limits": [
+    "one host",
+    "CPython 3.14.9 GIL enabled only",
+    "one combined build timing",
+    "no native runtime wheel built"
+  ]
+}

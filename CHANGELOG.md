@@ -62,6 +62,8 @@ All notable changes to this project are documented in this file.
 - Update the native benchmark report with repeated routing and focused history
   query measurements; document the Python optimizations, native candidate
   comparisons, per-order stability statistics and source-pinned results.
+- Record source-pinned C tuple-history and Python/Cython/C routing latency
+  results, including lock-wait percentiles and native build/import costs.
 - Repeat the native history comparison in both backend orders and add a Python
   production control after the native runs, recording per-order variance and
   candidate measurement scope.

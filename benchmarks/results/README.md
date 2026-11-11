@@ -871,3 +871,264 @@ The combined CSV contains 115 rows: the original 42 pre/post Python rows, 52
 native candidate rows across both orders, and 21 post-native Python control
 rows. It includes the per-case CV, interpreter, source hash, and native build
 metadata.
+
+## Focused routing latency and C tuple history rerun (2026-11-11)
+
+This follow-up uses one clean source revision for the expanded routing latency
+matrix and all three history implementations.
+
+| Property | Value |
+| --- | --- |
+| Source revision | <code>1fbef306cf2d3da238629543da208e9e87f674a2</code> |
+| Source SHA-256 | <code>cf0213094b56b02230b5c4dbae89745aba8927a090e6154b183a9726893d5e42</code> |
+| Working tree | Clean; <code>eventflow_source_dirty=false</code> in all six pyperf files |
+| Interpreter | CPython 3.14.9, GIL enabled |
+| Host | Intel Core i7-12700H, Linux x86_64, glibc 2.44 |
+| Compiler / Cython | GCC 16.2.1 / Cython 3.3.1 |
+| pyperf | 2.11.0 |
+
+The Python, Cython and C runs were made serially on the same machine. They are
+one-host measurements from one day; the pyperf metadata retains the individual
+run environment and native artifact identities.
+
+### C tuple indexing for unbounded history filters
+
+The new C candidate walks an input tuple with direct indexed access instead of
+the generic <code>PyIter_Next()</code> path. It is registered only for unbounded
+queries; the validator checks event identity, order, type tuples, limits and
+concurrent routing behavior before timing.
+
+Each query contains 100,000 events with one match in two. <code>filter only</code>
+times the type-filter kernel on an existing snapshot. <code>snapshot + filter</code>
+includes a fresh Python history snapshot on every operation. These rows compare
+candidate kernels; they are not a native implementation of
+<code>MemoryEventHistory.query()</code>.
+
+| Backend | Candidate | Type selection | Filter only | Snapshot + filter |
+| --- | --- | --- | ---: | ---: |
+| Python | Python type fast path | One event type | 4.75 ms (CV 4.9%) | 6.22 ms (CV 9.2%) |
+| Cython | Cython type filter | One event type | 2.08 ms (CV 1.7%) | 3.50 ms (CV 2.3%) |
+| C | Generic iterator | One event type | 2.42 ms (CV 0.8%) | 4.07 ms (CV 6.1%) |
+| C | Direct tuple indexing | One event type | 2.16 ms (CV 4.6%) | 3.72 ms (CV 6.3%) |
+| Python | Python type fast path | Type tuple | 6.33 ms (CV 10.9%) | 7.62 ms (CV 10.6%) |
+| Cython | Cython type filter | Type tuple | 3.47 ms (CV 0.6%) | 4.92 ms (CV 0.8%) |
+| C | Generic iterator | Type tuple | 3.81 ms (CV 0.6%) | 4.80 ms (CV 2.2%) |
+| C | Direct tuple indexing | Type tuple | 3.47 ms (CV 0.7%) | 4.36 ms (CV 2.3%) |
+
+Direct tuple indexing reduced the C kernel mean by about 11% for one type and
+9% for a type tuple. Including the snapshot, the reductions were about 9% and
+9%. The direct C candidate and Cython were close for the single-type case;
+the C tuple candidate was lower for the tuple case in this run. These are
+candidate measurements, not application-wide speedups.
+
+Snapshot creation alone measured 1.22–1.34 ms. It remains a substantial floor
+for small limited queries, so changing the filtering loop cannot remove most of
+their cost. The C tuple candidate deliberately skips limits rather than
+pretending to benchmark an unsupported path.
+
+### Per-publish latency under contention
+
+The routing fixture has 2,048 subscriptions. The base profile uses seven keys,
+20% wildcard subscriptions and delivers to 653 callbacks. The filter-rejection
+profile uses the same routing distribution but rejects all 653 selected
+subscriptions by event type. The broad-key profile uses 31 keys and 50%
+wildcards. Every profile was measured with one, four and eight publisher
+threads, using the same event and callback behavior across implementations.
+
+The tables show the **median of nine pyperf values** for each reported
+percentile. One pyperf value is itself a nearest-rank percentile over 100
+publishes per publisher: 100, 400 or 800 observations depending on the thread
+count. <code>P99 CV</code> is the coefficient of variation across those nine
+percentile estimates. It does not describe the variation among individual raw
+publish calls. The companion CSV records mean, median, standard deviation and
+CV for every percentile and benchmark name.
+
+#### All callbacks delivered: seven keys, 20% wildcards
+
+| Path | Publishers | P50 | P95 | P99 | P99 CV |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Production Python | 1 | 485 µs | 494 µs | 510 µs | 16.4% |
+| Production Python | 4 | 488 µs | 5.68 ms | 22.96 ms | 14.0% |
+| Production Python | 8 | 4.52 ms | 4.96 ms | 5.69 ms | 25.7% |
+| Python two-pointer | 1 | 481 µs | 497 µs | 506 µs | 2.1% |
+| Python two-pointer | 4 | 486 µs | 5.71 ms | 27.29 ms | 17.3% |
+| Python two-pointer | 8 | 4.41 ms | 5.09 ms | 6.49 ms | 19.3% |
+| C key lookup | 1 | 444 µs | 540 µs | 907 µs | 16.6% |
+| C key lookup | 4 | 438 µs | 5.55 ms | 26.59 ms | 25.8% |
+| C key lookup | 8 | 3.89 ms | 4.65 ms | 6.36 ms | 49.2% |
+| Cython key lookup | 1 | 449 µs | 458 µs | 476 µs | 2.4% |
+| Cython key lookup | 4 | 450 µs | 5.68 ms | 22.14 ms | 24.6% |
+| Cython key lookup | 8 | 4.01 ms | 4.94 ms | 7.18 ms | 53.1% |
+| Cython item iteration | 1 | 460 µs | 579 µs | 906 µs | 33.2% |
+| Cython item iteration | 4 | 458 µs | 5.60 ms | 27.28 ms | 23.5% |
+| Cython item iteration | 8 | 4.14 ms | 4.59 ms | 5.85 ms | 15.3% |
+
+#### All callbacks delivered: 31 keys, 50% wildcards
+
+| Path | Publishers | P50 | P95 | P99 | P99 CV |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Production Python | 1 | 798 µs | 820 µs | 881 µs | 36.3% |
+| Production Python | 4 | 817 µs | 11.18 ms | 31.33 ms | 31.2% |
+| Production Python | 8 | 7.75 ms | 8.77 ms | 10.64 ms | 19.5% |
+| Python two-pointer | 1 | 795 µs | 823 µs | 835 µs | 1.6% |
+| Python two-pointer | 4 | 824 µs | 7.53 ms | 28.56 ms | 42.9% |
+| Python two-pointer | 8 | 7.94 ms | 8.34 ms | 9.23 ms | 15.4% |
+| C key lookup | 1 | 732 µs | 748 µs | 761 µs | 2.3% |
+| C key lookup | 4 | 740 µs | 6.98 ms | 32.72 ms | 36.7% |
+| C key lookup | 8 | 7.05 ms | 7.48 ms | 8.24 ms | 23.4% |
+| Cython key lookup | 1 | 747 µs | 789 µs | 801 µs | 12.0% |
+| Cython key lookup | 4 | 915 µs | 9.68 ms | 37.87 ms | 23.4% |
+| Cython key lookup | 8 | 7.21 ms | 7.93 ms | 8.23 ms | 11.8% |
+| Cython item iteration | 1 | 749 µs | 789 µs | 800 µs | 5.6% |
+| Cython item iteration | 4 | 774 µs | 11.37 ms | 33.56 ms | 30.8% |
+| Cython item iteration | 8 | 7.11 ms | 7.82 ms | 9.39 ms | 12.1% |
+
+#### All selected callbacks rejected by event type: seven keys, 20% wildcards
+
+| Path | Publishers | P50 | P95 | P99 | P99 CV |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Production Python | 1 | 191 µs | 200 µs | 229 µs | 12.1% |
+| Production Python | 4 | 192 µs | 231 µs | 10.66 ms | 32.9% |
+| Production Python | 8 | 202 µs | 1.88 ms | 18.02 ms | 47.1% |
+| Python two-pointer | 1 | 190 µs | 197 µs | 210 µs | 6.7% |
+| Python two-pointer | 4 | 191 µs | 385 µs | 11.13 ms | 18.9% |
+| Python two-pointer | 8 | 1.51 ms | 3.88 ms | 17.65 ms | 25.1% |
+| C key lookup | 1 | 144 µs | 154 µs | 157 µs | 18.4% |
+| C key lookup | 4 | 145 µs | 182 µs | 5.35 ms | 35.3% |
+| C key lookup | 8 | 145 µs | 189 µs | 10.74 ms | 56.2% |
+| Cython key lookup | 1 | 156 µs | 162 µs | 173 µs | 12.4% |
+| Cython key lookup | 4 | 156 µs | 180 µs | 5.68 ms | 14.6% |
+| Cython key lookup | 8 | 157 µs | 180 µs | 20.78 ms | 51.7% |
+| Cython item iteration | 1 | 161 µs | 168 µs | 203 µs | 17.8% |
+| Cython item iteration | 4 | 161 µs | 215 µs | 5.40 ms | 46.8% |
+| Cython item iteration | 8 | 164 µs | 945 µs | 11.41 ms | 60.6% |
+
+The native rows use the same benchmark fixture interface, while the production
+Python row calls EventFlow's current <code>EventBus</code>. The small
+differences between these paths should not be treated as a drop-in runtime A/B
+result.
+
+Across the clean measurements, C's median P50 was around 8% below the production
+Python control in the one-publisher all-delivered 7-key and 31-key profiles.
+At four and eight publishers, C sometimes had a lower median P50, but its P99
+was not consistently lower. The Cython key-lookup candidate was close to
+Python on the 7-key profile and modestly lower on the 31-key single-publisher
+case. Filter rejection was faster than full delivery, as expected, because no
+callbacks ran.
+
+The variation is too high for a backend decision. Several contended P99
+estimates have CVs above 30%, and some P50 estimates vary substantially too.
+The 4/8-publisher results reflect GIL scheduling, OS thread scheduling and bus
+work together. They do not show that C or Cython removes the tail-latency cost.
+
+#### Separate bus-lock acquisition measurements
+
+The lock-wait series wraps the bus lock and runs separately from publish
+latency. It reports the median P50/P95/P99 estimates for the all-delivered
+7-key profile. This wrapper is experimental and can perturb the observed
+lock path.
+
+| Path | Publishers | P50 | P95 | P99 | P99 CV |
+| --- | ---: | ---: | ---: | ---: | ---: |
+| Production Python | 1 | 0.26 µs | 0.40 µs | 0.57 µs | 6.6% |
+| Production Python | 4 | 0.28 µs | 0.59 µs | 2.16 µs | 295.0% |
+| Production Python | 8 | 0.33 µs | 1.21 µs | 2.12 µs | 154.8% |
+| Python two-pointer | 1 | 0.27 µs | 0.88 µs | 1.15 µs | 45.0% |
+| Python two-pointer | 4 | 0.28 µs | 1.28 µs | 2.18 µs | 297.5% |
+| Python two-pointer | 8 | 0.31 µs | 1.77 µs | 2.14 µs | 197.8% |
+| C key lookup | 1 | 0.27 µs | 0.47 µs | 1.45 µs | 28.0% |
+| C key lookup | 4 | 0.27 µs | 0.64 µs | 2.09 µs | 19.4% |
+| C key lookup | 8 | 0.30 µs | 1.32 µs | 2.05 µs | 8.8% |
+| Cython key lookup | 1 | 0.26 µs | 0.37 µs | 0.58 µs | 15.7% |
+| Cython key lookup | 4 | 0.27 µs | 0.52 µs | 2.15 µs | 5.8% |
+| Cython key lookup | 8 | 0.29 µs | 0.93 µs | 2.01 µs | 298.0% |
+| Cython item iteration | 1 | 0.27 µs | 0.42 µs | 0.66 µs | 16.4% |
+| Cython item iteration | 4 | 0.27 µs | 0.59 µs | 2.31 µs | 198.1% |
+| Cython item iteration | 8 | 0.31 µs | 1.25 µs | 2.13 µs | 20.5% |
+
+The central lock-wait estimates are in the sub-microsecond to low-microsecond
+range, while publish P99 estimates reach multiple milliseconds. This points
+toward scheduler/GIL and full dispatch effects being relevant, but it is not a
+causal profile: the lock instrument is separate and the lock P99 CV is very
+high under contention.
+
+### Build, binary size and import cost
+
+One clean CPython 3.14.9 build produced both optional extensions. The import
+column is the extension module's <code>self</code> time from
+<code>-X importtime</code>, measured in 20 separate interpreter processes; the
+OS file cache was not controlled.
+
+| Artifact | ABI | Binary size | Import self median | Import self P95 | CV |
+| --- | --- | ---: | ---: | ---: | ---: |
+| C | <code>cpython-314-x86_64-linux-gnu</code> | 40,848 bytes | 127 µs | 136 µs | 4.3% |
+| Cython | <code>cpython-314-x86_64-linux-gnu</code> | 625,512 bytes | 229.5 µs | 240 µs | 3.6% |
+
+Building both extensions together took 7.111 seconds in one clean run. This is
+not an isolated C-versus-Cython build-time comparison. The standard EventFlow
+wheel remains pure Python and contains neither extension; no native wheel was
+built, so there is no integrated-wheel size or startup-cost result.
+
+In this build, the Cython binary was 15.3 times larger than the C binary and
+its measured import self time was about 1.8 times higher. These are local
+artifact costs, not a complete user-startup comparison.
+
+The <code>cpython-314</code> filename confirms this measurement produced a
+CPython 3.14-specific ABI artifact. Native builds were not repeated for Python
+3.10, 3.11, 3.12, 3.13, 3.15, free-threaded CPython, Windows or macOS. The
+current CI's free-threaded Python runtime job does not validate these benchmark
+extensions. Cross-ABI and cross-platform native support remains an integration
+gate.
+
+### Result files and reproduction
+
+- [Combined 321-row CSV with per-percentile variance and provenance](native/native_routing_history_2026-11-11_1fbef30_summary.csv)
+- [Python history JSON](native/native_history_2026-11-11_1fbef30_py3149_gil-on_python.json), [Cython history JSON](native/native_history_2026-11-11_1fbef30_py3149_gil-on_cython.json) and [C history JSON](native/native_history_2026-11-11_1fbef30_py3149_gil-on_c.json)
+- [Python routing latency JSON](native/native_routing_latency_2026-11-11_1fbef30_py3149_gil-on_python.json), [Cython routing latency JSON](native/native_routing_latency_2026-11-11_1fbef30_py3149_gil-on_cython.json) and [C routing latency JSON](native/native_routing_latency_2026-11-11_1fbef30_py3149_gil-on_c.json)
+- [Native build and import-cost observations](native/native_build_cost_2026-11-11_1fbef30_py3149_gil-on.json)
+
+The history command used three processes, five values per process, two
+warmups, a 50 ms minimum value duration and CPU 4:
+
+~~~bash
+python -m benchmarks.benchmark_native \
+  --implementation=python --matrix=history \
+  --processes=3 --values=5 --warmups=2 --min-time=0.05 \
+  --affinity=4 --quiet --output history.json
+~~~
+
+The routing command used three processes, three values per process, one
+warmup, 100 publishes per publisher and CPUs 4–7:
+
+~~~bash
+python -m benchmarks.benchmark_native \
+  --implementation=python --matrix=latency \
+  --processes=3 --values=3 --warmups=1 --loops=100 \
+  --affinity=4-7 --quiet --output routing-latency.json
+~~~
+
+For C and Cython, set <code>PYTHONPATH</code> to the clean native build
+directory and repeat with <code>--implementation=c</code> and
+<code>--implementation=cython</code>. Keep each implementation's JSON; the
+summary CSV is derived from those raw files.
+
+### Audit recommendation status
+
+| Audit item | Result |
+| --- | --- |
+| Exclude generated benchmark data from the sdist | Done. The archive retains benchmark and test sources, but excludes generated <code>benchmarks/results/</code> files. This follows the report's reproducible-source option; another paragraph in the report prefers excluding all benchmark material, so this distribution-policy recommendation is internally inconsistent. |
+| Measure publish P50/P95/P99 and separate lock wait | Done for the three listed profiles on one host. Multi-host or different-day repetition remains open. |
+| Compare C tuple access with generic C iteration | Done for unlimited tuple history candidates; the candidate is excluded from limited-query comparisons. |
+| Measure native build/import/distribution cost | Partially done. One CPython 3.14 Linux build, two extension sizes and 20-process import samples are recorded. There is no isolated per-extension build time or native wheel build. |
+| Validate native ABI, GIL-free and operating-system coverage | Not done. Only CPython 3.14.9 with the GIL on, Linux x86_64 was built and validated. |
+| Integrate a native runtime backend | Not done, consistent with the report's evidence gate. Python production paths and public APIs are unchanged. |
+
+The next useful decision experiment is a repeated latency run on a second host
+or on a separate day with controlled CPU frequency and a larger sample budget.
+Native integration should wait until the end-to-end gain remains material in
+the target workload and the supported ABI/platform matrix is proven.
+
+The verified source archive was 271,728 bytes with 120 members; all 413 tests
+passed when run from the extracted archive. A wheel built from that archive
+was 105,854 bytes, had the pure-Python <code>py3-none-any</code> tag and
+contained no native extension files.
