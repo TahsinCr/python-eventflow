@@ -176,6 +176,58 @@ jobs:
       - name: Build wheel and source distribution
         run: python -m build
 
+      - name: Verify and test the source distribution
+        run: |
+          python - <<'PY'
+          import subprocess
+          import sys
+          import tarfile
+          import tempfile
+          from pathlib import Path
+
+          archive = max(
+              Path("dist").glob("*.tar.gz"),
+              key=lambda candidate: candidate.stat().st_mtime_ns,
+          )
+          with tarfile.open(archive, "r:gz") as source_archive:
+              members = source_archive.getnames()
+              root_name = members[0].split("/", 1)[0]
+              relative_members = {
+                  name[len(root_name) + 1 :]
+                  for name in members
+                  if name.startswith(root_name + "/")
+              }
+              required = {
+                  "benchmarks/benchmark_native.py",
+                  "benchmarks/native/kernels.c",
+                  "benchmarks/native/kernels.pyx",
+                  "tests/test_native_benchmarks.py",
+                  "tests/api_v1_4_0.json",
+              }
+              missing = required - relative_members
+              assert not missing, f"source distribution is missing: {sorted(missing)}"
+              generated = sorted(
+                  name for name in relative_members if name.startswith("benchmarks/results/")
+              )
+              assert not generated, f"generated benchmark results were packaged: {generated[:5]}"
+
+              with tempfile.TemporaryDirectory() as temporary_directory:
+                  source_archive.extractall(temporary_directory)
+                  source_root = Path(temporary_directory) / root_name
+                  subprocess.run(
+                      [
+                          sys.executable,
+                          "-m",
+                          "unittest",
+                          "discover",
+                          "--start-directory",
+                          "tests",
+                      ],
+                      cwd=source_root,
+                      check=True,
+                  )
+          PY
+
       - name: Check distribution metadata
         run: python -m twine check --strict dist/*
 

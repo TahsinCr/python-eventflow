@@ -1,5 +1,6 @@
 include LICENSE README.md README-TR.md CHANGELOG.md
 recursive-include tests *.py *.json
 recursive-include examples *.py
-recursive-include benchmarks *.py *.md *.json *.txt
+recursive-include benchmarks *.py *.c *.pyx
+prune benchmarks/results
 global-exclude *.py[cod]

@@ -48,6 +48,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Keep benchmark and native prototype source files in the source distribution,
+  exclude generated measurement results, and run the included test suite from
+  the built source archive in CI.
 - Update the native benchmark report with repeated routing and focused history
   query measurements; document the Python optimizations, native candidate
   comparisons, per-order stability statistics and source-pinned results.
