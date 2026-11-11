@@ -758,7 +758,8 @@ def _register_latency_cases(
             bench_time_func(
                 runner,
                 f"routing_latency_publish/{candidate_metadata['candidate_algorithm']}/"
-                f"{publishers}/p{percentile}/subscriptions_2048",
+                f"{candidate_metadata['latency_profile']}/{publishers}/p{percentile}/"
+                f"subscriptions_{candidate_metadata['subscriptions']}",
                 _time_concurrent_publish_latency,
                 bus,
                 event,
@@ -783,7 +784,8 @@ def _register_latency_cases(
             bench_time_func(
                 runner,
                 f"routing_latency_lock_wait/{candidate_metadata['candidate_algorithm']}/"
-                f"{publishers}/p{percentile}/subscriptions_2048",
+                f"{candidate_metadata['latency_profile']}/{publishers}/p{percentile}/"
+                f"subscriptions_{candidate_metadata['subscriptions']}",
                 _time_concurrent_lock_wait,
                 bus,
                 event,
@@ -801,6 +803,11 @@ def _routing_latency_cases(
     merge_kernels: tuple[tuple[str, MergeKernel], ...],
 ) -> None:
     event = RoutingEvent(0, 17)
+    latency_profiles = (
+        ("all_callbacks_7keys_20pct_wildcard", 7, 20, False),
+        ("filter_reject_7keys_20pct_wildcard", 7, 20, True),
+        ("all_callbacks_31keys_50pct_wildcard", 31, 50, False),
+    )
     selected_kernels = (
         tuple(item for item in merge_kernels if item[0] == "python_two_pointer")
         if implementation == "python"
@@ -813,33 +820,43 @@ def _routing_latency_cases(
         cases.append(("production_two_pointer", None, "production_python"))
 
     for algorithm, merge, candidate_implementation in cases:
-        bus = _subscribe_fixture(
-            2_048,
-            merge=merge,
-            key_count=7,
-            wildcard_percent=20,
-        )
-        try:
-            selected = len(bus._subscriber_snapshot(event.key))
-            check = bus.publish(event)
-            if check.matched != selected or check.delivered != selected:
-                raise AssertionError("contention fixture does not deliver every selected callback")
-            _register_latency_cases(
-                runner,
-                bus,
-                event,
-                {
-                    "candidate_implementation": candidate_implementation,
-                    "candidate_algorithm": algorithm,
-                    "case": "concurrent_event_bus_publish_latency",
-                    "subscriptions": 2_048,
-                    "selected_subscriptions": selected,
-                    "wildcard_percent": 20,
-                    "key_count": 7,
-                },
+        for profile, key_count, wildcard_percent, filtered in latency_profiles:
+            bus = _subscribe_fixture(
+                2_048,
+                merge=merge,
+                key_count=key_count,
+                wildcard_percent=wildcard_percent,
+                filtered=filtered,
             )
-        finally:
-            bus.close()
+            try:
+                selected = len(bus._subscriber_snapshot(event.key))
+                check = bus.publish(event)
+                if filtered:
+                    if check.matched or check.delivered:
+                        raise AssertionError("filter-rejection fixture delivered an event")
+                elif check.matched != selected or check.delivered != selected:
+                    raise AssertionError(
+                        "contention fixture does not deliver every selected callback"
+                    )
+                _register_latency_cases(
+                    runner,
+                    bus,
+                    event,
+                    {
+                        "candidate_implementation": candidate_implementation,
+                        "candidate_algorithm": algorithm,
+                        "case": "concurrent_event_bus_publish_latency",
+                        "latency_profile": profile,
+                        "subscriptions": 2_048,
+                        "selected_subscriptions": selected,
+                        "filtered_subscriptions": selected if filtered else 0,
+                        "filter_mode": "reject_all" if filtered else "deliver_all",
+                        "wildcard_percent": wildcard_percent,
+                        "key_count": key_count,
+                    },
+                )
+            finally:
+                bus.close()
 
 
 def main() -> int:

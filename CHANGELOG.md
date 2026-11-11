@@ -47,6 +47,8 @@ All notable changes to this project are documented in this file.
   existing iterator-based C implementation.
 - Add a focused routing latency matrix that records per-publish P50/P95/P99 and
   separately instrumented lock-wait percentiles for Python, Cython and C paths.
+- Cover all-delivered and filter-rejected 2,048-subscription traffic plus a
+  31-key, 50%-wildcard profile in the focused routing-latency matrix.
 - Build and semantically validate the optional C and Cython benchmark kernels
   in the Linux distribution workflow.
 - Cover skewed keyed/wildcard indexes and concurrent subscription churn in the

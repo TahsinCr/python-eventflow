@@ -97,6 +97,16 @@ class NativeBenchmarkReferenceTests(unittest.TestCase):
         self.assertEqual(result.matched, 64)
         self.assertEqual(result.delivered, 64)
 
+    def test_filtered_routing_fixture_rejects_every_callback(self) -> None:
+        bus = _subscribe_fixture(64, merge=None, key_count=7, filtered=True)
+        try:
+            result = bus.publish(RoutingEvent(0, 17))
+        finally:
+            bus.close()
+
+        self.assertEqual(result.matched, 0)
+        self.assertEqual(result.delivered, 0)
+
     def test_filter_uses_isinstance_and_preserves_event_order(self) -> None:
         events = (_Event(), _Selected(), _SelectedChild(), _Event())
 

@@ -361,15 +361,31 @@ class PyperfRunnerTests(unittest.TestCase):
                 item["metadata"]["name"]: item["metadata"] for item in document["benchmarks"]
             }
 
-        publish = benchmarks["routing_latency_publish/python_two_pointer/4/p95/subscriptions_2048"]
+        publish = benchmarks[
+            "routing_latency_publish/python_two_pointer/"
+            "all_callbacks_7keys_20pct_wildcard/4/p95/subscriptions_2048"
+        ]
         lock_wait = benchmarks[
-            "routing_latency_lock_wait/production_two_pointer/8/p99/subscriptions_2048"
+            "routing_latency_lock_wait/production_two_pointer/"
+            "all_callbacks_7keys_20pct_wildcard/8/p99/subscriptions_2048"
+        ]
+        rejected = benchmarks[
+            "routing_latency_publish/python_two_pointer/"
+            "filter_reject_7keys_20pct_wildcard/4/p95/subscriptions_2048"
+        ]
+        broad = benchmarks[
+            "routing_latency_publish/python_two_pointer/"
+            "all_callbacks_31keys_50pct_wildcard/4/p95/subscriptions_2048"
         ]
         self.assertEqual(publish["measurement"], "publish_latency")
         self.assertEqual(publish["percentile"], 95)
         self.assertTrue(publish["per_call_timing"])
         self.assertFalse(publish["lock_instrumented"])
         self.assertIn("nearest-rank", publish["timer"])
+        self.assertEqual(rejected["filter_mode"], "reject_all")
+        self.assertEqual(rejected["filtered_subscriptions"], 653)
+        self.assertEqual(broad["key_count"], 31)
+        self.assertEqual(broad["wildcard_percent"], 50)
         self.assertEqual(lock_wait["measurement"], "routing_lock_wait")
         self.assertTrue(lock_wait["lock_instrumented"])
 
