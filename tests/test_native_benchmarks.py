@@ -2,7 +2,13 @@ from __future__ import annotations
 
 import unittest
 
-from benchmarks.benchmark_native import RoutingEvent, _subscribe_fixture
+from benchmarks.benchmark_native import (
+    RoutingEvent,
+    _instrument_lock_wait,
+    _percentile,
+    _subscribe_fixture,
+    _time_concurrent_lock_wait,
+)
 from benchmarks.native.python_kernels import (
     filter_by_type,
     merge_subscribers,
@@ -30,6 +36,30 @@ class _Other(_Event):
 
 
 class NativeBenchmarkReferenceTests(unittest.TestCase):
+    def test_latency_percentiles_use_nearest_rank(self) -> None:
+        samples = [9, 1, 8, 2]
+
+        self.assertEqual(_percentile(samples, 50), 2)
+        self.assertEqual(_percentile(samples, 95), 9)
+        self.assertEqual(_percentile(samples, 99), 9)
+        with self.assertRaises(ValueError):
+            _percentile([], 50)
+        with self.assertRaises(ValueError):
+            _percentile(samples, 90)
+
+    def test_lock_wait_measurement_records_publish_lock_acquisitions(self) -> None:
+        bus = _subscribe_fixture(64, merge=None, key_count=7)
+        event = RoutingEvent(0, 17)
+        recorder = _instrument_lock_wait(bus)
+        try:
+            elapsed = _time_concurrent_lock_wait(4, bus, event, 2, 95, recorder)
+            remaining_samples = recorder.take_samples()
+        finally:
+            bus.close()
+
+        self.assertGreater(elapsed, 0)
+        self.assertEqual(remaining_samples, [])
+
     def test_single_key_routing_fixture_publishes_on_its_registered_key(self) -> None:
         bus = _subscribe_fixture(64, merge=None, key_count=1, wildcard_percent=0)
         try:

@@ -327,6 +327,52 @@ class PyperfRunnerTests(unittest.TestCase):
                 names,
             )
 
+    def test_native_routing_latency_matrix_reports_publish_and_lock_percentiles(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            output = Path(temporary_directory) / "native-routing-latency.json"
+            result = subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "benchmarks.benchmark_native",
+                    "--implementation=python",
+                    "--matrix=latency",
+                    "--quiet",
+                    "--processes=1",
+                    "--values=1",
+                    "--warmups=0",
+                    "--loops=1",
+                    "--output",
+                    str(output),
+                ],
+                cwd=REPOSITORY_ROOT,
+                check=False,
+                capture_output=True,
+                text=True,
+                timeout=120,
+            )
+            if result.returncode:
+                self.fail(
+                    f"native latency benchmark failed\nstdout:\n{result.stdout}"
+                    f"\nstderr:\n{result.stderr}"
+                )
+            document = json.loads(output.read_text(encoding="utf-8"))
+            benchmarks = {
+                item["metadata"]["name"]: item["metadata"] for item in document["benchmarks"]
+            }
+
+        publish = benchmarks["routing_latency_publish/python_two_pointer/4/p95/subscriptions_2048"]
+        lock_wait = benchmarks[
+            "routing_latency_lock_wait/production_two_pointer/8/p99/subscriptions_2048"
+        ]
+        self.assertEqual(publish["measurement"], "publish_latency")
+        self.assertEqual(publish["percentile"], 95)
+        self.assertTrue(publish["per_call_timing"])
+        self.assertFalse(publish["lock_instrumented"])
+        self.assertIn("nearest-rank", publish["timer"])
+        self.assertEqual(lock_wait["measurement"], "routing_lock_wait")
+        self.assertTrue(lock_wait["lock_instrumented"])
+
 
 if __name__ == "__main__":
     unittest.main()

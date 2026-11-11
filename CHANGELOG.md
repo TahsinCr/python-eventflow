@@ -45,6 +45,10 @@ All notable changes to this project are documented in this file.
   comparisons without routing workloads.
 - Add a C tuple-indexed history filter candidate to compare directly with the
   existing iterator-based C implementation.
+- Add a focused routing latency matrix that records per-publish P50/P95/P99 and
+  separately instrumented lock-wait percentiles for Python, Cython and C paths.
+- Build and semantically validate the optional C and Cython benchmark kernels
+  in the Linux distribution workflow.
 - Cover skewed keyed/wildcard indexes and concurrent subscription churn in the
   synchronous routing regression tests.
 
