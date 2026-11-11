@@ -43,6 +43,8 @@ All notable changes to this project are documented in this file.
   comparisons without unrelated history workloads.
 - Add a history-only native benchmark matrix for focused 100,000-event query
   comparisons without routing workloads.
+- Add a C tuple-indexed history filter candidate to compare directly with the
+  existing iterator-based C implementation.
 - Cover skewed keyed/wildcard indexes and concurrent subscription churn in the
   synchronous routing regression tests.
 

@@ -113,6 +113,38 @@ static PyObject *filter_by_type(PyObject *self, PyObject *args) {
     return result;
 }
 
+static PyObject *filter_by_type_tuple(PyObject *self, PyObject *args) {
+    PyObject *events;
+    PyObject *event_type;
+    PyObject *matched;
+    Py_ssize_t index;
+
+    if (!PyArg_ParseTuple(args, "OO:filter_by_type_tuple", &events, &event_type)) {
+        return NULL;
+    }
+    if (!PyTuple_Check(events)) {
+        PyErr_SetString(PyExc_TypeError, "tuple type filtering requires a tuple snapshot");
+        return NULL;
+    }
+
+    matched = PyList_New(0);
+    if (matched == NULL) {
+        return NULL;
+    }
+    for (index = 0; index < PyTuple_GET_SIZE(events); ++index) {
+        PyObject *event = PyTuple_GET_ITEM(events, index);
+        int is_match = PyObject_IsInstance(event, event_type);
+        if (is_match < 0 || (is_match && PyList_Append(matched, event) < 0)) {
+            Py_DECREF(matched);
+            return NULL;
+        }
+    }
+
+    PyObject *result = PyList_AsTuple(matched);
+    Py_DECREF(matched);
+    return result;
+}
+
 static int subscriber_key_le(PyObject *left_key, PyObject *right_key) {
     Py_ssize_t left_id = PyLong_AsSsize_t(left_key);
     if (left_id != -1 || !PyErr_Occurred()) {
@@ -214,6 +246,8 @@ unlock:
 static PyMethodDef methods[] = {
     {"filter_by_type", filter_by_type, METH_VARARGS,
      "Filter a sequence using Python isinstance semantics."},
+    {"filter_by_type_tuple", filter_by_type_tuple, METH_VARARGS,
+     "Filter a tuple using direct indexed traversal."},
     {"merge_subscribers", merge_subscribers, METH_VARARGS,
      "Merge two integer-keyed subscriber maps in registration order."},
     {NULL, NULL, 0, NULL},

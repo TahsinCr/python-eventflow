@@ -64,12 +64,22 @@ class CandidateBus(EventBus[RoutingEvent]):
         return self._candidate_merge(unkeyed, keyed)  # type: ignore[arg-type]
 
 
-def _kernels(implementation: str) -> tuple[FilterKernel, tuple[tuple[str, MergeKernel], ...]]:
+def _kernels(
+    implementation: str,
+) -> tuple[
+    FilterKernel,
+    tuple[tuple[str, MergeKernel], ...],
+    tuple[tuple[str, FilterKernel], ...],
+]:
     if implementation == "python":
-        return python_kernels.filter_by_type, (
-            ("python_heapq", python_kernels.merge_subscribers),
-            ("python_two_pointer", python_kernels.merge_subscribers_two_pointer),
-            ("python_sorted", python_kernels.merge_subscribers_sorted),
+        return (
+            python_kernels.filter_by_type,
+            (
+                ("python_heapq", python_kernels.merge_subscribers),
+                ("python_two_pointer", python_kernels.merge_subscribers_two_pointer),
+                ("python_sorted", python_kernels.merge_subscribers_sorted),
+            ),
+            (),
         )
     if implementation == "cython":
         module_name = "eventflow_native_cython"
@@ -84,6 +94,11 @@ def _kernels(implementation: str) -> tuple[FilterKernel, tuple[tuple[str, MergeK
     return (
         cast(FilterKernel, module.filter_by_type),
         tuple(merge_kernels),
+        (
+            (("c_tuple_indexed", cast(FilterKernel, module.filter_by_type_tuple)),)
+            if implementation == "c"
+            else ()
+        ),
     )
 
 
@@ -91,6 +106,7 @@ def _history_cases(
     runner,
     implementation: str,
     filter_by_type: FilterKernel,
+    tuple_filter_kernels: tuple[tuple[str, FilterKernel], ...],
     matrix: str,
 ) -> None:
     if matrix == "smoke":
@@ -204,6 +220,43 @@ def _history_cases(
                         ),
                         metadata={**metadata, "case": "history_snapshot_and_type_filter"},
                     )
+
+                    for candidate_name, candidate_filter in tuple_filter_kernels:
+                        candidate_result = candidate_filter(snapshot, event_type)
+                        if len(candidate_result) != len(expected_query) or any(
+                            actual is not expected
+                            for actual, expected in zip(
+                                candidate_result, expected_query, strict=True
+                            )
+                        ):
+                            raise AssertionError(
+                                f"{implementation}/{candidate_name} changed history query results"
+                            )
+                        candidate_metadata = {
+                            **metadata,
+                            "candidate_algorithm": candidate_name,
+                            "case": "history_type_filter_only",
+                            "query_limit": "all",
+                        }
+                        bench_sync(
+                            runner,
+                            f"history_filter_only/{candidate_name}/{case_name}",
+                            lambda snapshot=snapshot, event_type=event_type, candidate_filter=candidate_filter: (
+                                candidate_filter(snapshot, event_type)
+                            ),
+                            metadata=candidate_metadata,
+                        )
+                        bench_sync(
+                            runner,
+                            f"history_snapshot_and_filter/{candidate_name}/{case_name}",
+                            lambda history=history, event_type=event_type, candidate_filter=candidate_filter: (
+                                candidate_filter(history.query(), event_type)
+                            ),
+                            metadata={
+                                **candidate_metadata,
+                                "case": "history_snapshot_and_type_filter",
+                            },
+                        )
 
                     if implementation == "python":
                         bench_sync(
@@ -565,13 +618,19 @@ def main() -> int:
         runner.metadata.update(native_build_metadata(args.implementation))
     gil_check = getattr(sys, "_is_gil_enabled", None)
     gil_was_disabled = gil_check is not None and not gil_check()
-    filter_by_type, merge_kernels = _kernels(args.implementation)
+    filter_by_type, merge_kernels, tuple_filter_kernels = _kernels(args.implementation)
     if gil_was_disabled and gil_check is not None and gil_check():
         raise RuntimeError(
             f"importing the {args.implementation} candidate re-enabled the free-threaded GIL"
         )
     if args.matrix != "routing":
-        _history_cases(runner, args.implementation, filter_by_type, args.matrix)
+        _history_cases(
+            runner,
+            args.implementation,
+            filter_by_type,
+            tuple_filter_kernels,
+            args.matrix,
+        )
     if args.matrix != "history":
         _routing_cases(runner, args.implementation, merge_kernels, args.matrix)
         _routing_contention_cases(runner, args.implementation, merge_kernels, args.matrix)

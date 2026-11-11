@@ -7,7 +7,7 @@ import sys
 from concurrent.futures import ThreadPoolExecutor
 from importlib import import_module
 from threading import Barrier
-from typing import cast
+from typing import Any, cast
 
 from benchmarks._support import ignore_event
 from benchmarks.native._contracts import FilterKernel, MergeKernel
@@ -18,7 +18,7 @@ from eventflow.filtering import EventFilter
 from eventflow.history import MemoryEventHistory
 
 
-def _load(name: str) -> tuple[FilterKernel, dict[str, MergeKernel]]:
+def _load(name: str) -> tuple[FilterKernel, FilterKernel | None, dict[str, MergeKernel]]:
     module_names = {
         "cython": "eventflow_native_cython",
         "c": "eventflow_native_c",
@@ -28,9 +28,10 @@ def _load(name: str) -> tuple[FilterKernel, dict[str, MergeKernel]]:
         raise ValueError(f"unsupported native implementation: {name}")
     module = import_module(module_name)
     merges = {"merge_subscribers": cast(MergeKernel, module.merge_subscribers)}
+    tuple_filter = cast(FilterKernel, module.filter_by_type_tuple) if name == "c" else None
     if name == "cython":
         merges["merge_subscribers_items"] = cast(MergeKernel, module.merge_subscribers_items)
-    return cast(FilterKernel, module.filter_by_type), merges
+    return cast(FilterKernel, module.filter_by_type), tuple_filter, merges
 
 
 class RoutingEvent:
@@ -106,7 +107,7 @@ def _validate_concurrent_bus(merge: MergeKernel, name: str) -> None:
 def validate(name: str) -> int:
     gil_check = getattr(sys, "_is_gil_enabled", None)
     gil_was_disabled = gil_check is not None and not gil_check()
-    native_filter, native_merges = _load(name)
+    native_filter, native_tuple_filter, native_merges = _load(name)
     if gil_was_disabled and gil_check is not None and gil_check():
         raise RuntimeError(f"importing {name} enabled the free-threaded GIL")
 
@@ -139,6 +140,20 @@ def validate(name: str) -> int:
             pass
         else:
             raise AssertionError(f"{name} accepted an invalid type-filter limit")
+    if native_tuple_filter is not None:
+        for event_type in (Selected, (Selected, Event)):
+            expected = filter_by_type(events, event_type)
+            actual = native_tuple_filter(events, event_type)
+            if len(actual) != len(expected) or any(
+                item is not reference for item, reference in zip(actual, expected, strict=True)
+            ):
+                raise AssertionError("c tuple-indexed type filter changed result order or identity")
+        try:
+            native_tuple_filter(cast(Any, iter(events)), Selected)
+        except TypeError:
+            pass
+        else:
+            raise AssertionError("c tuple-indexed type filter accepted a non-tuple input")
     history = MemoryEventHistory[Event](capacity=len(events))
     for event in events:
         history.append(event)
