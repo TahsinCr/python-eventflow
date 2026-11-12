@@ -57,6 +57,8 @@ All notable changes to this project are documented in this file.
   build-manifest hashes.
 - Record the host CPU model and affinity, Python compiler configuration, and
   native compiler details with raw measurements and CSV summaries.
+- Record a fixed fresh-process sample schedule and CV-based escalation/stop
+  rule so candidate comparisons do not stop selectively after favorable runs.
 - Cover skewed keyed/wildcard indexes and concurrent subscription churn in the
   synchronous routing regression tests.
 

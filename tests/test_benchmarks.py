@@ -356,6 +356,10 @@ class PyperfRunnerTests(unittest.TestCase):
             document = json.loads(output.read_text(encoding="utf-8"))
             self.assertEqual(document["schema"], "eventflow.native-latency.v1")
             self.assertEqual(len(document["results"]), 2)
+            self.assertEqual(
+                document["experiment"]["decision_protocol"]["initial_stage"],
+                {"independent_processes_per_case": 5, "observations_per_publisher": 2000},
+            )
             publish = next(
                 result
                 for result in document["results"]

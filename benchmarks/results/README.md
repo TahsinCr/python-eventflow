@@ -894,11 +894,22 @@ python -m benchmarks.native_latency \
 Repeat with `--implementation=cython` and `--implementation=c` after building
 those optional benchmark extensions. Use the same source revision, host,
 interpreter, profile, publisher counts and loop count for each backend. The
-default pilot records 500 publishes per publisher; begin with 500–1,000,
-increase to 2,000–5,000 when tails remain noisy, and use 10,000 only when the
-predeclared decision needs it. Re-run the command for independent process
-replicates. Compare only results with matching source SHA, binary SHA, build
-manifest SHA, interpreter and GIL state.
+default pilot records 500 publishes per publisher and is exploratory. For a
+decision-grade comparison, follow the fixed process schedule below instead of
+extending only noisy or favorable candidates. A 10,000-observation run needs a
+separate protocol declared before collecting its results. Compare only results
+with matching source SHA, binary SHA, build manifest SHA, interpreter and GIL
+state.
+
+For a decision-grade comparison, the collector records this fixed stopping
+rule in each JSON: first run five fresh processes with 2,000 observations per
+publisher and candidate; stop if every matched candidate/profile/publisher
+P99 has at most 10% CV across those five process-level P99 estimates. If any
+group exceeds 10%, run five more fresh processes at 5,000 observations per
+publisher for every candidate in the comparison, then stop; report any group
+still above 10% as inconclusive. Use a unique `--output` path for each process.
+The CSV `cv_percent` field is the dispersion within one raw sample group; it is
+distinct from this cross-process stopping statistic.
 The raw metadata also captures CPU model/count and affinity, Python compiler
 flags, and native compiler identity and flags; the CSV carries these fields for
 side-by-side filtering.

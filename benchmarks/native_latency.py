@@ -432,9 +432,24 @@ def run_experiment(
             "timer_resolution": "nanoseconds from time.perf_counter_ns",
             "process_cpu_timer": "time.process_time_ns",
             "independent_repetition": "rerun this command in a fresh process",
-            "latency_sample_schedule": (
-                "pilot 500-1000 per publisher; escalate to 2000-5000, then 10000 only if needed"
-            ),
+            "decision_protocol": {
+                "pilot": "one fresh process with 500 observations per publisher",
+                "initial_stage": {
+                    "independent_processes_per_case": 5,
+                    "observations_per_publisher": 2000,
+                },
+                "escalation": {
+                    "trigger": "any matched P99 across-process CV exceeds 10% after initial stage",
+                    "independent_processes_per_case": 5,
+                    "observations_per_publisher": 5000,
+                    "scope": "repeat every candidate in the matched comparison",
+                },
+                "stop": (
+                    "stop after the initial stage when all matched P99 CV values are at most 10%; "
+                    "otherwise stop after escalation and label remaining high-variance results "
+                    "inconclusive"
+                ),
+            },
         },
         "results": results,
     }
