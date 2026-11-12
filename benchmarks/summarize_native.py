@@ -376,7 +376,8 @@ def write_summary(paths: Iterable[Path], output: Path) -> None:
     rows = summarize_files(paths)
     output.parent.mkdir(parents=True, exist_ok=True)
     with output.open("w", encoding="utf-8", newline="") as stream:
-        writer = csv.DictWriter(stream, fieldnames=CSV_FIELDS, lineterminator="\n")
+        fieldnames: list[str] = list(CSV_FIELDS)
+        writer = csv.DictWriter(stream, fieldnames=fieldnames, lineterminator="\n")
         writer.writeheader()
         writer.writerows(rows)
 

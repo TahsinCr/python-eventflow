@@ -131,7 +131,7 @@ def _instrument_bus_locks(
     bus_lock = _LockMetricsRecorder(underlying)
     stats_lock = _LockMetricsRecorder(underlying)
     cast(Any, bus)._lock = bus_lock
-    cast(Any, bus)._condition = Condition(stats_lock)
+    cast(Any, bus)._condition = Condition(cast(Any, stats_lock))
     return bus_lock, stats_lock
 
 
@@ -361,7 +361,7 @@ def _candidates(
     merge_kernels: Sequence[tuple[str, MergeKernel]],
 ) -> list[tuple[str, str, MergeKernel | None]]:
     if implementation == "python":
-        selected = [
+        selected: list[tuple[str, str, MergeKernel | None]] = [
             (name, implementation, merge)
             for name, merge in merge_kernels
             if name == "python_two_pointer"
@@ -400,7 +400,7 @@ def run_experiment(
                         publishers=publisher_count,
                     )
                 )
-    metadata = benchmark_metadata()
+    metadata = cast(dict[str, object], benchmark_metadata())
     metadata.update(
         {
             "eventflow_native_matrix": "raw_latency",

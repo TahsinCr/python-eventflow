@@ -122,6 +122,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Fix standalone Pyright errors in the raw latency recorder and CSV exporter.
 - Install the extracted source distribution and its declared runtime dependencies
   before running the bundled test suite in CI, including on Python 3.10.
 - Compare the C tuple-indexed history candidate only with unlimited history
