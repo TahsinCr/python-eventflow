@@ -51,6 +51,9 @@ All notable changes to this project are documented in this file.
   31-key, 50%-wildcard profile in the focused routing-latency matrix.
 - Build and semantically validate the optional C and Cython benchmark kernels
   in the Linux distribution workflow.
+- Add a deterministic native-result CSV exporter that validates shared source
+  identity, resolves benchmark metadata fallbacks and records native binary and
+  build-manifest hashes.
 - Cover skewed keyed/wildcard indexes and concurrent subscription churn in the
   synchronous routing regression tests.
 
@@ -86,6 +89,9 @@ All notable changes to this project are documented in this file.
   benchmark source `4af998d`: 180 broad CPython 3.14.9 cases, 81 Python 3.10.22
   focus cases, matched GIL-on/off sets, bridge latency distributions and
   repeated 100k history queries. Remove the 19 superseded result files.
+- Rebuild the 2026-11-11 native summary with corrected candidate and
+  subscription metadata; label its pyperf percentile estimates as legacy
+  replicates because the original per-publish samples were not retained.
 - Rename the Python-version compatibility helper to `eventflow._compatibility`
   to mark it as an internal module.
 - Use pyperf as the shared timing and result engine for all benchmark modules.

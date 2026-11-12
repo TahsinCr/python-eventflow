@@ -1023,10 +1023,14 @@ work together. They do not show that C or Cython removes the tail-latency cost.
 
 #### Separate bus-lock acquisition measurements
 
-The lock-wait series wraps the bus lock and runs separately from publish
-latency. It reports the median P50/P95/P99 estimates for the all-delivered
-7-key profile. This wrapper is experimental and can perturb the observed
-lock path.
+The historical lock-wait series wrapped the bus lock and ran separately from
+publish latency. The table below reports the median of nine pyperf-recorded
+P50/P95/P99 estimates for the all-delivered 7-key profile; it is not a
+percentile over the individual lock observations. The old wrapper combined
+different EventBus lock roles and retained empty per-thread buffers. Treat the
+table as exploratory historical evidence only. The new collector separates
+snapshot and statistics locks, records wait and hold times, and retains raw
+samples by worker.
 
 | Path | Publishers | P50 | P95 | P99 | P99 CV |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -1079,6 +1083,32 @@ CPython 3.14-specific ABI artifact. Native builds were not repeated for Python
 current CI's free-threaded Python runtime job does not validate these benchmark
 extensions. Cross-ABI and cross-platform native support remains an integration
 gate.
+
+### Corrected summary export
+
+The 321-row summary was regenerated from the six source-pinned history and
+routing-latency JSON files with the repository exporter:
+
+~~~bash
+python -m benchmarks.summarize_native \
+  benchmarks/results/native/native_history_2026-11-11_1fbef30_py3149_gil-on_*.json \
+  benchmarks/results/native/native_routing_latency_2026-11-11_1fbef30_py3149_gil-on_*.json \
+  --output benchmarks/results/native/native_routing_history_2026-11-11_1fbef30_summary.csv
+~~~
+
+It requires every input to share one EventFlow source revision and SHA-256,
+merges per-case and suite metadata, and records the C/Cython binary and build
+manifest hashes. This repairs the missing 2,048-subscription values on routing
+rows and prevents numeric path components such as `100000` from being reported
+as candidate algorithms. Repeated exports from the same JSON produce the same
+CSV bytes.
+
+The original latency JSON contains pyperf records of already-computed P50/P95/
+P99 estimates, not the individual publish observations. Its 270 CSV rows are
+therefore labeled `legacy_pyperf_percentile_estimate`; the exporter leaves the
+distribution percentile columns blank. Those old records cannot be converted
+into true publish-latency or lock-wait distributions. Use the raw-sample
+collector described below for new latency analysis.
 
 ### Result files and reproduction
 
