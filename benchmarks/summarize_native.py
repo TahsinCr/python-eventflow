@@ -48,8 +48,18 @@ CSV_FIELDS = (
     "binary_sha256",
     "build_manifest_sha256",
     "python_version",
+    "python_compiler",
+    "python_cc",
+    "python_cflags",
     "gil",
+    "hostname",
+    "platform",
+    "cpu_model",
+    "cpu_count",
     "cpu_affinity",
+    "native_compiler",
+    "native_compiler_version",
+    "native_compiler_flags",
     "raw_json",
 )
 
@@ -138,8 +148,23 @@ def _base_row(path: Path, metadata: dict[str, Any], name: str) -> dict[str, str 
         )
         or "",
         "python_version": _text(metadata.get("python_version")) or "",
+        "python_compiler": _text(metadata.get("python_compiler")) or "",
+        "python_cc": _text(metadata.get("python_cc")) or "",
+        "python_cflags": _text(metadata.get("python_cflags")) or "",
         "gil": _text(metadata.get("eventflow_gil")) or "",
+        "hostname": _text(metadata.get("hostname")) or "",
+        "platform": _text(metadata.get("platform")) or "",
+        "cpu_model": _text(metadata.get("cpu_model"))
+        or _text(metadata.get("cpu_model_name"))
+        or "",
+        "cpu_count": _integer(metadata.get("cpu_count")) or "",
         "cpu_affinity": _text(metadata.get("cpu_affinity")) or "",
+        "native_compiler": _text(metadata.get("eventflow_native_compiler")) or "",
+        "native_compiler_version": _text(
+            metadata.get("eventflow_native_compiler_version")
+        )
+        or "",
+        "native_compiler_flags": _text(metadata.get("eventflow_native_compiler_flags")) or "",
         "raw_json": path.name,
     }
 

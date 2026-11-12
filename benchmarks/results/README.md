@@ -899,6 +899,9 @@ increase to 2,000–5,000 when tails remain noisy, and use 10,000 only when the
 predeclared decision needs it. Re-run the command for independent process
 replicates. Compare only results with matching source SHA, binary SHA, build
 manifest SHA, interpreter and GIL state.
+The raw metadata also captures CPU model/count and affinity, Python compiler
+flags, and native compiler identity and flags; the CSV carries these fields for
+side-by-side filtering.
 
 Each candidate/profile/publisher case runs three batches: throughput records
 wall time and process CPU with no per-publish timer or lock recorder; publish

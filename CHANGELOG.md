@@ -55,6 +55,8 @@ All notable changes to this project are documented in this file.
 - Add a deterministic native-result CSV exporter that validates shared source
   identity, resolves benchmark metadata fallbacks and records native binary and
   build-manifest hashes.
+- Record the host CPU model and affinity, Python compiler configuration, and
+  native compiler details with raw measurements and CSV summaries.
 - Cover skewed keyed/wildcard indexes and concurrent subscription churn in the
   synchronous routing regression tests.
 

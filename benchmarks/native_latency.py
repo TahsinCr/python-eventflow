@@ -10,6 +10,7 @@ import platform
 import socket
 import statistics
 import sys
+import sysconfig
 from collections.abc import Sequence
 from concurrent.futures import ThreadPoolExecutor
 from pathlib import Path
@@ -159,6 +160,27 @@ def _distribution(samples: Sequence[int]) -> dict[str, int | float]:
         "stdev_ns": stdev,
         "cv_percent": stdev / mean * 100 if mean else 0.0,
     }
+
+
+def _cpu_model() -> str:
+    if sys.platform.startswith("linux"):
+        try:
+            for line in Path("/proc/cpuinfo").read_text(encoding="utf-8").splitlines():
+                if line.startswith(("model name", "Hardware")):
+                    return line.partition(":")[2].strip()
+        except OSError:
+            pass
+    return platform.processor() or platform.machine() or "unknown"
+
+
+def _cpu_affinity() -> str:
+    get_affinity = getattr(os, "sched_getaffinity", None)
+    if get_affinity is None:
+        return "unavailable"
+    try:
+        return ",".join(str(cpu) for cpu in sorted(get_affinity(0)))
+    except OSError:
+        return "unavailable"
 
 
 def _run_publish_batch(
@@ -387,6 +409,11 @@ def run_experiment(
             "platform": platform.platform(),
             "hostname": socket.gethostname(),
             "cpu_count": os.cpu_count() or "unknown",
+            "cpu_model": _cpu_model(),
+            "cpu_affinity": _cpu_affinity(),
+            "python_compiler": platform.python_compiler(),
+            "python_cc": sysconfig.get_config_var("CC") or "unknown",
+            "python_cflags": sysconfig.get_config_var("CFLAGS") or "unknown",
         }
     )
     if implementation == "python":

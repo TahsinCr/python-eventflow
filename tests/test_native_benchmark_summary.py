@@ -75,6 +75,17 @@ class NativeBenchmarkSummaryTests(unittest.TestCase):
                             "eventflow_native_binary_sha256": "binary-a",
                             "eventflow_native_build_manifest_sha256": "manifest-a",
                             "eventflow_gil": "enabled",
+                            "python_compiler": "test compiler",
+                            "python_cc": "cc-test",
+                            "python_cflags": "-O2",
+                            "hostname": "test-host",
+                            "platform": "test-platform",
+                            "cpu_model": "test-cpu",
+                            "cpu_count": 8,
+                            "cpu_affinity": "2,3",
+                            "eventflow_native_compiler": "GCC",
+                            "eventflow_native_compiler_version": "16.2",
+                            "eventflow_native_compiler_flags": "-O3",
                         },
                         "results": [
                             {
@@ -144,6 +155,11 @@ class NativeBenchmarkSummaryTests(unittest.TestCase):
         self.assertEqual(throughput["events_per_second"], "2000")
         self.assertEqual(aggregate["binary_sha256"], "binary-a")
         self.assertEqual(aggregate["build_manifest_sha256"], "manifest-a")
+        self.assertEqual(aggregate["cpu_model"], "test-cpu")
+        self.assertEqual(aggregate["cpu_count"], "8")
+        self.assertEqual(aggregate["cpu_affinity"], "2,3")
+        self.assertEqual(aggregate["python_compiler"], "test compiler")
+        self.assertEqual(aggregate["native_compiler"], "GCC")
 
     def test_summary_rejects_mixed_source_identities(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
