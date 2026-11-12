@@ -874,6 +874,55 @@ metadata.
 
 ## Focused routing latency and C tuple history rerun (2026-11-11)
 
+### Current raw-sample collector
+
+The pyperf latency cases previously in `benchmark_native` emitted a scaled
+percentile estimate as though it were an elapsed benchmark duration. They have
+been removed. New measurements use the narrow collector below; each invocation
+is one fresh process and writes its raw per-publish timings, per-worker lock
+observations and run metadata to JSON:
+
+~~~bash
+python -m benchmarks.native_latency \
+  --implementation=python \
+  --profile=all_callbacks_7keys_20pct_wildcard \
+  --publishers=1 --publishers=4 --publishers=8 \
+  --subscriptions=2048 --loops=500 \
+  --output=/tmp/eventflow-latency-python.json
+~~~
+
+Repeat with `--implementation=cython` and `--implementation=c` after building
+those optional benchmark extensions. Use the same source revision, host,
+interpreter, profile, publisher counts and loop count for each backend. The
+default pilot records 500 publishes per publisher; begin with 500–1,000,
+increase to 2,000–5,000 when tails remain noisy, and use 10,000 only when the
+predeclared decision needs it. Re-run the command for independent process
+replicates. Compare only results with matching source SHA, binary SHA, build
+manifest SHA, interpreter and GIL state.
+
+Each candidate/profile/publisher case runs three batches: throughput records
+wall time and process CPU with no per-publish timer or lock recorder; publish
+latency retains every individual `perf_counter_ns` observation and derives
+P50/P95/P99/max from that same set, both per worker and combined; lock metrics
+run separately with wait and hold samples. The bus-state recorder observes two
+lock acquisitions per publish (the open check and publish-state/snapshot path),
+while the statistics condition recorder observes one. Lock instrumentation
+changes scheduling and adds work, so its numbers are diagnostic and must not
+be compared as uninstrumented publish latency. Per-publish timer overhead is
+included in latency observations and identified in the JSON metadata.
+
+Pass the JSON files from one source identity to the deterministic summary
+exporter; it rejects mixed revisions or source hashes:
+
+~~~bash
+python -m benchmarks.summarize_native /tmp/eventflow-latency-python.json \
+  --output=/tmp/eventflow-latency-python.csv
+~~~
+
+The 2026-11-11 tables below remain historical pyperf estimates. Their raw files
+did not retain individual publish observations, so the new exporter marks
+those rows as legacy estimates instead of presenting them as raw distributions.
+
 This follow-up uses one clean source revision for the expanded routing latency
 matrix and all three history implementations.
 
@@ -1029,8 +1078,8 @@ P50/P95/P99 estimates for the all-delivered 7-key profile; it is not a
 percentile over the individual lock observations. The old wrapper combined
 different EventBus lock roles and retained empty per-thread buffers. Treat the
 table as exploratory historical evidence only. The new collector separates
-snapshot and statistics locks, records wait and hold times, and retains raw
-samples by worker.
+the bus-state and statistics-condition lock metrics, records wait and hold
+times, and retains raw samples by worker.
 
 | Path | Publishers | P50 | P95 | P99 | P99 CV |
 | --- | ---: | ---: | ---: | ---: | ---: |
@@ -1127,36 +1176,29 @@ python -m benchmarks.benchmark_native \
   --affinity=4 --quiet --output history.json
 ~~~
 
-The routing command used three processes, three values per process, one
-warmup, 100 publishes per publisher and CPUs 4–7:
-
-~~~bash
-python -m benchmarks.benchmark_native \
-  --implementation=python --matrix=latency \
-  --processes=3 --values=3 --warmups=1 --loops=100 \
-  --affinity=4-7 --quiet --output routing-latency.json
-~~~
-
-For C and Cython, set <code>PYTHONPATH</code> to the clean native build
-directory and repeat with <code>--implementation=c</code> and
-<code>--implementation=cython</code>. Keep each implementation's JSON; the
-summary CSV is derived from those raw files.
+The original routing-percentile command has been retired because it wrote a
+scaled percentile estimate into pyperf's elapsed-time field. The six archived
+JSON files are retained for historical context, but their values are not
+individual publish samples. Use the raw-sample collector above for new
+measurements and the exporter for source-matched summaries.
 
 ### Audit recommendation status
 
 | Audit item | Result |
 | --- | --- |
 | Exclude generated benchmark data from the sdist | Done. The archive retains benchmark and test sources, but excludes generated <code>benchmarks/results/</code> files. This follows the report's reproducible-source option; another paragraph in the report prefers excluding all benchmark material, so this distribution-policy recommendation is internally inconsistent. |
-| Measure publish P50/P95/P99 and separate lock wait | Done for the three listed profiles on one host. Multi-host or different-day repetition remains open. |
+| Measure publish P50/P95/P99 and separate lock wait | The archived 2026-11-11 values are only per-process percentile estimates and do not satisfy the raw-distribution requirement. The collector now records raw samples and separates bus-state/statistics lock wait and hold; a fresh matched Python/Cython/C run and independent repetitions remain open. |
 | Compare C tuple access with generic C iteration | Done for unlimited tuple history candidates; the candidate is excluded from limited-query comparisons. |
 | Measure native build/import/distribution cost | Partially done. One CPython 3.14 Linux build, two extension sizes and 20-process import samples are recorded. There is no isolated per-extension build time or native wheel build. |
 | Validate native ABI, GIL-free and operating-system coverage | Not done. Only CPython 3.14.9 with the GIL on, Linux x86_64 was built and validated. |
 | Integrate a native runtime backend | Not done, consistent with the report's evidence gate. Python production paths and public APIs are unchanged. |
 
-The next useful decision experiment is a repeated latency run on a second host
-or on a separate day with controlled CPU frequency and a larger sample budget.
-Native integration should wait until the end-to-end gain remains material in
-the target workload and the supported ABI/platform matrix is proven.
+The next useful decision experiment is a clean, source-matched Python/Cython/C
+pilot on this host with 500–1,000 publishes per publisher, followed by
+predeclared independent repetitions and a second host or separate day if the
+pilot supports further comparison. Native integration should wait until an
+end-to-end gain remains material in the target workload and the supported
+ABI/platform matrix is proven.
 
 The verified source archive was 271,728 bytes with 120 members; all 413 tests
 passed when run from the extracted archive. A wheel built from that archive

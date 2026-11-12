@@ -6,10 +6,7 @@ from typing import Any, cast
 from benchmarks.benchmark_native import (
     RoutingEvent,
     _history_cases,
-    _instrument_lock_wait,
-    _percentile,
     _subscribe_fixture,
-    _time_concurrent_lock_wait,
 )
 from benchmarks.native.python_kernels import (
     filter_by_type,
@@ -17,6 +14,7 @@ from benchmarks.native.python_kernels import (
     merge_subscribers_sorted,
     merge_subscribers_two_pointer,
 )
+from benchmarks.native_latency import _instrument_bus_locks, _nearest_rank
 from eventflow.filtering import EventFilter
 from eventflow.history import MemoryEventHistory
 
@@ -64,26 +62,38 @@ class NativeBenchmarkReferenceTests(unittest.TestCase):
     def test_latency_percentiles_use_nearest_rank(self) -> None:
         samples = [9, 1, 8, 2]
 
-        self.assertEqual(_percentile(samples, 50), 2)
-        self.assertEqual(_percentile(samples, 95), 9)
-        self.assertEqual(_percentile(samples, 99), 9)
+        self.assertEqual(_nearest_rank(samples, 50), 2)
+        self.assertEqual(_nearest_rank(samples, 95), 9)
+        self.assertEqual(_nearest_rank(samples, 99), 9)
         with self.assertRaises(ValueError):
-            _percentile([], 50)
+            _nearest_rank([], 50)
         with self.assertRaises(ValueError):
-            _percentile(samples, 90)
+            _nearest_rank(samples, 90)
 
-    def test_lock_wait_measurement_records_publish_lock_acquisitions(self) -> None:
+    def test_lock_measurement_separates_roles_and_releases_thread_buffers(self) -> None:
         bus = _subscribe_fixture(64, merge=None, key_count=7)
         event = RoutingEvent(0, 17)
-        recorder = _instrument_lock_wait(bus)
+        bus_lock, stats_lock = _instrument_bus_locks(bus)
         try:
-            elapsed = _time_concurrent_lock_wait(4, bus, event, 2, 95, recorder)
-            remaining_samples = recorder.take_samples()
+            bus.publish(event)
+            bus_samples = bus_lock.take_samples()
+            stats_samples = stats_lock.take_samples()
+            bus.publish(event)
+            next_bus_samples = bus_lock.take_samples()
+            next_stats_samples = stats_lock.take_samples()
+            self.assertEqual(bus_lock._thread_samples, {})
+            self.assertEqual(stats_lock._thread_samples, {})
         finally:
             bus.close()
 
-        self.assertGreater(elapsed, 0)
-        self.assertEqual(remaining_samples, [])
+        self.assertEqual(sum(map(len, bus_samples.values())), 2)
+        self.assertEqual(sum(map(len, stats_samples.values())), 1)
+        self.assertEqual(sum(map(len, next_bus_samples.values())), 2)
+        self.assertEqual(sum(map(len, next_stats_samples.values())), 1)
+        for group in (bus_samples, stats_samples):
+            for wait_ns, hold_ns in next(iter(group.values())):
+                self.assertGreaterEqual(wait_ns, 0)
+                self.assertGreater(hold_ns, 0)
 
     def test_single_key_routing_fixture_publishes_on_its_registered_key(self) -> None:
         bus = _subscribe_fixture(64, merge=None, key_count=1, wildcard_percent=0)

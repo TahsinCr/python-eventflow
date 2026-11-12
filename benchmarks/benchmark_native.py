@@ -7,9 +7,9 @@ from collections.abc import Callable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
 from importlib import import_module
-from threading import Barrier, Condition, Lock, local
-from time import perf_counter, perf_counter_ns
-from typing import Any, cast
+from threading import Barrier
+from time import perf_counter
+from typing import cast
 
 from benchmarks._runner import bench_sync, bench_time_func, create_runner, forward_cli_arguments
 from benchmarks.native import python_kernels
@@ -62,79 +62,6 @@ class CandidateBus(EventBus[RoutingEvent]):
         unkeyed = self._unkeyed_subscribers
         keyed = self._keyed_subscribers.get(event_key, {})
         return self._candidate_merge(unkeyed, keyed)  # type: ignore[arg-type]
-
-
-class _LockWaitRecorder:
-    """Benchmark-only RLock proxy that records wait time for ``with bus._lock``."""
-
-    def __init__(self, lock: Any) -> None:
-        self._lock = lock
-        self._local = local()
-        self._thread_samples: list[list[int]] = []
-        self._samples_lock = Lock()
-
-    def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
-        acquire = self._lock.acquire
-        if timeout == -1:
-            return bool(acquire(blocking))
-        return bool(acquire(blocking, timeout))
-
-    def release(self) -> None:
-        self._lock.release()
-
-    def __enter__(self) -> _LockWaitRecorder:
-        started = perf_counter_ns()
-        self.acquire()
-        self._local.wait_ns = perf_counter_ns() - started
-        return self
-
-    def __exit__(self, *_: object) -> None:
-        self.release()
-        samples = getattr(self._local, "samples", None)
-        if samples is None:
-            samples = []
-            self._local.samples = samples
-            with self._samples_lock:
-                self._thread_samples.append(samples)
-        samples.append(self._local.wait_ns)
-
-    def _is_owned(self) -> bool:
-        return bool(self._lock._is_owned())
-
-    def locked(self) -> bool:
-        try:
-            return bool(self._lock.locked())
-        except AttributeError:
-            return self._is_owned()
-
-    def _release_save(self) -> object:
-        return self._lock._release_save()
-
-    def _acquire_restore(self, state: object) -> None:
-        self._lock._acquire_restore(state)
-
-    def take_samples(self) -> list[int]:
-        with self._samples_lock:
-            samples = [
-                sample for thread_samples in self._thread_samples for sample in thread_samples
-            ]
-            for thread_samples in self._thread_samples:
-                thread_samples.clear()
-        return samples
-
-
-def _percentile(samples: list[int], percentile: int) -> int:
-    if not samples or percentile not in {50, 95, 99}:
-        raise ValueError("latency percentile requires samples and a 50, 95, or 99 percentile")
-    ordered = sorted(samples)
-    return ordered[(percentile * len(ordered) + 99) // 100 - 1]
-
-
-def _instrument_lock_wait(bus: EventBus[RoutingEvent]) -> _LockWaitRecorder:
-    recorder = _LockWaitRecorder(cast(Any, bus._lock))
-    cast(Any, bus)._lock = recorder
-    cast(Any, bus)._condition = Condition(cast(Any, recorder))
-    return recorder
 
 
 def _kernels(
@@ -591,70 +518,6 @@ def _time_concurrent_publish(
         return perf_counter() - started
 
 
-def _concurrent_publish_samples(
-    loops: int,
-    bus: EventBus[RoutingEvent],
-    event: RoutingEvent,
-    publishers: int,
-    *,
-    measure_latency: bool,
-) -> list[int]:
-    barrier = Barrier(publishers + 1)
-
-    def publish_many() -> list[int]:
-        samples: list[int] = []
-        barrier.wait(timeout=10)
-        for _ in range(loops):
-            if measure_latency:
-                started = perf_counter_ns()
-                bus.publish(event)
-                samples.append(perf_counter_ns() - started)
-            else:
-                bus.publish(event)
-        return samples
-
-    with ThreadPoolExecutor(max_workers=publishers) as executor:
-        futures = [executor.submit(publish_many) for _ in range(publishers)]
-        barrier.wait(timeout=10)
-        return [sample for future in futures for sample in future.result()]
-
-
-def _time_concurrent_publish_latency(
-    loops: int,
-    bus: EventBus[RoutingEvent],
-    event: RoutingEvent,
-    publishers: int,
-    percentile: int,
-) -> float:
-    samples = _concurrent_publish_samples(
-        loops,
-        bus,
-        event,
-        publishers,
-        measure_latency=True,
-    )
-    return _percentile(samples, percentile) * loops * publishers / 1_000_000_000
-
-
-def _time_concurrent_lock_wait(
-    loops: int,
-    bus: EventBus[RoutingEvent],
-    event: RoutingEvent,
-    publishers: int,
-    percentile: int,
-    recorder: _LockWaitRecorder,
-) -> float:
-    _concurrent_publish_samples(
-        loops,
-        bus,
-        event,
-        publishers,
-        measure_latency=False,
-    )
-    samples = recorder.take_samples()
-    return _percentile(samples, percentile) * loops * publishers / 1_000_000_000
-
-
 def _routing_contention_cases(
     runner,
     implementation: str,
@@ -738,127 +601,6 @@ def _routing_contention_cases(
                 production_bus.close()
 
 
-def _register_latency_cases(
-    runner,
-    bus: EventBus[RoutingEvent],
-    event: RoutingEvent,
-    candidate_metadata: dict[str, str | int | float],
-) -> None:
-    for publishers in (1, 4, 8):
-        for percentile in (50, 95, 99):
-            metadata = {
-                **candidate_metadata,
-                "publishers": publishers,
-                "measurement": "publish_latency",
-                "percentile": percentile,
-                "timer": "nearest-rank of perf_counter_ns around EventBus.publish",
-                "per_call_timing": True,
-                "lock_instrumented": False,
-            }
-            bench_time_func(
-                runner,
-                f"routing_latency_publish/{candidate_metadata['candidate_algorithm']}/"
-                f"{candidate_metadata['latency_profile']}/{publishers}/p{percentile}/"
-                f"subscriptions_{candidate_metadata['subscriptions']}",
-                _time_concurrent_publish_latency,
-                bus,
-                event,
-                publishers,
-                percentile,
-                inner_loops=publishers,
-                metadata=metadata,
-            )
-
-    recorder = _instrument_lock_wait(bus)
-    for publishers in (1, 4, 8):
-        for percentile in (50, 95, 99):
-            metadata = {
-                **candidate_metadata,
-                "publishers": publishers,
-                "measurement": "routing_lock_wait",
-                "percentile": percentile,
-                "timer": "nearest-rank perf_counter_ns around RLock acquisition",
-                "per_call_timing": False,
-                "lock_instrumented": True,
-            }
-            bench_time_func(
-                runner,
-                f"routing_latency_lock_wait/{candidate_metadata['candidate_algorithm']}/"
-                f"{candidate_metadata['latency_profile']}/{publishers}/p{percentile}/"
-                f"subscriptions_{candidate_metadata['subscriptions']}",
-                _time_concurrent_lock_wait,
-                bus,
-                event,
-                publishers,
-                percentile,
-                recorder,
-                inner_loops=publishers,
-                metadata=metadata,
-            )
-
-
-def _routing_latency_cases(
-    runner,
-    implementation: str,
-    merge_kernels: tuple[tuple[str, MergeKernel], ...],
-) -> None:
-    event = RoutingEvent(0, 17)
-    latency_profiles = (
-        ("all_callbacks_7keys_20pct_wildcard", 7, 20, False),
-        ("filter_reject_7keys_20pct_wildcard", 7, 20, True),
-        ("all_callbacks_31keys_50pct_wildcard", 31, 50, False),
-    )
-    selected_kernels = (
-        tuple(item for item in merge_kernels if item[0] == "python_two_pointer")
-        if implementation == "python"
-        else merge_kernels
-    )
-    cases: list[tuple[str, MergeKernel | None, str]] = [
-        (kernel_name, merge, implementation) for kernel_name, merge in selected_kernels
-    ]
-    if implementation == "python":
-        cases.append(("production_two_pointer", None, "production_python"))
-
-    for algorithm, merge, candidate_implementation in cases:
-        for profile, key_count, wildcard_percent, filtered in latency_profiles:
-            bus = _subscribe_fixture(
-                2_048,
-                merge=merge,
-                key_count=key_count,
-                wildcard_percent=wildcard_percent,
-                filtered=filtered,
-            )
-            try:
-                selected = len(bus._subscriber_snapshot(event.key))
-                check = bus.publish(event)
-                if filtered:
-                    if check.matched or check.delivered:
-                        raise AssertionError("filter-rejection fixture delivered an event")
-                elif check.matched != selected or check.delivered != selected:
-                    raise AssertionError(
-                        "contention fixture does not deliver every selected callback"
-                    )
-                _register_latency_cases(
-                    runner,
-                    bus,
-                    event,
-                    {
-                        "candidate_implementation": candidate_implementation,
-                        "candidate_algorithm": algorithm,
-                        "case": "concurrent_event_bus_publish_latency",
-                        "latency_profile": profile,
-                        "subscriptions": 2_048,
-                        "selected_subscriptions": selected,
-                        "filtered_subscriptions": selected if filtered else 0,
-                        "filter_mode": "reject_all" if filtered else "deliver_all",
-                        "wildcard_percent": wildcard_percent,
-                        "key_count": key_count,
-                    },
-                )
-            finally:
-                bus.close()
-
-
 def main() -> int:
     runner = create_runner(
         "EventFlow Python/Cython/C candidate benchmarks",
@@ -869,7 +611,7 @@ def main() -> int:
     )
     runner.argparser.add_argument(
         "--matrix",
-        choices=("smoke", "routing", "history", "decision", "full", "latency"),
+        choices=("smoke", "routing", "history", "decision", "full"),
         default="full",
     )
     args = runner.parse_args()
@@ -885,7 +627,7 @@ def main() -> int:
         raise RuntimeError(
             f"importing the {args.implementation} candidate re-enabled the free-threaded GIL"
         )
-    if args.matrix not in {"routing", "latency"}:
+    if args.matrix != "routing":
         _history_cases(
             runner,
             args.implementation,
@@ -893,11 +635,9 @@ def main() -> int:
             tuple_filter_kernels,
             args.matrix,
         )
-    if args.matrix not in {"history", "latency"}:
+    if args.matrix != "history":
         _routing_cases(runner, args.implementation, merge_kernels, args.matrix)
-    if args.matrix == "latency":
-        _routing_latency_cases(runner, args.implementation, merge_kernels)
-    elif args.matrix != "history":
+    if args.matrix != "history":
         _routing_contention_cases(runner, args.implementation, merge_kernels, args.matrix)
     return 0
 

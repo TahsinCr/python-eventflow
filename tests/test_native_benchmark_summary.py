@@ -95,7 +95,7 @@ class NativeBenchmarkSummaryTests(unittest.TestCase):
                                 },
                                 "publish_latency_ns": {"0": [100, 200], "1": [300, 400]},
                                 "lock_metrics": {
-                                    "snapshot_lock": {
+                                    "bus_lock": {
                                         "0": [
                                             {"wait_ns": 10, "hold_ns": 20},
                                             {"wait_ns": 30, "hold_ns": 40},
@@ -131,7 +131,7 @@ class NativeBenchmarkSummaryTests(unittest.TestCase):
             for row in rows
             if row["measurement"] == "publish_latency" and row["sample_scope"] == "worker_0"
         )
-        wait = next(row for row in rows if row["metric"] == "snapshot_lock_wait_ns")
+        wait = next(row for row in rows if row["metric"] == "bus_lock_wait_ns")
         throughput = next(row for row in rows if row["measurement"] == "throughput")
         self.assertEqual(aggregate["sample_count"], "4")
         self.assertEqual(aggregate["p50_us"], "0.2")

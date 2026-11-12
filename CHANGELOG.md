@@ -45,10 +45,11 @@ All notable changes to this project are documented in this file.
   comparisons without routing workloads.
 - Add a C tuple-indexed history filter candidate to compare directly with the
   existing iterator-based C implementation.
-- Add a focused routing latency matrix that records per-publish P50/P95/P99 and
-  separately instrumented lock-wait percentiles for Python, Cython and C paths.
-- Cover all-delivered and filter-rejected 2,048-subscription traffic plus a
-  31-key, 50%-wildcard profile in the focused routing-latency matrix.
+- Add a raw routing-latency collector for 2,048-subscription delivery,
+  filter-rejection and 31-key profiles. It derives per-publish P50/P95/P99/max
+  from retained samples, reports worker-level distributions and keeps
+  uninstrumented throughput, process CPU and instrumented lock wait/hold runs
+  separate.
 - Build and semantically validate the optional C and Cython benchmark kernels
   in the Linux distribution workflow.
 - Add a deterministic native-result CSV exporter that validates shared source
@@ -92,6 +93,8 @@ All notable changes to this project are documented in this file.
 - Rebuild the 2026-11-11 native summary with corrected candidate and
   subscription metadata; label its pyperf percentile estimates as legacy
   replicates because the original per-publish samples were not retained.
+- Remove the synthetic percentile-duration cases from the pyperf matrix; they
+  did not measure a real elapsed duration and combined EventBus lock roles.
 - Rename the Python-version compatibility helper to `eventflow._compatibility`
   to mark it as an internal module.
 - Use pyperf as the shared timing and result engine for all benchmark modules.

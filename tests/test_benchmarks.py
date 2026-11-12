@@ -327,21 +327,18 @@ class PyperfRunnerTests(unittest.TestCase):
                 names,
             )
 
-    def test_native_routing_latency_matrix_reports_publish_and_lock_percentiles(self) -> None:
+    def test_native_latency_collector_separates_batches_and_preserves_raw_samples(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             output = Path(temporary_directory) / "native-routing-latency.json"
             result = subprocess.run(
                 [
                     sys.executable,
-                    "-m",
-                    "benchmarks.benchmark_native",
+                    "-m", "benchmarks.native_latency",
                     "--implementation=python",
-                    "--matrix=latency",
-                    "--quiet",
-                    "--processes=1",
-                    "--values=1",
-                    "--warmups=0",
-                    "--loops=1",
+                    "--profile=all_callbacks_7keys_20pct_wildcard",
+                    "--publishers=2",
+                    "--loops=4",
+                    "--subscriptions=64",
                     "--output",
                     str(output),
                 ],
@@ -357,37 +354,43 @@ class PyperfRunnerTests(unittest.TestCase):
                     f"\nstderr:\n{result.stderr}"
                 )
             document = json.loads(output.read_text(encoding="utf-8"))
-            benchmarks = {
-                item["metadata"]["name"]: item["metadata"] for item in document["benchmarks"]
-            }
+            self.assertEqual(document["schema"], "eventflow.native-latency.v1")
+            self.assertEqual(len(document["results"]), 2)
+            publish = next(
+                result
+                for result in document["results"]
+                if result["candidate_algorithm"] == "python_two_pointer"
+            )
 
-        publish = benchmarks[
-            "routing_latency_publish/python_two_pointer/"
-            "all_callbacks_7keys_20pct_wildcard/4/p95/subscriptions_2048"
-        ]
-        lock_wait = benchmarks[
-            "routing_latency_lock_wait/production_two_pointer/"
-            "all_callbacks_7keys_20pct_wildcard/8/p99/subscriptions_2048"
-        ]
-        rejected = benchmarks[
-            "routing_latency_publish/python_two_pointer/"
-            "filter_reject_7keys_20pct_wildcard/4/p95/subscriptions_2048"
-        ]
-        broad = benchmarks[
-            "routing_latency_publish/python_two_pointer/"
-            "all_callbacks_31keys_50pct_wildcard/4/p95/subscriptions_2048"
-        ]
-        self.assertEqual(publish["measurement"], "publish_latency")
-        self.assertEqual(publish["percentile"], 95)
-        self.assertTrue(publish["per_call_timing"])
-        self.assertFalse(publish["lock_instrumented"])
-        self.assertIn("nearest-rank", publish["timer"])
-        self.assertEqual(rejected["filter_mode"], "reject_all")
-        self.assertEqual(rejected["filtered_subscriptions"], 653)
-        self.assertEqual(broad["key_count"], 31)
-        self.assertEqual(broad["wildcard_percent"], 50)
-        self.assertEqual(lock_wait["measurement"], "routing_lock_wait")
-        self.assertTrue(lock_wait["lock_instrumented"])
+        self.assertEqual(publish["publishers"], 2)
+        self.assertEqual(publish["subscriptions"], 64)
+        self.assertFalse(publish["throughput_instrumented"])
+        self.assertFalse(publish["latency_lock_instrumented"])
+        self.assertTrue(publish["lock_batch_instrumented"])
+        self.assertEqual(publish["throughput"]["publish_count"], 8)
+        self.assertGreater(publish["throughput"]["wall_ns"], 0)
+        self.assertGreaterEqual(publish["throughput"]["process_cpu_ns"], 0)
+        self.assertEqual(
+            {worker: len(samples) for worker, samples in publish["publish_latency_ns"].items()},
+            {"0": 4, "1": 4},
+        )
+        raw = sorted(
+            sample
+            for samples in publish["publish_latency_ns"].values()
+            for sample in samples
+        )
+        summary = publish["latency_summary_ns"]["aggregate"]
+        self.assertEqual(summary["sample_count"], len(raw))
+        self.assertEqual(summary["p50_ns"], raw[3])
+        self.assertEqual(summary["p95_ns"], raw[7])
+        self.assertEqual(summary["p99_ns"], raw[7])
+        for phase in ("bus_lock", "stats_lock"):
+            counts = {
+                worker: len(samples)
+                for worker, samples in publish["lock_metrics"][phase].items()
+            }
+            expected = 8 if phase == "bus_lock" else 4
+            self.assertEqual(counts, {"0": expected, "1": expected})
 
 
 if __name__ == "__main__":
