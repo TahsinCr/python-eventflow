@@ -872,7 +872,7 @@ native candidate rows across both orders, and 21 post-native Python control
 rows. It includes the per-case CV, interpreter, source hash, and native build
 metadata.
 
-## Focused routing latency and C tuple history rerun (2026-11-11)
+## Native routing benchmarks
 
 ### Current raw-sample collector
 
@@ -901,6 +901,22 @@ separate protocol declared before collecting its results. Compare only results
 with matching source SHA, binary SHA, build manifest SHA, interpreter and GIL
 state.
 
+Build both optional candidates into a directory outside the checkout, then set
+`PYTHONPATH` for each native run so the extension and its build manifest are
+found together:
+
+~~~bash
+python benchmarks/native/build.py --build-dir /tmp/eventflow-native-build
+PYTHONPATH=/tmp/eventflow-native-build python -m benchmarks.native_latency \
+  --implementation=cython --profile=all_callbacks_7keys_20pct_wildcard \
+  --publishers=1 --loops=2000 --subscriptions=2048 \
+  --output=/tmp/eventflow-latency-cython-run1.json
+PYTHONPATH=/tmp/eventflow-native-build python -m benchmarks.native_latency \
+  --implementation=c --profile=all_callbacks_7keys_20pct_wildcard \
+  --publishers=1 --loops=2000 --subscriptions=2048 \
+  --output=/tmp/eventflow-latency-c-run1.json
+~~~
+
 For a decision-grade comparison, the collector records this fixed stopping
 rule in each JSON: first run five fresh processes with 2,000 observations per
 publisher and candidate; stop if every matched candidate/profile/publisher
@@ -911,8 +927,9 @@ still above 10% as inconclusive. Use a unique `--output` path for each process.
 The CSV `cv_percent` field is the dispersion within one raw sample group; it is
 distinct from this cross-process stopping statistic.
 The raw metadata also captures CPU model/count and affinity, Python compiler
-flags, and native compiler identity and flags; the CSV carries these fields for
-side-by-side filtering.
+flags, and native compiler identity and flags. The CSV retains compact CPU and
+compiler identities plus source, binary and build-manifest hashes; full flags
+remain in the JSON to avoid repeating long strings on every summary row.
 
 Each candidate/profile/publisher case runs three batches: throughput records
 wall time and process CPU with no per-publish timer or lock recorder; publish
@@ -937,8 +954,74 @@ The 2026-11-11 tables below remain historical pyperf estimates. Their raw files
 did not retain individual publish observations, so the new exporter marks
 those rows as legacy estimates instead of presenting them as raw distributions.
 
-This follow-up uses one clean source revision for the expanded routing latency
-matrix and all three history implementations.
+### Exploratory raw-sample pilot (2026-11-12)
+
+The first raw-sample pilot ran the Python, Cython and C candidates sequentially
+on the same machine and committed benchmark source. It covered one all-delivery
+profile, 2,048 subscriptions, 500 publishes per publisher, and publisher counts
+1 and 4. Each candidate has one independent process run; the data is exploratory
+and does not meet the decision-grade sample plan above.
+
+| Property | Value |
+| --- | --- |
+| Source revision | <code>a09b92066343a2113a8a5272b8f5bca8fededf56</code> |
+| Source SHA-256 | <code>5ea62a1b16e4ad29f863e068367388a7518d02b1a23f447b0c0b5418ec07c6e5</code> |
+| Working tree | Clean; <code>eventflow_source_dirty=false</code> |
+| Interpreter | CPython 3.14.10, GIL enabled |
+| Host | Intel Core i7-12700H, Linux x86_64, CPUs 0–19 available |
+| Profile | 7 routing keys, 20% wildcard subscriptions, all selected callbacks delivered |
+| Repetitions | One process per backend; not enough to estimate between-run stability |
+
+Publish latency percentiles are nearest-rank values from the same retained raw
+samples. `CV` below is within-run event-to-event dispersion, not cross-process
+stability. Values are microseconds; rows with four publishers contain 2,000
+individual publish observations combined across the four workers.
+
+| Backend / candidate | Publishers | Samples | P50 | P95 | P99 | Max | Within-run CV |
+| --- | ---: | ---: | ---: | ---: | ---: | ---: | ---: |
+| C / key lookup | 1 | 500 | 291.4 | 868.6 | 962.7 | 1,061.4 | 48.0% |
+| C / key lookup | 4 | 2,000 | 3,883.3 | 6,560.0 | 23,715.5 | 76,382.6 | 132.3% |
+| Cython / items | 1 | 500 | 316.3 | 598.5 | 846.3 | 1,145.8 | 31.4% |
+| Cython / items | 4 | 2,000 | 4,369.6 | 7,148.0 | 29,346.9 | 112,586.8 | 136.3% |
+| Cython / key lookup | 1 | 500 | 296.6 | 633.0 | 676.5 | 840.1 | 30.9% |
+| Cython / key lookup | 4 | 2,000 | 5,124.0 | 7,046.0 | 23,410.5 | 99,412.5 | 115.8% |
+| Production Python | 1 | 500 | 316.5 | 436.6 | 529.3 | 670.8 | 14.0% |
+| Production Python | 4 | 2,000 | 5,070.1 | 7,632.6 | 18,388.4 | 68,234.8 | 87.2% |
+| Python / two-pointer candidate | 1 | 500 | 323.9 | 976.8 | 1,031.7 | 1,368.2 | 49.0% |
+| Python / two-pointer candidate | 4 | 2,000 | 5,076.7 | 7,016.9 | 14,878.8 | 47,838.8 | 61.8% |
+
+Throughput and CPU were measured in a separate uninstrumented batch. This was
+one batch per row, so the values are not repeated pyperf estimates.
+
+| Backend / candidate | Publishers | Publishes/s | Wall batch | Process CPU |
+| --- | ---: | ---: | ---: | ---: |
+| C / key lookup | 1 | 1,618.5 | 0.309 s | 0.307 s |
+| C / key lookup | 4 | 967.0 | 2.068 s | 1.987 s |
+| Cython / items | 1 | 1,868.2 | 0.268 s | 0.266 s |
+| Cython / items | 4 | 709.1 | 2.821 s | 2.683 s |
+| Cython / key lookup | 1 | 2,219.8 | 0.225 s | 0.224 s |
+| Cython / key lookup | 4 | 971.2 | 2.059 s | 1.974 s |
+| Production Python | 1 | 2,188.9 | 0.228 s | 0.228 s |
+| Production Python | 4 | 794.5 | 2.517 s | 2.387 s |
+| Python / two-pointer candidate | 1 | 1,774.7 | 0.282 s | 0.280 s |
+| Python / two-pointer candidate | 4 | 1,131.8 | 1.767 s | 1.689 s |
+
+The high 4-publisher tail dispersion and single-process design make backend
+ranking premature. These numbers do not show a stable C or Cython advantage;
+the next comparison should use the five-process 2,000-sample stage and apply
+the predeclared 5,000-sample escalation uniformly if its cross-process P99 CV
+threshold is exceeded. This pilot did not cover the rejection or 31-key
+profiles, eight publishers, a free-threaded interpreter or a second host.
+
+- [Python raw samples](native/native_latency_2026-11-12_a09b920_py31410_gil-on_python.json)
+- [Cython raw samples](native/native_latency_2026-11-12_a09b920_py31410_gil-on_cython.json)
+- [C raw samples](native/native_latency_2026-11-12_a09b920_py31410_gil-on_c.json)
+- [185-row deterministic summary](native/native_latency_2026-11-12_a09b920_py31410_gil-on_summary.csv)
+
+### Archived focused pyperf comparison (2026-11-11)
+
+This historical follow-up used one clean source revision for the expanded
+routing latency matrix and all three history implementations.
 
 | Property | Value |
 | --- | --- |

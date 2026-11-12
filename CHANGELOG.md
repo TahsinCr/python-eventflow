@@ -60,6 +60,8 @@ All notable changes to this project are documented in this file.
   in the CSV summary.
 - Record a fixed fresh-process sample schedule and CV-based escalation/stop
   rule so candidate comparisons do not stop selectively after favorable runs.
+- Store the 2026-11-12 source-pinned Python/Cython/C routing pilot with its raw
+  samples, compact summary and explicit single-host, single-process limits.
 - Cover skewed keyed/wildcard indexes and concurrent subscription churn in the
   synchronous routing regression tests.
 
