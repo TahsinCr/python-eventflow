@@ -55,8 +55,9 @@ All notable changes to this project are documented in this file.
 - Add a deterministic native-result CSV exporter that validates shared source
   identity, resolves benchmark metadata fallbacks and records native binary and
   build-manifest hashes.
-- Record the host CPU model and affinity, Python compiler configuration, and
-  native compiler details with raw measurements and CSV summaries.
+- Record host CPU and affinity, interpreter/compiler configuration and native
+  compiler details in raw results; retain compact identities and build hashes
+  in the CSV summary.
 - Record a fixed fresh-process sample schedule and CV-based escalation/stop
   rule so candidate comparisons do not stop selectively after favorable runs.
 - Cover skewed keyed/wildcard indexes and concurrent subscription churn in the
