@@ -29,6 +29,8 @@ All notable changes to this project are documented in this file.
 - Add a private, explicit opt-in path for the Cython unlimited type-only
   history query and C keyed/wildcard routing merge. The default runtime remains
   Python, and requesting an unavailable native extension fails during import.
+- Build and test opt-in native wheels from source distributions on CPython 3.10
+  and 3.14 across Linux, Windows and macOS; keep the default wheel pure Python.
 - Add seven focused regression tests for synchronous awaitable cleanup, retry
   deadline limits, retry observer failures and cancellation, and callback
   predicate awaitables.

@@ -1418,4 +1418,35 @@ The compact summaries are available here:
 Keep C routing and Cython history opt-in. The history result merits continued
 cross-platform and target-workload measurement; the routing result needs a
 lower-variance matched repeat before any default-backend decision. Neither
-experiment changes package dependencies or distribution contents.
+experiment adds runtime dependencies or changes the standard pure-Python wheel.
+
+## Optional native wheel build
+
+The standard `flowevent` wheel remains pure Python and does not require Cython
+or a C compiler. Maintainers can explicitly build a platform-specific wheel
+that contains the C routing and Cython history extensions from the source
+distribution. This build path is for controlled experiments; it has not been
+published to PyPI.
+
+The wheel build requires a native compiler and the `native-bench` extra. The
+build flag is opt-in: when it is unset or `0`, setuptools builds the regular
+pure-Python wheel; `1` adds both native extensions, and any other value is an
+error. For example, from Bash:
+
+~~~bash
+python -m pip install -e ".[native-bench]" build
+python -m build --sdist --outdir /tmp/eventflow-native-dist
+EVENTFLOW_BUILD_NATIVE=1 python -m build --wheel --no-isolation \
+  --outdir /tmp/eventflow-native-wheel \
+  /tmp/eventflow-native-dist/flowevent-*.tar.gz
+~~~
+
+The resulting wheel is tied to its CPython ABI and operating system. Installing
+it does not select native kernels automatically: the runtime remains Python
+unless `EVENTFLOW_EXPERIMENTAL_HISTORY_BACKEND=cython` and/or
+`EVENTFLOW_EXPERIMENTAL_ROUTING_BACKEND=c` is set before import. CI builds a
+wheel from the source archive, installs it outside the checkout, verifies that
+both extensions are compiled modules and runs the native runtime integration
+tests on CPython 3.10 and 3.14 for Linux, Windows and macOS. This checks the
+packaging path without making the native wheel a release artifact or changing
+the default installation.

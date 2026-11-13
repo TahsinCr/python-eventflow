@@ -3,10 +3,7 @@
 from __future__ import annotations
 
 import os
-import subprocess
-import sys
 import unittest
-from pathlib import Path
 from types import SimpleNamespace
 from unittest.mock import patch
 
@@ -27,21 +24,18 @@ class NativeRuntimeTests(unittest.TestCase):
                 _native._load_kernel("TEST_BACKEND", "c", "native_fixture", "merge_subscribers")
 
     def test_forced_native_backend_fails_when_extension_is_missing(self) -> None:
-        environment = os.environ.copy()
-        environment.pop("PYTHONPATH", None)
-        environment["EVENTFLOW_EXPERIMENTAL_HISTORY_BACKEND"] = "cython"
-        environment.pop("EVENTFLOW_EXPERIMENTAL_ROUTING_BACKEND", None)
-        result = subprocess.run(
-            [sys.executable, "-c", "import eventflow"],
-            cwd=Path(__file__).resolve().parents[1],
-            env=environment,
-            check=False,
-            capture_output=True,
-            text=True,
-        )
-
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("requires the optional eventflow_native_cython extension", result.stderr)
+        missing_module = ModuleNotFoundError("No module named 'eventflow_native_cython'")
+        with (
+            patch.dict(os.environ, {"TEST_BACKEND": "cython"}),
+            patch.object(_native, "import_module", side_effect=missing_module),
+            self.assertRaisesRegex(
+                RuntimeError,
+                "requires the optional eventflow_native_cython extension",
+            ),
+        ):
+            _native._load_kernel(
+                "TEST_BACKEND", "cython", "eventflow_native_cython", "filter_by_type"
+            )
 
     @unittest.skipUnless(
         _native.HISTORY_BACKEND == "cython" and _native.ROUTING_BACKEND == "c",

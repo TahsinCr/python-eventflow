@@ -12,7 +12,35 @@ import sys
 from collections.abc import Callable
 from importlib import import_module
 from pathlib import Path
-from typing import cast
+from typing import TYPE_CHECKING, cast
+
+if TYPE_CHECKING:
+    from setuptools import Extension
+
+
+def native_extensions(root: Path, generated: Path) -> list[Extension]:
+    from setuptools import Extension as SetuptoolsExtension
+
+    cythonize = cast(
+        Callable[..., list[SetuptoolsExtension]],
+        import_module("Cython.Build").cythonize,
+    )
+    extensions = [
+        SetuptoolsExtension(
+            "eventflow_native_c",
+            [str(root / "benchmarks/native/kernels.c")],
+        ),
+        SetuptoolsExtension(
+            "eventflow_native_cython",
+            [str(root / "benchmarks/native/kernels.pyx")],
+        ),
+    ]
+    return cythonize(
+        extensions,
+        build_dir=str(generated),
+        compiler_directives={"language_level": 3},
+        quiet=True,
+    )
 
 
 def _compiler_version(compiler: object) -> str:
@@ -42,33 +70,13 @@ def main() -> int:
     parser.add_argument("--build-dir", type=Path, required=True)
     args = parser.parse_args()
 
-    from setuptools import Distribution, Extension
-
-    cythonize = cast(
-        Callable[..., list[Extension]],
-        import_module("Cython.Build").cythonize,
-    )
+    from setuptools import Distribution
 
     root = Path(__file__).resolve().parents[2]
     output = args.build_dir.resolve()
     generated = output / "generated"
     output.mkdir(parents=True, exist_ok=True)
-    extensions = [
-        Extension(
-            "eventflow_native_c",
-            [str(root / "benchmarks/native/kernels.c")],
-        ),
-        Extension(
-            "eventflow_native_cython",
-            [str(root / "benchmarks/native/kernels.pyx")],
-        ),
-    ]
-    extensions = cythonize(
-        extensions,
-        build_dir=str(generated),
-        compiler_directives={"language_level": 3},
-        quiet=True,
-    )
+    extensions = native_extensions(root, generated)
     distribution = Distribution({"ext_modules": extensions})
     build_ext = distribution.get_command_obj("build_ext")
     build_ext.build_lib = str(output)

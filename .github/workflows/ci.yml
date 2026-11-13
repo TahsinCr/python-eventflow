@@ -92,6 +92,65 @@ jobs:
           PYTHONPATH: ${{ runner.temp }}/eventflow-native
         run: python run_tests.py
 
+  native-wheel:
+    name: Experimental native wheel Python ${{ matrix.python-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.14"]
+    env:
+      NATIVE_DIST: ${{ runner.temp }}/native-dist
+      NATIVE_WHEEL: ${{ runner.temp }}/native-wheel
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install native build tools
+        run: python -m pip install -e ".[native-bench]" build
+
+      - name: Build the source distribution
+        shell: bash
+        run: |
+          mkdir -p "$NATIVE_DIST" "$NATIVE_WHEEL"
+          python -m build --sdist --outdir "$NATIVE_DIST"
+
+      - name: Build a native-enabled wheel from the source distribution
+        shell: bash
+        env:
+          EVENTFLOW_BUILD_NATIVE: "1"
+        run: python -m build --wheel --no-isolation --outdir "$NATIVE_WHEEL" "$NATIVE_DIST"/*.tar.gz
+
+      - name: Install the native-enabled wheel
+        shell: bash
+        run: python -m pip install --force-reinstall --no-deps "$NATIVE_WHEEL"/*.whl
+
+      - name: Verify wheel extensions and installed runtime behavior
+        shell: bash
+        working-directory: ${{ runner.temp }}
+        env:
+          EVENTFLOW_EXPERIMENTAL_HISTORY_BACKEND: cython
+          EVENTFLOW_EXPERIMENTAL_ROUTING_BACKEND: c
+        run: |
+          python - <<'PY'
+          from importlib import import_module
+          from importlib.machinery import EXTENSION_SUFFIXES
+
+          for name in ("eventflow_native_c", "eventflow_native_cython"):
+              module = import_module(name)
+              assert any(module.__file__.endswith(suffix) for suffix in EXTENSION_SUFFIXES)
+          PY
+          python "$GITHUB_WORKSPACE/tests/test_native_runtime.py"
+
   lint:
     name: Ruff
     runs-on: ubuntu-latest
@@ -258,7 +317,9 @@ jobs:
                   if name.startswith(root_name + "/")
               }
               required = {
+                  "setup.py",
                   "benchmarks/benchmark_native.py",
+                  "benchmarks/native/build.py",
                   "benchmarks/native/kernels.c",
                   "benchmarks/native/kernels.pyx",
                   "tests/test_native_benchmarks.py",
