@@ -74,9 +74,7 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Install EventFlow and native build tools
-        run: |
-          python -m pip install -e ".[dev]"
-          python -m pip install "Cython>=3.1,<4"
+        run: python -m pip install -e ".[dev,native-bench]"
 
       - name: Build and validate optional native kernels
         shell: bash
@@ -165,7 +163,7 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Install package
-        run: python -m pip install -e ".[dev]"
+        run: python -m pip install -e ".[dev,native-bench]"
 
       - name: Verify GIL is disabled
         env:
@@ -178,9 +176,6 @@ jobs:
           PYTHONASYNCIODEBUG: "1"
           PYTHONWARNINGS: error
         run: python run_tests.py
-
-      - name: Install Cython for the experimental runtime build
-        run: python -m pip install "Cython>=3.1,<4"
 
       - name: Build and validate optional native kernels without the GIL
         shell: bash

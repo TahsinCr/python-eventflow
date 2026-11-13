@@ -151,6 +151,8 @@ All notable changes to this project are documented in this file.
 - Preserve arbitrary-size Python integer ordering in the C routing candidate,
   support limited tuple history filtering, and remove redundant integer
   conversions from the merge tails.
+- Install the `native-bench` tools for native runtime CI builds on CPython 3.14
+  and free-threaded interpreters, where `setuptools` is not preinstalled.
 - Measure cross-thread queue roundtrips with a publisher thread that calls
   `EventBus.publish()` directly. Remove the benchmark-only per-event request
   queue and future handoff that inflated the measured bridge path.
