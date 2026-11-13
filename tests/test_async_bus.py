@@ -7,7 +7,12 @@ import unittest
 from typing import cast
 from unittest.mock import patch
 
-from _support import _FailingAppendHistory, _FailingQueryHistory, _RecordingQueryHistory
+from _support import (
+    _FailingAppendHistory,
+    _FailingQueryHistory,
+    _RecordingQueryHistory,
+    _reject_task_creation,
+)
 
 from eventflow import (
     AsyncEventBus,
@@ -213,10 +218,7 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
     async def test_task_creation_rejection_closes_delivery_and_periodic_coroutines(self) -> None:
         loop = asyncio.get_running_loop()
         rejected = []
-
-        def reject_task(coroutine, *, name=None, context=None):
-            rejected.append(coroutine)
-            raise RuntimeError("task creation rejected")
+        reject_task = _reject_task_creation(rejected)
 
         concurrent = AsyncEventBus[int](
             delivery_mode=DeliveryMode.CONCURRENT,

@@ -76,6 +76,8 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Consolidate repeated task-creation rejection helpers used by async lifecycle,
+  callback, bus and concurrency regression tests.
 - Preserve the combined bus-lock series and add separate outer and reentrant
   acquisition distributions in raw routing-latency records. Record the
   experimental runtime backends and extension hashes alongside source

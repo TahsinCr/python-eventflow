@@ -6,7 +6,7 @@ import asyncio
 import unittest
 from unittest.mock import patch
 
-from _support import _AsyncValueMixin
+from _support import _AsyncValueMixin, _reject_task_creation
 
 from eventflow.concurrency import KeyedConcurrencyLimiter, KeyedRateLimiter, SingleFlight
 
@@ -66,10 +66,7 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase, _AsyncValueMi
         flight = SingleFlight[str]()
         loop = asyncio.get_running_loop()
         rejected = []
-
-        def reject_task(coroutine, *, name=None, context=None):
-            rejected.append(coroutine)
-            raise RuntimeError("task creation rejected")
+        reject_task = _reject_task_creation(rejected)
 
         async def factory():
             return "ready"

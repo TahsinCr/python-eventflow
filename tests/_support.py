@@ -1,6 +1,17 @@
 """Small shared test utilities."""
 
+from collections.abc import Callable
+from typing import NoReturn
+
 from eventflow import EventFilter, MemoryEventHistory
+
+
+def _reject_task_creation(rejected: list[object]) -> Callable[..., NoReturn]:
+    def reject_task(coroutine: object, **_: object) -> NoReturn:
+        rejected.append(coroutine)
+        raise RuntimeError("task creation rejected")
+
+    return reject_task
 
 
 class ManualClock:

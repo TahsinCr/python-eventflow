@@ -7,7 +7,7 @@ import threading
 import unittest
 from unittest.mock import patch
 
-from _support import _AsyncValueMixin
+from _support import _AsyncValueMixin, _reject_task_creation
 
 from eventflow._compatibility import ExceptionGroup
 from eventflow.observability import OperationStats
@@ -270,10 +270,7 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase, _AsyncValueMi
         supplied = operation()
         loop = asyncio.get_running_loop()
         rejected = []
-
-        def reject_task(coroutine, *, name=None, context=None):
-            rejected.append(coroutine)
-            raise RuntimeError("task creation rejected")
+        reject_task = _reject_task_creation(rejected)
 
         with patch.object(loop, "create_task", side_effect=reject_task):
             with self.assertRaisesRegex(RuntimeError, "creation rejected"):
@@ -361,10 +358,7 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase, _AsyncValueMi
         await started.wait()
         loop = asyncio.get_running_loop()
         rejected = []
-
-        def reject_task(coroutine, *, name=None, context=None):
-            rejected.append(coroutine)
-            raise RuntimeError("task creation rejected")
+        reject_task = _reject_task_creation(rejected)
 
         with patch.object(loop, "create_task", side_effect=reject_task):
             with self.assertRaisesRegex(RuntimeError, "creation rejected"):

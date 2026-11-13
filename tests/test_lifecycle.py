@@ -2,6 +2,8 @@ import asyncio
 import unittest
 from unittest.mock import patch
 
+from _support import _reject_task_creation
+
 from eventflow._lifecycle import finish_cleanup
 
 
@@ -9,10 +11,7 @@ class FinishCleanupTests(unittest.IsolatedAsyncioTestCase):
     async def test_closes_coroutine_when_task_creation_is_rejected(self):
         loop = asyncio.get_running_loop()
         rejected = []
-
-        def reject_task(coroutine, *, name=None, context=None):
-            rejected.append(coroutine)
-            raise RuntimeError("task creation rejected")
+        reject_task = _reject_task_creation(rejected)
 
         async def cleanup():
             return None

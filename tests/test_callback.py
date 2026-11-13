@@ -4,6 +4,8 @@ import unittest
 import warnings
 from unittest.mock import patch
 
+from _support import _reject_task_creation
+
 from eventflow import CallbackSubscription, CallbackTimeoutError
 
 
@@ -222,10 +224,7 @@ class AsyncCallbackTests(unittest.IsolatedAsyncioTestCase):
     async def test_timed_callback_closes_coroutine_when_task_creation_fails(self):
         loop = asyncio.get_running_loop()
         rejected = []
-
-        def reject_task(coroutine, *, name=None, context=None):
-            rejected.append(coroutine)
-            raise RuntimeError("task creation rejected")
+        reject_task = _reject_task_creation(rejected)
 
         async def callback(event):
             return event
