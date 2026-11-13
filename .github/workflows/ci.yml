@@ -101,9 +101,6 @@ jobs:
       matrix:
         os: [ubuntu-latest, windows-latest, macos-latest]
         python-version: ["3.10", "3.14"]
-    env:
-      NATIVE_DIST: ${{ runner.temp }}/native-dist
-      NATIVE_WHEEL: ${{ runner.temp }}/native-wheel
     steps:
       - name: Check out source
         uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -121,18 +118,77 @@ jobs:
       - name: Build the source distribution
         shell: bash
         run: |
-          mkdir -p "$NATIVE_DIST" "$NATIVE_WHEEL"
-          python -m build --sdist --outdir "$NATIVE_DIST"
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          output = Path(os.environ["RUNNER_TEMP"]) / "native-dist"
+          output.mkdir(parents=True, exist_ok=True)
+          subprocess.run(
+              [sys.executable, "-m", "build", "--sdist", "--outdir", str(output)],
+              check=True,
+          )
+          PY
 
       - name: Build a native-enabled wheel from the source distribution
         shell: bash
         env:
           EVENTFLOW_BUILD_NATIVE: "1"
-        run: python -m build --wheel --no-isolation --outdir "$NATIVE_WHEEL" "$NATIVE_DIST"/*.tar.gz
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          temporary = Path(os.environ["RUNNER_TEMP"])
+          distributions = list((temporary / "native-dist").glob("*.tar.gz"))
+          if len(distributions) != 1:
+              raise RuntimeError(f"expected one source distribution, found {len(distributions)}")
+          output = temporary / "native-wheel"
+          output.mkdir(parents=True, exist_ok=True)
+          subprocess.run(
+              [
+                  sys.executable,
+                  "-m",
+                  "build",
+                  "--wheel",
+                  "--no-isolation",
+                  "--outdir",
+                  str(output),
+                  str(distributions[0]),
+              ],
+              check=True,
+          )
+          PY
 
       - name: Install the native-enabled wheel
         shell: bash
-        run: python -m pip install --force-reinstall --no-deps "$NATIVE_WHEEL"/*.whl
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import subprocess
+          import sys
+
+          wheels = list((Path(os.environ["RUNNER_TEMP"]) / "native-wheel").glob("*.whl"))
+          if len(wheels) != 1:
+              raise RuntimeError(f"expected one native wheel, found {len(wheels)}")
+          subprocess.run(
+              [
+                  sys.executable,
+                  "-m",
+                  "pip",
+                  "install",
+                  "--force-reinstall",
+                  "--no-deps",
+                  str(wheels[0]),
+              ],
+              check=True,
+          )
+          PY
 
       - name: Verify wheel extensions and installed runtime behavior
         shell: bash
@@ -142,14 +198,26 @@ jobs:
           EVENTFLOW_EXPERIMENTAL_ROUTING_BACKEND: c
         run: |
           python - <<'PY'
+          import os
           from importlib import import_module
           from importlib.machinery import EXTENSION_SUFFIXES
+          from pathlib import Path
+          import subprocess
+          import sys
 
+          os.chdir(Path(os.environ["RUNNER_TEMP"]))
           for name in ("eventflow_native_c", "eventflow_native_cython"):
               module = import_module(name)
-              assert any(module.__file__.endswith(suffix) for suffix in EXTENSION_SUFFIXES)
+              if not any(module.__file__.endswith(suffix) for suffix in EXTENSION_SUFFIXES):
+                  raise RuntimeError(f"{name} is not a compiled extension")
+          subprocess.run(
+              [
+                  sys.executable,
+                  str(Path(os.environ["GITHUB_WORKSPACE"]) / "tests/test_native_runtime.py"),
+              ],
+              check=True,
+          )
           PY
-          python "$GITHUB_WORKSPACE/tests/test_native_runtime.py"
 
   lint:
     name: Ruff
