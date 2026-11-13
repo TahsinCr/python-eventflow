@@ -10,10 +10,11 @@ from collections.abc import Callable, Hashable
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
 from dataclasses import dataclass, field
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, cast
 
 from ._callbacks import is_async_callable, synchronous_result
 from ._compatibility import ExceptionGroup
+from ._native import ROUTING_MERGE
 from .actions import EventBusActions, EventErrorContext, EventTimeoutContext
 from .base import (
     BaseEventBus,
@@ -427,6 +428,11 @@ class EventBus(BaseEventBus[T]):
             return tuple(keyed.values())
         if not keyed:
             return tuple(unkeyed.values())
+        if ROUTING_MERGE is not None:
+            return cast(
+                tuple[_Subscriber[T], ...],
+                ROUTING_MERGE(unkeyed, keyed),
+            )
 
         unkeyed_items = iter(unkeyed.items())
         keyed_items = iter(keyed.items())

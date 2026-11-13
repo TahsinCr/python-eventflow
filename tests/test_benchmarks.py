@@ -333,7 +333,8 @@ class PyperfRunnerTests(unittest.TestCase):
             result = subprocess.run(
                 [
                     sys.executable,
-                    "-m", "benchmarks.native_latency",
+                    "-m",
+                    "benchmarks.native_latency",
                     "--implementation=python",
                     "--profile=all_callbacks_7keys_20pct_wildcard",
                     "--publishers=2",
@@ -379,19 +380,16 @@ class PyperfRunnerTests(unittest.TestCase):
             {"0": 4, "1": 4},
         )
         raw = sorted(
-            sample
-            for samples in publish["publish_latency_ns"].values()
-            for sample in samples
+            sample for samples in publish["publish_latency_ns"].values() for sample in samples
         )
         summary = publish["latency_summary_ns"]["aggregate"]
         self.assertEqual(summary["sample_count"], len(raw))
         self.assertEqual(summary["p50_ns"], raw[3])
         self.assertEqual(summary["p95_ns"], raw[7])
         self.assertEqual(summary["p99_ns"], raw[7])
-        for phase in ("bus_lock", "stats_lock"):
+        for phase in ("bus_lock", "bus_lock_outer", "bus_lock_reentrant", "stats_lock"):
             counts = {
-                worker: len(samples)
-                for worker, samples in publish["lock_metrics"][phase].items()
+                worker: len(samples) for worker, samples in publish["lock_metrics"][phase].items()
             }
             expected = 8 if phase == "bus_lock" else 4
             self.assertEqual(counts, {"0": expected, "1": expected})

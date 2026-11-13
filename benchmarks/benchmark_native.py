@@ -14,7 +14,7 @@ from typing import cast
 from benchmarks._runner import bench_sync, bench_time_func, create_runner, forward_cli_arguments
 from benchmarks.native import python_kernels
 from benchmarks.native._contracts import FilterKernel, MergeKernel
-from benchmarks.native.provenance import native_build_metadata
+from benchmarks.native.provenance import native_build_metadata, runtime_native_metadata
 from eventflow.event_bus import EventBus
 from eventflow.filtering import EventFilter
 from eventflow.history import MemoryEventHistory
@@ -616,6 +616,7 @@ def main() -> int:
     )
     args = runner.parse_args()
     runner.metadata["eventflow_native_matrix"] = args.matrix
+    runner.metadata.update(runtime_native_metadata())
     if args.implementation == "python":
         runner.metadata["eventflow_native_backend"] = "python"
     else:

@@ -161,6 +161,70 @@ class NativeBenchmarkSummaryTests(unittest.TestCase):
         self.assertEqual(aggregate["python_compiler"], "test compiler")
         self.assertEqual(aggregate["native_compiler"], "GCC")
 
+    def test_runtime_latency_rows_keep_runtime_binary_provenance(self) -> None:
+        with tempfile.TemporaryDirectory() as temporary_directory:
+            source = Path(temporary_directory) / "runtime.json"
+            source.write_text(
+                json.dumps(
+                    {
+                        "schema": "eventflow.native-latency.v1",
+                        "metadata": {
+                            "eventflow_revision": "revision-a",
+                            "eventflow_source_sha256": "source-a",
+                            "eventflow_native_backend": "python",
+                            "eventflow_runtime_history_backend": "cython",
+                            "eventflow_runtime_history_binary_sha256": "history-binary",
+                            "eventflow_runtime_history_build_manifest_sha256": "history-manifest",
+                            "eventflow_runtime_routing_backend": "c",
+                            "eventflow_runtime_routing_binary_sha256": "routing-binary",
+                            "eventflow_runtime_routing_build_manifest_sha256": "routing-manifest",
+                            "eventflow_runtime_routing_compiler": "GCC",
+                            "eventflow_runtime_routing_compiler_version": "16.2",
+                        },
+                        "results": [
+                            {
+                                "benchmark": "routing_latency/production_c/all/1",
+                                "candidate_algorithm": "production_c",
+                                "candidate_implementation": "runtime_c",
+                                "latency_profile": "all",
+                                "filter_mode": "deliver_all",
+                                "key_count": 7,
+                                "wildcard_percent": 20,
+                                "subscriptions": 2048,
+                                "selected_subscriptions": 653,
+                                "publishers": 1,
+                                "throughput": {
+                                    "publish_count": 1,
+                                    "wall_ns": 1_000_000,
+                                    "process_cpu_ns": 800_000,
+                                },
+                                "publish_latency_ns": {"0": [1_000]},
+                                "lock_metrics": {},
+                            }
+                        ],
+                    }
+                ),
+                encoding="utf-8",
+            )
+
+            row = next(
+                item
+                for item in summarize_files([source])
+                if item["measurement"] == "publish_latency"
+            )
+
+        self.assertEqual(row["implementation"], "runtime_c")
+        self.assertEqual(row["binary_sha256"], "routing-binary")
+        self.assertEqual(row["build_manifest_sha256"], "routing-manifest")
+        self.assertEqual(row["native_compiler"], "GCC")
+        self.assertEqual(row["native_compiler_version"], "16.2")
+        self.assertEqual(row["runtime_history_backend"], "cython")
+        self.assertEqual(row["runtime_history_binary_sha256"], "history-binary")
+        self.assertEqual(row["runtime_history_build_manifest_sha256"], "history-manifest")
+        self.assertEqual(row["runtime_routing_backend"], "c")
+        self.assertEqual(row["runtime_routing_binary_sha256"], "routing-binary")
+        self.assertEqual(row["runtime_routing_build_manifest_sha256"], "routing-manifest")
+
     def test_summary_rejects_mixed_source_identities(self) -> None:
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)

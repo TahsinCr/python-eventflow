@@ -91,9 +91,13 @@ class NativeBenchmarkReferenceTests(unittest.TestCase):
         self.assertEqual(sum(map(len, next_bus_samples.values())), 2)
         self.assertEqual(sum(map(len, next_stats_samples.values())), 1)
         for group in (bus_samples, stats_samples):
-            for wait_ns, hold_ns in next(iter(group.values())):
+            for wait_ns, hold_ns, _ in next(iter(group.values())):
                 self.assertGreaterEqual(wait_ns, 0)
                 self.assertGreater(hold_ns, 0)
+        self.assertCountEqual(
+            [sample[2] for sample in next(iter(bus_samples.values()))], [False, True]
+        )
+        self.assertEqual([sample[2] for sample in next(iter(stats_samples.values()))], [False])
 
     def test_single_key_routing_fixture_publishes_on_its_registered_key(self) -> None:
         bus = _subscribe_fixture(64, merge=None, key_count=1, wildcard_percent=0)

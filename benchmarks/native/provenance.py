@@ -4,8 +4,35 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 from importlib import import_module
 from pathlib import Path
+
+
+def runtime_native_metadata() -> dict[str, str]:
+    """Record opt-in kernels active inside the EventFlow runtime."""
+    backends = {
+        "history": os.environ.get("EVENTFLOW_EXPERIMENTAL_HISTORY_BACKEND", "python"),
+        "routing": os.environ.get("EVENTFLOW_EXPERIMENTAL_ROUTING_BACKEND", "python"),
+    }
+    metadata = {
+        f"eventflow_runtime_{component}_backend": backend for component, backend in backends.items()
+    }
+    for component, backend in backends.items():
+        if backend == "python":
+            continue
+        build = native_build_metadata(backend)
+        for key in (
+            "binary_sha256",
+            "build_manifest_sha256",
+            "python",
+            "cython",
+            "compiler",
+            "compiler_version",
+            "compiler_flags",
+        ):
+            metadata[f"eventflow_runtime_{component}_{key}"] = build[f"eventflow_native_{key}"]
+    return metadata
 
 
 def native_build_metadata(implementation: str) -> dict[str, str]:

@@ -935,9 +935,13 @@ Each candidate/profile/publisher case runs three batches: throughput records
 wall time and process CPU with no per-publish timer or lock recorder; publish
 latency retains every individual `perf_counter_ns` observation and derives
 P50/P95/P99/max from that same set, both per worker and combined; lock metrics
-run separately with wait and hold samples. The bus-state recorder observes two
-lock acquisitions per publish (the open check and publish-state/snapshot path),
-while the statistics condition recorder observes one. Lock instrumentation
+run separately with wait and hold samples. The `bus_lock` group retains both
+bus-state acquisitions per publish for comparison with prior raw results.
+`bus_lock_outer` isolates the outer publish-state/snapshot section, and
+`bus_lock_reentrant` isolates the nested `closed`-state check; each is recorded
+once per publish. The outer hold interval contains the nested interval, so the
+two hold series overlap and must not be added. The statistics condition
+recorder remains a separate one-acquisition-per-publish measurement. Lock instrumentation
 changes scheduling and adds work, so its numbers are diagnostic and must not
 be compared as uninstrumented publish latency. Per-publish timer overhead is
 included in latency observations and identified in the JSON metadata.
@@ -1301,3 +1305,117 @@ The verified source archive was 271,728 bytes with 120 members; all 413 tests
 passed when run from the extracted archive. A wheel built from that archive
 was 105,854 bytes, had the pure-Python <code>py3-none-any</code> tag and
 contained no native extension files.
+
+## Experimental runtime integration (13 November 2026)
+
+The Cython history filter and C routing merge now have private, explicit
+opt-in switches. With both optional extensions built and available on
+`PYTHONPATH`, set these variables before Python imports EventFlow:
+
+~~~bash
+python -m benchmarks.native.build --build-dir /tmp/eventflow-native
+EVENTFLOW_EXPERIMENTAL_HISTORY_BACKEND=cython \
+EVENTFLOW_EXPERIMENTAL_ROUTING_BACKEND=c \
+PYTHONPATH=/tmp/eventflow-native \
+python run_tests.py
+~~~
+
+The regular package remains pure Python, its default path does not import or
+load either extension, and no backend-selection names are part of the public
+API. A requested extension that is missing fails during EventFlow import;
+there is no silent fallback in a forced native run.
+On free-threaded interpreters, the loader checks GIL state before and after
+each native import and fails if that import enables the GIL.
+
+The Cython kernel is used only for an unlimited, exact `EventFilter` type-only
+history query. Limited queries, predicates and filter subclasses retain the
+Python path. The C kernel is called only when both keyed and wildcard routing
+indexes have subscribers; empty-index fast paths remain in Python. These
+boundaries let the full EventFlow test suite cover lifecycle, replay, filters,
+callbacks and concurrency while exercising the selected native kernels.
+
+The CI workflow now builds and validates the extensions, then runs the full
+suite with both kernels enabled on CPython 3.10 and 3.14 for Linux, Windows and
+macOS. Free-threaded jobs also rerun the suite with native kernels enabled.
+These jobs are configured in source; their hosted results are available only
+after the workflow runs on GitHub. They do not build or publish a native wheel.
+
+Use `python -m benchmarks.benchmark_native --implementation=python --matrix=history`
+with the history switch to measure `MemoryEventHistory.query()` through the
+runtime path. Use `python -m benchmarks.native_latency --implementation=python`
+with the routing switch to compare the reference Python merge against the
+production `EventBus` path. Raw results record active runtime backends and the
+native binary and build-manifest hashes. CSV summaries retain separate
+history and routing backend/hash columns; routing candidate rows also identify
+the binary and compiler used by that production runtime path. The 2026-11-12
+pilot predates this integration and remains exploratory; only new
+source-matched runtime results can support a performance or default-backend
+decision.
+
+### Runtime performance evidence (13 November 2026)
+
+These measurements use CPython 3.14.10 with the GIL enabled on one Linux host
+(Intel i7-12700H, 20 available logical CPUs). The EventFlow source fingerprint
+is `7634a58c2f3992d2bb1f64b8b7a6d5b5e54b5f738329a8a8c7a95e2771fbd250`, based
+on revision `33725bf`; the working tree was dirty while the measurements ran.
+The C and Cython extension binaries and build manifests are identified in the
+raw benchmark metadata and CSV summaries.
+
+#### `MemoryEventHistory.query()`
+
+The production query was timed with 100,000 stored events, an unlimited,
+single-type `EventFilter`, and the same query setup for both runtime backends.
+Each pyperf run used rigorous mode and retained 120 measurements. The two
+backend orders produced consistent results:
+
+| Run order | Python runtime | Cython runtime | Comparison |
+| --- | ---: | ---: | ---: |
+| Python, then Cython | 5.71 ms (CV 3.9%) | 3.06 ms (CV 3.7%) | Cython 1.86× faster |
+| Cython, then Python | 6.12 ms (CV 5.8%) | 3.10 ms (CV 4.1%) | Python 1.98× slower |
+
+pyperf still reported that these samples did not establish its strict 1%
+stability target. The direction and size of the difference remained similar
+when the order was reversed, so this is strong one-host evidence for the
+unlimited type-only history path, not a general performance guarantee. Limited
+queries and predicate queries continue through Python. The four pyperf files
+and deterministic summary are available here:
+
+- [Python-first run](native/native_runtime_history_query_2026-11-13_7634a58c_py31410_gil-on_python_first.json)
+- [Cython-second run](native/native_runtime_history_query_2026-11-13_7634a58c_py31410_gil-on_cython_second.json)
+- [Cython-first run](native/native_runtime_history_query_2026-11-13_7634a58c_py31410_gil-on_cython_reverse_first.json)
+- [Python-second run](native/native_runtime_history_query_2026-11-13_7634a58c_py31410_gil-on_python_reverse_second.json)
+- [Four-run CSV summary](native/native_runtime_history_query_2026-11-13_7634a58c_py31410_gil-on_summary.csv)
+
+#### C routing in the production `EventBus`
+
+The matched workload used 2,048 subscriptions, 653 selected callbacks, the
+seven-key/20%-wildcard all-callback profile, and one or four publishers. The
+protocol ran five independent processes at 2,000 publishes per publisher,
+then five more at 5,000 because at least one across-process P99 CV exceeded
+10%. The final-stage medians were:
+
+| Publishers | Python P50 / P99 | C P50 / P99 | Python / C throughput | P99 CV, Python / C |
+| ---: | ---: | ---: | ---: | ---: |
+| 1 | 490 / 1,057 µs | 457 / 977 µs | 1,859 / 2,045 publishes/s | 21.1% / 26.0% |
+| 4 | 2,519 / 12,831 µs | 2,181 / 23,672 µs | 1,270 / 1,472 publishes/s | 19.4% / 30.6% |
+
+The four-publisher C result had 13.4% lower P50 and 15.9% higher throughput,
+but its median P99 was 84.5% higher than Python. The P99 CV remained above the
+10% stop threshold for both backends after escalation. The routing comparison
+is therefore inconclusive; it does not justify making C the default. Outer
+bus-lock hold medians were lower with C (81.4% for one publisher and 68.9% for
+four), but those instrumented lock measurements are diagnostic and cannot be
+read as end-to-end publish improvements.
+
+The summaries retain per-process percentiles, throughput, lock distributions,
+source identity and runtime binary hashes. The full per-publish JSON samples
+were kept outside the repository because the 20 files total roughly 313 MB.
+The compact summaries are available here:
+
+- [Initial five-process stage](native/native_runtime_routing_2026-11-13_7634a58c_py31410_gil-on_initial_summary.csv)
+- [Five-process escalation](native/native_runtime_routing_2026-11-13_7634a58c_py31410_gil-on_escalation_summary.csv)
+
+Keep C routing and Cython history opt-in. The history result merits continued
+cross-platform and target-workload measurement; the routing result needs a
+lower-variance matched repeat before any default-backend decision. Neither
+experiment changes package dependencies or distribution contents.

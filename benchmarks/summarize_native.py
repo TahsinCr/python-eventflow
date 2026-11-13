@@ -47,6 +47,12 @@ CSV_FIELDS = (
     "source_sha256",
     "binary_sha256",
     "build_manifest_sha256",
+    "runtime_history_backend",
+    "runtime_history_binary_sha256",
+    "runtime_history_build_manifest_sha256",
+    "runtime_routing_backend",
+    "runtime_routing_binary_sha256",
+    "runtime_routing_build_manifest_sha256",
     "python_version",
     "python_compiler",
     "python_cc",
@@ -141,8 +147,24 @@ def _base_row(path: Path, metadata: dict[str, Any], name: str) -> dict[str, str 
         "source_revision": metadata["eventflow_revision"],
         "source_sha256": metadata["eventflow_source_sha256"],
         "binary_sha256": _text(metadata.get("eventflow_native_binary_sha256")) or "",
-        "build_manifest_sha256": _text(
-            metadata.get("eventflow_native_build_manifest_sha256")
+        "build_manifest_sha256": _text(metadata.get("eventflow_native_build_manifest_sha256"))
+        or "",
+        "runtime_history_backend": _text(metadata.get("eventflow_runtime_history_backend")) or "",
+        "runtime_history_binary_sha256": _text(
+            metadata.get("eventflow_runtime_history_binary_sha256")
+        )
+        or "",
+        "runtime_history_build_manifest_sha256": _text(
+            metadata.get("eventflow_runtime_history_build_manifest_sha256")
+        )
+        or "",
+        "runtime_routing_backend": _text(metadata.get("eventflow_runtime_routing_backend")) or "",
+        "runtime_routing_binary_sha256": _text(
+            metadata.get("eventflow_runtime_routing_binary_sha256")
+        )
+        or "",
+        "runtime_routing_build_manifest_sha256": _text(
+            metadata.get("eventflow_runtime_routing_build_manifest_sha256")
         )
         or "",
         "python_version": _text(metadata.get("python_version")) or "",
@@ -157,10 +179,7 @@ def _base_row(path: Path, metadata: dict[str, Any], name: str) -> dict[str, str 
         "cpu_count": _integer(metadata.get("cpu_count")) or "",
         "cpu_affinity": _text(metadata.get("cpu_affinity")) or "",
         "native_compiler": _text(metadata.get("eventflow_native_compiler")) or "",
-        "native_compiler_version": _text(
-            metadata.get("eventflow_native_compiler_version")
-        )
-        or "",
+        "native_compiler_version": _text(metadata.get("eventflow_native_compiler_version")) or "",
         "raw_json": path.name,
     }
 
@@ -282,6 +301,16 @@ def _latency_rows(path: Path, document: dict[str, Any]) -> list[dict[str, Any]]:
                 "publishers": result["publishers"],
             }
         )
+        if result["candidate_implementation"].startswith("runtime_"):
+            runtime_prefix = "eventflow_runtime_routing_"
+            base["binary_sha256"] = _text(suite.get(f"{runtime_prefix}binary_sha256")) or ""
+            base["build_manifest_sha256"] = (
+                _text(suite.get(f"{runtime_prefix}build_manifest_sha256")) or ""
+            )
+            base["native_compiler"] = _text(suite.get(f"{runtime_prefix}compiler")) or ""
+            base["native_compiler_version"] = (
+                _text(suite.get(f"{runtime_prefix}compiler_version")) or ""
+            )
 
         throughput = result["throughput"]
         throughput_row = dict(base)
@@ -294,9 +323,7 @@ def _latency_rows(path: Path, document: dict[str, Any]) -> list[dict[str, Any]]:
                 "sample_count": throughput["publish_count"],
                 "events_per_second": _number(throughput["publish_count"] / duration),
                 "wall_seconds": _number(duration),
-                "process_cpu_seconds": _number(
-                    throughput["process_cpu_ns"] / 1_000_000_000
-                ),
+                "process_cpu_seconds": _number(throughput["process_cpu_ns"] / 1_000_000_000),
             }
         )
         rows.append(throughput_row)

@@ -25,7 +25,10 @@ All notable changes to this project are documented in this file.
   validation and routing order after subscription cancellation.
 - Add an optional Python/Cython/C benchmark suite for history type filtering,
   routing subscriber merges and complete synchronous EventBus publish paths.
-  Native extensions stay outside the EventFlow runtime and package.
+  Native extensions remain outside the standard EventFlow package.
+- Add a private, explicit opt-in path for the Cython unlimited type-only
+  history query and C keyed/wildcard routing merge. The default runtime remains
+  Python, and requesting an unavailable native extension fails during import.
 - Add seven focused regression tests for synchronous awaitable cleanup, retry
   deadline limits, retry observer failures and cancellation, and callback
   predicate awaitables.
@@ -64,8 +67,17 @@ All notable changes to this project are documented in this file.
   samples, compact summary and explicit single-host, single-process limits.
 - Cover skewed keyed/wildcard indexes and concurrent subscription churn in the
   synchronous routing regression tests.
+- Exercise both experimental runtime kernels with the complete suite across
+  CPython, free-threaded CPython and the Linux, Windows and macOS CI matrix.
+- Record source-matched production-runtime history and routing comparisons in
+  the benchmark report, including the routing result's unresolved P99 variance.
 
 ### Changed
+
+- Preserve the combined bus-lock series and add separate outer and reentrant
+  acquisition distributions in raw routing-latency records. Record the
+  experimental runtime backends and extension hashes alongside source
+  provenance.
 
 - Keep benchmark and native prototype source files in the source distribution,
   exclude generated measurement results, and run the included test suite from
@@ -124,6 +136,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Format the raw-latency collector, native summary exporter and benchmark tests
+  with the repository's Ruff formatter.
+- Preserve runtime C/Cython binary provenance in CSV summaries and fail closed
+  if an opted-in native import enables the free-threaded GIL.
 - Fix standalone Pyright errors in the raw latency recorder and CSV exporter.
 - Install the extracted source distribution and its declared runtime dependencies
   before running the bundled test suite in CI, including on Python 3.10.

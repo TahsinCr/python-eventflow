@@ -53,6 +53,47 @@ jobs:
           python -m coverage report --include="eventflow/scheduling.py" --fail-under=81
           python -m coverage report --include="eventflow/resilience.py" --fail-under=82
 
+  native-runtime:
+    name: Native runtime Python ${{ matrix.python-version }} on ${{ matrix.os }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+        python-version: ["3.10", "3.14"]
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install EventFlow and native build tools
+        run: |
+          python -m pip install -e ".[dev]"
+          python -m pip install "Cython>=3.1,<4"
+
+      - name: Build and validate optional native kernels
+        shell: bash
+        env:
+          EVENTFLOW_NATIVE_BUILD: ${{ runner.temp }}/eventflow-native
+        run: |
+          python -m benchmarks.native.build --build-dir "$EVENTFLOW_NATIVE_BUILD"
+          PYTHONPATH="$EVENTFLOW_NATIVE_BUILD" python -m benchmarks.native.validate c
+          PYTHONPATH="$EVENTFLOW_NATIVE_BUILD" python -m benchmarks.native.validate cython
+
+      - name: Run the complete suite through the experimental runtime kernels
+        env:
+          EVENTFLOW_EXPERIMENTAL_HISTORY_BACKEND: cython
+          EVENTFLOW_EXPERIMENTAL_ROUTING_BACKEND: c
+          PYTHONPATH: ${{ runner.temp }}/eventflow-native
+        run: python run_tests.py
+
   lint:
     name: Ruff
     runs-on: ubuntu-latest
@@ -124,7 +165,7 @@ jobs:
           cache-dependency-path: pyproject.toml
 
       - name: Install package
-        run: python -m pip install -e .
+        run: python -m pip install -e ".[dev]"
 
       - name: Verify GIL is disabled
         env:
@@ -136,6 +177,29 @@ jobs:
           PYTHON_GIL: "0"
           PYTHONASYNCIODEBUG: "1"
           PYTHONWARNINGS: error
+        run: python run_tests.py
+
+      - name: Install Cython for the experimental runtime build
+        run: python -m pip install "Cython>=3.1,<4"
+
+      - name: Build and validate optional native kernels without the GIL
+        shell: bash
+        env:
+          EVENTFLOW_NATIVE_BUILD: ${{ runner.temp }}/eventflow-native
+          PYTHON_GIL: "0"
+        run: |
+          python -m benchmarks.native.build --build-dir "$EVENTFLOW_NATIVE_BUILD"
+          PYTHONPATH="$EVENTFLOW_NATIVE_BUILD" python -m benchmarks.native.validate c
+          PYTHONPATH="$EVENTFLOW_NATIVE_BUILD" python -m benchmarks.native.validate cython
+
+      - name: Run the complete native runtime suite without the GIL
+        env:
+          EVENTFLOW_EXPERIMENTAL_HISTORY_BACKEND: cython
+          EVENTFLOW_EXPERIMENTAL_ROUTING_BACKEND: c
+          PYTHON_GIL: "0"
+          PYTHONASYNCIODEBUG: "1"
+          PYTHONWARNINGS: error
+          PYTHONPATH: ${{ runner.temp }}/eventflow-native
         run: python run_tests.py
 
   dependency-audit:
@@ -203,6 +267,7 @@ jobs:
                   "benchmarks/native/kernels.c",
                   "benchmarks/native/kernels.pyx",
                   "tests/test_native_benchmarks.py",
+                  "tests/test_native_runtime.py",
                   "tests/api_v1_4_0.json",
               }
               missing = required - relative_members

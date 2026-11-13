@@ -22,7 +22,7 @@ from benchmarks._runner import benchmark_metadata
 from benchmarks._support import positive_int
 from benchmarks.benchmark_native import RoutingEvent, _kernels, _subscribe_fixture
 from benchmarks.native._contracts import MergeKernel
-from benchmarks.native.provenance import native_build_metadata
+from benchmarks.native.provenance import native_build_metadata, runtime_native_metadata
 from eventflow.event_bus import EventBus
 
 _PROFILES = {
@@ -42,7 +42,7 @@ class _LockMetricsRecorder:
         self._local = local()
         self._samples_lock = Lock()
         self._generation = 0
-        self._thread_samples: dict[int, list[tuple[int, int]]] = {}
+        self._thread_samples: dict[int, list[tuple[int, int, bool]]] = {}
 
     def acquire(self, blocking: bool = True, timeout: float = -1) -> bool:
         started = perf_counter_ns()
@@ -56,7 +56,7 @@ class _LockMetricsRecorder:
             if stack is None:
                 stack = []
                 self._local.acquisitions = stack
-            stack.append((acquired_at - started, acquired_at))
+            stack.append((acquired_at - started, acquired_at, bool(stack)))
         return acquired
 
     def _record_release(self, release_lock: bool) -> None:
@@ -66,14 +66,14 @@ class _LockMetricsRecorder:
                 self._lock.release()
             return
         released_at = perf_counter_ns()
-        wait_ns, acquired_at = stack.pop()
+        wait_ns, acquired_at, reentrant = stack.pop()
         if release_lock:
             self._lock.release()
-        sample = (wait_ns, released_at - acquired_at)
+        sample = (wait_ns, released_at - acquired_at, reentrant)
         thread_id = get_ident()
         state = getattr(self._local, "sample_buffer", None)
         if state is None or state[0] != self._generation:
-            buffer: list[tuple[int, int]] = []
+            buffer: list[tuple[int, int, bool]] = []
             with self._samples_lock:
                 self._thread_samples[thread_id] = buffer
                 self._local.sample_buffer = (self._generation, buffer)
@@ -114,11 +114,13 @@ class _LockMetricsRecorder:
         if stack is None:
             stack = []
             self._local.acquisitions = stack
-        stack.append((acquired_at - started, acquired_at))
+        stack.append((acquired_at - started, acquired_at, bool(stack)))
 
-    def take_samples(self) -> dict[int, list[tuple[int, int]]]:
+    def take_samples(self) -> dict[int, list[tuple[int, int, bool]]]:
         with self._samples_lock:
-            samples = {thread_id: list(values) for thread_id, values in self._thread_samples.items()}
+            samples = {
+                thread_id: list(values) for thread_id, values in self._thread_samples.items()
+            }
             self._thread_samples.clear()
             self._generation += 1
         return samples
@@ -223,8 +225,10 @@ def _run_publish_batch(
 
 
 def _worker_samples(
-    samples_by_thread: dict[int, list[tuple[int, int]]],
+    samples_by_thread: dict[int, list[tuple[int, int, bool]]],
     workers: Sequence[tuple[int, int, list[int]]],
+    *,
+    reentrant: bool | None,
 ) -> dict[str, list[dict[str, int]]]:
     worker_indexes = {thread_id: worker for worker, thread_id, _ in workers}
     result: dict[str, list[dict[str, int]]] = {}
@@ -233,8 +237,9 @@ def _worker_samples(
             worker = worker_indexes[thread_id]
         except KeyError as exc:
             raise RuntimeError("lock samples were recorded by an unknown worker thread") from exc
+        selected = (sample for sample in samples if reentrant is None or sample[2] is reentrant)
         result[str(worker)] = [
-            {"wait_ns": wait_ns, "hold_ns": hold_ns} for wait_ns, hold_ns in samples
+            {"wait_ns": wait_ns, "hold_ns": hold_ns} for wait_ns, hold_ns, _ in selected
         ]
     return dict(sorted(result.items(), key=lambda item: int(item[0])))
 
@@ -269,28 +274,27 @@ def _measure_case(
             raise AssertionError("routing fixture did not deliver every selected callback")
 
         # Measure throughput without per-publish timers or lock instrumentation.
-        throughput_batch = _run_publish_batch(
-            bus, event, loops, publishers, measure_latency=False
-        )
+        throughput_batch = _run_publish_batch(bus, event, loops, publishers, measure_latency=False)
         # Derive every latency percentile from this one retained raw sample group.
-        latency_batch = _run_publish_batch(
-            bus, event, loops, publishers, measure_latency=True
-        )
+        latency_batch = _run_publish_batch(bus, event, loops, publishers, measure_latency=True)
         publish_latency = {
-            str(worker): samples
-            for worker, _thread_id, samples in latency_batch["workers"]
+            str(worker): samples for worker, _thread_id, samples in latency_batch["workers"]
         }
 
         bus_lock, stats_lock = _instrument_bus_locks(bus)
         lock_batch = _run_publish_batch(bus, event, loops, publishers, measure_latency=False)
         workers = lock_batch["workers"]
+        bus_samples = bus_lock.take_samples()
+        stats_samples = stats_lock.take_samples()
         lock_metrics = {
-            "bus_lock": _worker_samples(bus_lock.take_samples(), workers),
-            "stats_lock": _worker_samples(stats_lock.take_samples(), workers),
+            "bus_lock": _worker_samples(bus_samples, workers, reentrant=None),
+            "bus_lock_outer": _worker_samples(bus_samples, workers, reentrant=False),
+            "bus_lock_reentrant": _worker_samples(bus_samples, workers, reentrant=True),
+            "stats_lock": _worker_samples(stats_samples, workers, reentrant=False),
         }
         expected_workers = {str(index) for index in range(publishers)}
         for phase, samples_by_worker in lock_metrics.items():
-            expected = loops * (2 if phase == "bus_lock" else 1)
+            expected = loops * 2 if phase == "bus_lock" else loops
             if set(samples_by_worker) != expected_workers or any(
                 len(samples) != expected for samples in samples_by_worker.values()
             ):
@@ -347,7 +351,10 @@ def _measure_case(
                 for phase, samples_by_worker in lock_metrics.items()
             },
             "latency_timer": "perf_counter_ns around EventBus.publish; timer overhead included",
-            "lock_timer": "perf_counter_ns around each underlying RLock acquisition and hold",
+            "lock_timer": (
+                "perf_counter_ns; bus_lock retains all bus acquisitions, with outer and nested "
+                "subsets recorded separately; stats_lock is separate"
+            ),
             "throughput_instrumented": False,
             "latency_lock_instrumented": False,
             "lock_batch_instrumented": True,
@@ -366,7 +373,13 @@ def _candidates(
             for name, merge in merge_kernels
             if name == "python_two_pointer"
         ]
-        selected.append(("production_two_pointer", "production_python", None))
+        runtime_backend = os.environ.get("EVENTFLOW_EXPERIMENTAL_ROUTING_BACKEND", "python")
+        algorithm = (
+            "production_two_pointer"
+            if runtime_backend == "python"
+            else f"production_{runtime_backend}"
+        )
+        selected.append((algorithm, f"runtime_{runtime_backend}", None))
         return selected
     return [(name, implementation, merge) for name, merge in merge_kernels]
 
@@ -416,6 +429,7 @@ def run_experiment(
             "python_cflags": sysconfig.get_config_var("CFLAGS") or "unknown",
         }
     )
+    metadata.update(runtime_native_metadata())
     if implementation == "python":
         metadata["eventflow_native_backend"] = "python"
     else:

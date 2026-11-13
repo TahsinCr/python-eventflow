@@ -6,8 +6,9 @@ import threading
 from abc import ABC, abstractmethod
 from collections import deque
 from itertools import islice
-from typing import Generic, TypeVar
+from typing import Generic, TypeVar, cast
 
+from ._native import HISTORY_TYPE_FILTER
 from .filtering import EventFilter, EventType
 
 T = TypeVar("T")
@@ -18,7 +19,7 @@ def _validate_query_limit(limit: int | None) -> None:
         raise ValueError("Event history query limit must be a positive integer")
 
 
-def _query_by_type(
+def _query_by_type_python(
     events: tuple[T, ...],
     event_type: EventType,
     limit: int | None,
@@ -34,6 +35,24 @@ def _query_by_type(
                 break
     matched.reverse()
     return tuple(matched)
+
+
+def _query_by_type_native(
+    events: tuple[T, ...],
+    event_type: EventType,
+    limit: int | None,
+) -> tuple[T, ...]:
+    if limit is not None:
+        return _query_by_type_python(events, event_type, limit)
+    native_filter = HISTORY_TYPE_FILTER
+    if native_filter is None:
+        raise RuntimeError("the experimental native history filter was not loaded")
+    return cast(tuple[T, ...], native_filter(events, event_type, None))
+
+
+_query_by_type = _query_by_type_python
+if HISTORY_TYPE_FILTER is not None:
+    _query_by_type = _query_by_type_native
 
 
 class EventHistory(Generic[T], ABC):
