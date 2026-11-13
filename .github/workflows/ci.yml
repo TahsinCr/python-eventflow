@@ -136,6 +136,7 @@ jobs:
         shell: bash
         env:
           EVENTFLOW_BUILD_NATIVE: "1"
+          EVENTFLOW_NATIVE_BUILD_DIR: ${{ runner.temp }}/native-build
         run: |
           python - <<'PY'
           import os

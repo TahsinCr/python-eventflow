@@ -138,8 +138,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Build native wheels with source-relative extension paths so Cython avoids
-  nested absolute paths that exceed MSVC's path handling.
+- Keep Cython-generated files and MSVC intermediate objects in a short native
+  build directory so Windows wheel links do not exceed path limits.
 - Format the raw-latency collector, native summary exporter and benchmark tests
   with the repository's Ruff formatter.
 - Preserve runtime C/Cython binary provenance in CSV summaries and fail closed
