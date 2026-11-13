@@ -189,6 +189,8 @@ All notable changes to this project are documented in this file.
 - Remove the custom benchmark sampler and comparison command in favor of
   pyperf's worker, statistics, JSON and comparison tools. Earlier result
   snapshots are removed when their source revision is no longer current.
+- Remove archived performance result sets from 2026-11-09 through 2026-11-12;
+  retain the latest source-fingerprinted runtime comparison and its report.
 
 ## [v1.3.2] - 2026-11-08
 
