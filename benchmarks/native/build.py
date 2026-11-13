@@ -21,26 +21,32 @@ if TYPE_CHECKING:
 def native_extensions(root: Path, generated: Path) -> list[Extension]:
     from setuptools import Extension as SetuptoolsExtension
 
+    root = root.resolve()
+    generated = generated.resolve()
     cythonize = cast(
         Callable[..., list[SetuptoolsExtension]],
         import_module("Cython.Build").cythonize,
     )
-    extensions = [
-        SetuptoolsExtension(
-            "eventflow_native_c",
-            [str(root / "benchmarks/native/kernels.c")],
-        ),
-        SetuptoolsExtension(
-            "eventflow_native_cython",
-            [str(root / "benchmarks/native/kernels.pyx")],
-        ),
-    ]
-    return cythonize(
-        extensions,
-        build_dir=str(generated),
-        compiler_directives={"language_level": 3},
-        quiet=True,
+    c_extension = SetuptoolsExtension(
+        "eventflow_native_c",
+        [str(root / "benchmarks/native/kernels.c")],
     )
+    cython_extension = SetuptoolsExtension(
+        "eventflow_native_cython",
+        ["benchmarks/native/kernels.pyx"],
+    )
+    current_directory = Path.cwd()
+    try:
+        os.chdir(root)
+        cython_extensions = cythonize(
+            [cython_extension],
+            build_dir=str(generated),
+            compiler_directives={"language_level": 3},
+            quiet=True,
+        )
+        return [c_extension, *cython_extensions]
+    finally:
+        os.chdir(current_directory)
 
 
 def _compiler_version(compiler: object) -> str:

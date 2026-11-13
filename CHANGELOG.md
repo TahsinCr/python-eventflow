@@ -138,8 +138,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
-- Keep the experimental native-wheel workflow valid by resolving runner temp
-  paths inside steps and through Python's cross-platform path handling.
+- Build native wheels with source-relative extension paths so Cython avoids
+  nested absolute paths that exceed MSVC's path handling.
 - Format the raw-latency collector, native summary exporter and benchmark tests
   with the repository's Ruff formatter.
 - Preserve runtime C/Cython binary provenance in CSV summaries and fail closed
