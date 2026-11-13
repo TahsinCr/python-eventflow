@@ -233,6 +233,7 @@ static PyObject *merge_subscribers(PyObject *self, PyObject *args) {
     }
 
 unlock:
+    ;
 #if PY_VERSION_HEX >= 0x030D0000
     Py_END_CRITICAL_SECTION2();
 #endif
