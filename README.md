@@ -1619,8 +1619,8 @@ memory options (`--tracemalloc` or `--track-memory`). Compare matching suites
 with `python -m pyperf compare_to baseline.json candidate.json --table`.
 Keep the interpreter build, GIL mode and workload settings the same for a useful
 comparison. Local measurements describe their recorded machine and workload;
-they are not deployment guarantees. Historical measurements and their methods
-remain under `benchmarks/results`.
+they are not deployment guarantees. See
+[benchmark notes](benchmarks/results/README.md) for local comparison guidance.
 
 The bridge-publisher benchmark reports wall time and process CPU time per
 delivered event. It starts timing after the queue, consumer and publisher threads
@@ -1630,39 +1630,23 @@ CPython comparison, run the same command with a free-threaded interpreter and
 they observe. Keep the interpreter build, workload and machine conditions fixed
 when comparing results.
 
-Every pyperf result records the EventFlow implementation (`python`), the
-worker's observed GIL mode, Git revision, source-only dirty status, and a
-SHA-256 fingerprint of the package, benchmark sources and `pyproject.toml`.
-Generated result files are excluded from the fingerprint. pyperf also records
-the interpreter and machine metadata used for each run.
+Every pyperf result records the EventFlow implementation (`python`), the compiled
+core extension status (`eventflow_core`: `c` or `python`), the worker's
+observed GIL mode, Git revision, source-only dirty status, and a SHA-256
+fingerprint of the package, benchmark sources and `pyproject.toml`. Generated
+result files are excluded from the fingerprint. pyperf also records the
+interpreter and machine metadata used for each run.
 
-For exploratory Python/Cython/C comparisons, install the optional native
-benchmark tools and build the two extensions outside the repository:
+Package builds attempt to compile the optional `eventflow._core` C extension by
+default (`EVENTFLOW_PURE_PYTHON=1` skips building it). If the compiled extension
+is absent or `EVENTFLOW_NO_EXTENSIONS=1` is set, EventFlow transparently uses its
+pure-Python implementation:
 
 ```bash
-python -m pip install -e ".[native-bench]"
-python -m benchmarks.native.build --build-dir /tmp/eventflow-native-build
-PYTHONPATH="/tmp/eventflow-native-build:$PYTHONPATH" python -m benchmarks.native.validate cython
-PYTHONPATH="/tmp/eventflow-native-build:$PYTHONPATH" python -m benchmarks.native.validate c
-PYTHONPATH="/tmp/eventflow-native-build:$PYTHONPATH" \
-  python -m benchmarks.benchmark_native --implementation python --rigorous \
-  --output native-python.json
-PYTHONPATH="/tmp/eventflow-native-build:$PYTHONPATH" \
-  python -m benchmarks.benchmark_native --implementation cython --rigorous \
-  --output native-cython.json
-PYTHONPATH="/tmp/eventflow-native-build:$PYTHONPATH" \
-  python -m benchmarks.benchmark_native --implementation c --rigorous \
-  --output native-c.json
+EVENTFLOW_NO_EXTENSIONS=1 python -m benchmarks.benchmark_publish --fast --output publish-python.json
+python -m benchmarks.benchmark_publish --fast --output publish-core.json
+python -m pyperf compare_to publish-python.json publish-core.json --table
 ```
-
-These benchmark-only candidates compare type-filtered history snapshots,
-routing subscriber merges, and complete synchronous bus publishes with both
-no-op callbacks and type-rejected subscribers. They are not part of the
-EventFlow runtime or package build. Use the same interpreter, GIL mode, machine,
-affinity and pyperf options for each candidate; the comparative report and raw
-results are kept in `benchmarks/results`. See the
-[native benchmark report](benchmarks/results/README.md) for source-pinned
-Python/Cython/C measurements, variance and limitations.
 
 Copyright © 2026 TahsinCr. EventFlow is licensed under the MIT License.
 See [LICENSE](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE) and

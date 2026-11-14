@@ -1639,8 +1639,8 @@ histogramlar ve bellek ölçümü (`--tracemalloc` veya `--track-memory`) sağla
 Aynı senaryo dosyalarını `python -m pyperf compare_to baseline.json candidate.json --table`
 komutuyla karşılaştırın. Sağlıklı karşılaştırma için Python derlemesini, GIL
 durumunu ve iş yükü seçeneklerini aynı tutun. Yerel ölçümler yalnızca kaydedilen
-makine ve iş yükünü anlatır; dağıtım performansı garantisi değildir. Tarihsel
-ölçümler ve yöntemleri `benchmarks/results` altında korunur.
+makine ve iş yükünü anlatır; dağıtım performansı garantisi değildir. Yerel
+karşılaştırma notları için [benchmark notlarına](benchmarks/results/README.md) bakın.
 
 Yayıncı köprüsü benchmark'ı, teslim edilen event başına duvar saati ve süreç
 CPU süresini ayrı ölçer. Zamanlayıcı; queue, consumer ve yayıncı thread'leri
@@ -1650,40 +1650,24 @@ yorumlayıcıyla ve `PYTHON_GIL=0` ayarıyla çalıştırın. pyperf worker'lar�
 devralır ve gözlemledikleri GIL durumunu kaydeder. Sonuçları karşılaştırırken
 yorumlayıcı derlemesini, iş yükünü ve makine koşullarını aynı tutun.
 
-Her pyperf sonucu EventFlow uygulamasını (`python`), worker'ın gözlemlediği GIL
-durumunu, Git revision'ını, kaynak dosyalarındaki değişiklik durumunu ve paket,
-benchmark kaynakları ile `pyproject.toml` üzerinden hesaplanan SHA-256 parmak
-izini kaydeder. Oluşturulan sonuç dosyaları parmak izine katılmaz. pyperf ayrıca
-ölçümde kullanılan Python yorumlayıcısı ve makine bilgilerini kaydeder.
+Her pyperf sonucu EventFlow uygulamasını (`python`), derlenen çekirdek C
+uzantısının durumunu (`eventflow_core`: `c` veya `python`), worker'ın
+gözlemlediği GIL durumunu, Git revision'ını, kaynak dosyalarındaki değişiklik
+durumunu ve paket, benchmark kaynakları ile `pyproject.toml` üzerinden
+hesaplanan SHA-256 parmak izini kaydeder. Oluşturulan sonuç dosyaları parmak
+izine katılmaz. pyperf ayrıca ölçümde kullanılan Python yorumlayıcısı ve makine
+bilgilerini kaydeder.
 
-Deneysel Python/Cython/C karşılaştırmalarını çalıştırmak için isteğe bağlı
-benchmark araçlarını kurun ve iki uzantıyı depo dışında derleyin:
+Paket kurulumu varsayılan olarak isteğe bağlı `eventflow._core` C uzantısını
+derlemeyi dener (`EVENTFLOW_PURE_PYTHON=1` wheel derlemesinde bu adımı atlar).
+Uzantı mevcut değilse veya `EVENTFLOW_NO_EXTENSIONS=1` ayarlanırsa EventFlow
+şeffaf biçimde saf Python uygulamasına döner:
 
 ```bash
-python -m pip install -e ".[native-bench]"
-python -m benchmarks.native.build --build-dir /tmp/eventflow-native-build
-PYTHONPATH="/tmp/eventflow-native-build:$PYTHONPATH" python -m benchmarks.native.validate cython
-PYTHONPATH="/tmp/eventflow-native-build:$PYTHONPATH" python -m benchmarks.native.validate c
-PYTHONPATH="/tmp/eventflow-native-build:$PYTHONPATH" \
-  python -m benchmarks.benchmark_native --implementation python --rigorous \
-  --output native-python.json
-PYTHONPATH="/tmp/eventflow-native-build:$PYTHONPATH" \
-  python -m benchmarks.benchmark_native --implementation cython --rigorous \
-  --output native-cython.json
-PYTHONPATH="/tmp/eventflow-native-build:$PYTHONPATH" \
-  python -m benchmarks.benchmark_native --implementation c --rigorous \
-  --output native-c.json
+EVENTFLOW_NO_EXTENSIONS=1 python -m benchmarks.benchmark_publish --fast --output publish-python.json
+python -m benchmarks.benchmark_publish --fast --output publish-core.json
+python -m pyperf compare_to publish-python.json publish-core.json --table
 ```
-
-Bu benchmark'lar type filtreli history snapshot'larını, routing subscriber
-birleşimlerini ve hem no-op callback'lerle hem de type filtresinden dönen
-abonelerle tam senkron bus publish işlemini karşılaştırır. Yalnızca benchmark
-adayıdır; EventFlow runtime'ına ve paket derlemesine dahil edilmez. Adayları
-karşılaştırırken yorumlayıcıyı, GIL durumunu, makineyi, CPU affinity ayarını ve
-pyperf seçeneklerini aynı tutun. Karşılaştırmalı rapor ve ham ölçümler
-`benchmarks/results` altında bulunur. Kaynak revizyonlarını, Python/Cython/C
-sonuçlarını, varyansı ve sınırları görmek için
-[performans raporuna](benchmarks/results/README.md) bakın.
 
 Copyright © 2026 TahsinCr. EventFlow, MIT Lisansı ile lisanslanmıştır.
 [LICENSE](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE) ve

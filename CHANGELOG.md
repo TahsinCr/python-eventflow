@@ -6,6 +6,19 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Add `eventflow._core` (`eventflow/_core.c`, `eventflow/_core.pyi`), an optional
+  CPython C extension accelerating synchronous `EventBus` dispatch (`BusCore`,
+  `Subscriber`, atomic `Flag`) and bounded-cardinality `OperationStats` metric
+  recording (`OperationStatsCore`) on CPython >= 3.10 including free-threaded
+  builds (`Py_MOD_GIL_NOT_USED`), with transparent pure-Python fallback.
+- Add `EVENTFLOW_NO_EXTENSIONS=1` runtime opt-out (`eventflow._native.CORE`),
+  `EVENTFLOW_PURE_PYTHON=1` build-time toggle in `setup.py`, and multi-OS /
+  multi-architecture `cibuildwheel` configuration (`[tool.cibuildwheel]` in
+  `pyproject.toml` and `.github/workflows/wheels.yml`) targeting Linux
+  (`x86_64`, `aarch64`, `manylinux` + `musllinux`), macOS (`x86_64`, `arm64`),
+  and Windows (`AMD64`, `ARM64`), including free-threaded CPython builds, plus
+  sdist and `twine check --strict` verification.
+
 - Add indexed routing keys to synchronous `EventBus` subscriptions and named
   `EventEngine` channels. Keyed and wildcard callbacks retain registration
   order, while unrelated keyed subscribers are skipped.
@@ -76,6 +89,34 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Consolidate optional native acceleration into `eventflow._core`
+  (`setup.py` `optional=True` decoupled from `benchmarks/`, excluding `_core.c`
+  from binary wheels via `pyproject.toml`, excluding compiled binaries from
+  `sdist` via `MANIFEST.in`), record `eventflow_core` (`c` or `python`) and
+  `.c`/`.pyi` source provenance in `benchmarks/_runner.py`, and run CI test and
+  coverage gates across both compiled `_core` and `EVENTFLOW_NO_EXTENSIONS=1`
+  pure-Python modes (including free-threaded CPython with `PYTHON_GIL=0`).
+
+- Optimize pure-Python hot paths across synchronous and asynchronous dispatch,
+  channel routing, history queries, observability metrics, policy evaluation,
+  LRU+TTL cache updates, sync/async pipelines, resilience/callback wrappers,
+  state machines, coalescing, loop portals, bounded work pools, streams and
+  envelopes:
+  - Cache immutable subscriber topology snapshots on `EventBus` and
+    `AsyncEventBus`, remove reentrant lock acquisition inside synchronous
+    `publish()`, skip `_condition` notifications without waiters or changes, and
+    inline direct sequential sync/async callback delivery when unconstrained.
+  - Cache snapshot views and plain-type filter results on `MemoryEventHistory`,
+    plus reverse bounded `latest()` and `query(limit=...)` scans without copying
+    full event history deques.
+  - Replace hot-path `getattr`/`inspect.iscoroutinefunction`/`inspect.isawaitable`/
+    `inspect.getcoroutinestate` checks with fast `_NON_AWAITABLE_TYPES`,
+    `is_awaitable()`, slotted `_SyncContinuation`/`_AsyncContinuation`,
+    `_PortalSubmission`, and `_WorkItem` state objects, and skip hook/clock
+    overhead on unhooked, untimed `CallbackSubscription` paths.
+  - Eliminate tuple/generator/temporary allocations in `OperationStats.record()`,
+    `PolicyEngine.evaluate()`, `TTLCache.set()`, `StateMachine.transition()`,
+    `CooldownRegistry`, `KeyedCoalescer.push()`, and `EventEnvelope`.
 - Consolidate repeated task-creation rejection helpers used by async lifecycle,
   callback, bus and concurrency regression tests.
 - Preserve the combined bus-lock series and add separate outer and reentrant
@@ -184,6 +225,12 @@ All notable changes to this project are documented in this file.
 
 ### Removed
 
+- Remove the retired experimental `benchmarks/native/*` C/Cython kernels,
+  `benchmarks/benchmark_native.py`, `benchmarks/native_latency.py`,
+  `benchmarks/summarize_native.py`, `benchmarks/results/native/` snapshots,
+  `native-bench` optional extra, `EVENTFLOW_EXPERIMENTAL_*` and
+  `EVENTFLOW_BUILD_NATIVE` prototype toggles, and experimental CI jobs after
+  consolidating native acceleration into `eventflow._core`.
 - Remove the unreferenced v1.3.1 API snapshot; keep the active v1.4.0 contract
   as the only versioned API snapshot in the test suite.
 - Remove the custom benchmark sampler and comparison command in favor of
