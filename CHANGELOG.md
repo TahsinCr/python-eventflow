@@ -184,6 +184,8 @@ All notable changes to this project are documented in this file.
 - Run the pure-Python fallback test suite on Windows by passing
   `EVENTFLOW_NO_EXTENSIONS` through the workflow step environment, not a
   POSIX-only inline assignment.
+- Remove cibuildwheel's retired `cpython-freethreading` enable group so current
+  CPython free-threaded wheel targets can be selected by the installed version.
 - Keep Cython-generated files and MSVC intermediate objects in a short native
   build directory so Windows wheel links do not exceed path limits.
 - Format the raw-latency collector, native summary exporter and benchmark tests

@@ -59,7 +59,6 @@ eventflow = ["*.c"]
 
 [tool.cibuildwheel]
 build-verbosity = 1
-enable = ["cpython-freethreading"]
 skip = ["pp*", "*-manylinux_i686", "*-musllinux_i686", "*-win32"]
 test-command = "python -c \"import pathlib, sys, sysconfig, unittest, eventflow, eventflow._native as n; assert n.CORE is not None; assert not sysconfig.get_config_var('Py_GIL_DISABLED') or not sys._is_gil_enabled(); assert not pathlib.Path(eventflow.__file__).resolve().is_relative_to(pathlib.Path(r'{project}').resolve()); sys.path.extend([r'{project}', r'{project}/tests']); res = unittest.TextTestRunner().run(unittest.defaultTestLoader.discover(r'{project}/tests')); sys.exit(0 if res.wasSuccessful() else 1)\""
 
