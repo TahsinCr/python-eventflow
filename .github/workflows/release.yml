@@ -1,0 +1,70 @@
+name: Release
+
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: read
+
+jobs:
+  ci:
+    uses: ./.github/workflows/ci.yml
+
+  codeql:
+    uses: ./.github/workflows/codeql.yml
+    permissions:
+      actions: read
+      contents: read
+      pull-requests: read
+      security-events: write
+
+  wheels:
+    uses: ./.github/workflows/wheels.yml
+
+  publish:
+    needs: [ci, codeql, wheels]
+    runs-on: ubuntu-latest
+    environment: pypi
+    permissions:
+      contents: read
+      id-token: write
+    steps:
+      - name: Download wheels
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          pattern: wheels-*
+          path: dist
+          merge-multiple: true
+
+      - name: Download source distribution
+        uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
+        with:
+          name: sdist
+          path: dist
+
+      - name: Verify tag matches all distributions
+        env:
+          RELEASE_TAG: ${{ github.ref_name }}
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+
+          tag = os.environ['RELEASE_TAG']
+          version = tag.removeprefix('v')
+          if not version or tag != f'v{version}':
+              raise ValueError(f'Invalid release tag: {tag}')
+          files = list(Path('dist').iterdir())
+          if not any(p.suffix == '.whl' for p in files) or not any(
+              p.name.endswith('.tar.gz') for p in files
+          ):
+              raise ValueError('Wheel or source distributions are missing')
+          for path in files:
+              if not (path.name.startswith(f'flowevent-{version}-') or
+                      path.name == f'flowevent-{version}.tar.gz'):
+                  raise ValueError(f'Distribution does not match tag: {path.name}')
+          PY
+
+      - name: Publish to PyPI
+        uses: pypa/gh-action-pypi-publish@7245906fb61fa33a13554f9d5fb856fe61758086 # release/v1

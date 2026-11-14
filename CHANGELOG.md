@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Add a tag-triggered PyPI release workflow that waits for CI, CodeQL and
+  verified distribution builds before publishing with Trusted Publishing.
 - Add `eventflow._core` (`eventflow/_core.c`, `eventflow/_core.pyi`), an optional
   CPython C extension accelerating synchronous `EventBus` dispatch (`BusCore`,
   `Subscriber`, atomic `Flag`) and bounded-cardinality `OperationStats` metric

@@ -1,6 +1,7 @@
 name: CodeQL
 
 on:
+  workflow_call:
   push:
     branches: [main]
   pull_request:
@@ -32,3 +33,5 @@ jobs:
 
       - name: Analyze source
         uses: github/codeql-action/analyze@9b3254085494b55a0f7c4c2b3d2d52cc712ce370 # v4.39.1
+        with:
+          upload: ${{ startsWith(github.ref, 'refs/tags/') && 'never' || 'always' }}
