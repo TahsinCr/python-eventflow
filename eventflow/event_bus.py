@@ -10,11 +10,17 @@ from collections.abc import Callable, Hashable
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
 from dataclasses import dataclass, field
-from typing import Generic, TypeVar, cast
+from typing import Any, Generic, TypeVar, cast
 
-from ._callbacks import is_async_callable, synchronous_result
+from ._callbacks import (
+    _NON_AWAITABLE_TYPES,
+    close_awaitable,
+    is_async_callable,
+    is_awaitable,
+    synchronous_result,
+)
 from ._compatibility import ExceptionGroup
-from ._native import ROUTING_MERGE
+from ._native import CORE
 from .actions import EventBusActions, EventErrorContext, EventTimeoutContext
 from .base import (
     BaseEventBus,
@@ -24,13 +30,32 @@ from .base import (
     validate_positive_capacity,
 )
 from .contracts import ErrorPolicy, EventBusStats, PublishResult
-from .errors import EventBusError, EventShutdownTimeoutError, InvalidEventHandlerError
+from .errors import (
+    EventBusClosedError,
+    EventBusError,
+    EventShutdownTimeoutError,
+    InvalidEventHandlerError,
+)
 from .filtering import EventFilter, EventType, coerce_event_filter
 from .history import EventHistory
 from .subscription import Subscription
 
 T = TypeVar("T")
 _executor_context = threading.local()
+if CORE is not None:
+    CORE.configure(
+        PublishResult,
+        EventBusStats,
+        EventFilter,
+        EventBusClosedError,
+        InvalidEventHandlerError,
+        EventErrorContext,
+        ExceptionGroup,
+        threading.Lock,
+        threading.RLock,
+        is_awaitable,
+        close_awaitable,
+    )
 
 
 def _validate_executor(executor: object) -> ThreadPoolExecutor | None:
@@ -41,13 +66,14 @@ def _validate_executor(executor: object) -> ThreadPoolExecutor | None:
 
 def _invoke_sync_callback(callback: Callable[[T], None], event: T) -> None:
     result = callback(event)
-    if result is None or not inspect.isawaitable(result):
+    if result is None or type(result) in _NON_AWAITABLE_TYPES:
         return
-    if inspect.iscoroutine(result):
-        result.close()
-    raise InvalidEventHandlerError(
-        "Synchronous handlers must not return awaitables; use AsyncEventBus"
-    )
+    if inspect.isawaitable(result):
+        if inspect.iscoroutine(result):
+            close_awaitable(result)
+        raise InvalidEventHandlerError(
+            "Synchronous handlers must not return awaitables; use AsyncEventBus"
+        )
 
 
 @dataclass(slots=True)
@@ -56,44 +82,52 @@ class _Subscriber(Generic[T]):
     event_filter: EventFilter[T]
     remaining: int | None
     subscription: Subscription
+    match_all: bool = False
     lock: threading.Lock = field(default_factory=threading.Lock)
     replaying: bool = False
-    pending: deque[T] = field(default_factory=deque)
+    pending: deque[T] | None = None
 
     def claim(self) -> tuple[bool, bool]:
         """Reserve one delivery and report whether it is the final one."""
 
+        if self.remaining is None:
+            return self.subscription._active, False
         with self.lock:
-            if not self.subscription.active:
+            if not self.subscription._active:
                 return False, False
-            if self.remaining is None:
-                return True, False
             if self.remaining <= 0:
                 return False, False
             self.remaining -= 1
             return True, self.remaining == 0
 
     def restore_claim(self) -> None:
+        if self.remaining is None:
+            return
         with self.lock:
-            if self.remaining is not None:
-                self.remaining += 1
+            self.remaining += 1
 
     def buffer_if_replaying(self, event: T) -> bool:
+        if not self.replaying:
+            return False
         with self.lock:
             if not self.replaying:
                 return False
-            if self.pending.maxlen is not None and len(self.pending) >= self.pending.maxlen:
+            pending = self.pending
+            assert pending is not None
+            if pending.maxlen is not None and len(pending) >= pending.maxlen:
                 raise BufferError("Event replay buffer is full")
-            self.pending.append(event)
+            pending.append(event)
             return True
 
     def finish_replay(self) -> tuple[T, ...] | None:
         with self.lock:
-            if self.pending:
-                events = tuple(self.pending)
-                self.pending.clear()
+            pending = self.pending
+            if pending:
+                events = tuple(pending)
+                pending.clear()
                 return events
             self.replaying = False
+            self.pending = None
             return None
 
 
@@ -161,12 +195,52 @@ class EventBus(BaseEventBus[T]):
         self._subscribers: dict[int, _Subscriber[T]] = {}
         self._unkeyed_subscribers: dict[int, _Subscriber[T]] = {}
         self._keyed_subscribers: dict[Hashable, dict[int, _Subscriber[T]]] = {}
+        self._all_snapshot: tuple[_Subscriber[T], ...] | None = None
+        self._unkeyed_snapshot: tuple[_Subscriber[T], ...] | None = None
+        self._route_snapshots: dict[Hashable, tuple[_Subscriber[T], ...]] = {}
         self._next_id = 0
         self._closed = False
         self._lock = threading.RLock()
         self._condition = threading.Condition(self._lock)
+        self._waiter_count = 0
         self._clear_generation = 0
         self._schedules: dict[int, tuple[Subscription, threading.Thread]] = {}
+        self._core: Any = (
+            CORE.BusCore(
+                self._lock,
+                self._condition,
+                self._subscribers,
+                self._unkeyed_subscribers,
+                self._keyed_subscribers,
+                self._route_snapshots,
+                self._history,
+                self._routing_key,
+                self._executor,
+                self._actions.on_before,
+                self._actions.on_after,
+                self._actions.on_error,
+                self._error_policy is ErrorPolicy.RAISE,
+                type(self)._subscriber_snapshot is EventBus._subscriber_snapshot,
+            )
+            if CORE is not None
+            else None
+        )
+
+    def _invalidate_snapshots_locked(self) -> None:
+        self._all_snapshot = None
+        self._unkeyed_snapshot = None
+        if self._route_snapshots:
+            self._route_snapshots.clear()
+        if self._core is not None:
+            self._core.invalidate_snapshots(bool(self._subscribers), bool(self._keyed_subscribers))
+
+    def _add_stats(self, published: int = 0, delivered: int = 0, failed: int = 0) -> None:
+        if self._core is not None:
+            self._core.add_stats(published, delivered, failed)
+        else:
+            self._published += published
+            self._delivered += delivered
+            self._failed += failed
 
     @property
     def closed(self) -> bool:
@@ -181,6 +255,8 @@ class EventBus(BaseEventBus[T]):
     @property
     def stats(self) -> EventBusStats:
         with self._lock:
+            if self._core is not None:
+                return self._core.stats()
             return EventBusStats(self._published, self._delivered, self._failed)
 
     def subscribe(
@@ -246,21 +322,35 @@ class EventBus(BaseEventBus[T]):
                             subscribers.pop(subscription_id, None)
                             if not subscribers:
                                 self._keyed_subscribers.pop(routing_key, None)
+                    self._invalidate_snapshots_locked()
 
+            is_replaying = bool(replay and history is not None)
+            match_all = (
+                type(normalized_filter) is EventFilter
+                and normalized_filter.event_type is None
+                and normalized_filter.predicate is None
+            )
             subscription = Subscription(subscription_id, cancel)
-            subscriber = _Subscriber(
+            if self._core is not None and CORE is not None:
+                subscription._active_flag = CORE.Flag(True)
+                subscriber_cls: Any = CORE.Subscriber
+            else:
+                subscriber_cls = _Subscriber
+            subscriber = subscriber_cls(
                 callback,
                 normalized_filter,
                 delivery_limit,
                 subscription,
-                replaying=bool(replay and history is not None),
-                pending=deque(maxlen=self._replay_buffer_limit),
+                match_all=match_all,
+                replaying=is_replaying,
+                pending=deque(maxlen=self._replay_buffer_limit) if is_replaying else None,
             )
             self._subscribers[subscription_id] = subscriber
             if routing_key is None:
                 self._unkeyed_subscribers[subscription_id] = subscriber
             else:
                 self._keyed_subscribers.setdefault(routing_key, {})[subscription_id] = subscriber
+            self._invalidate_snapshots_locked()
 
         try:
             replay_events = tuple(
@@ -281,7 +371,7 @@ class EventBus(BaseEventBus[T]):
                         except Exception as exc:
                             action_errors = self._notify_errors(event, (exc,))
                             with self._lock:
-                                self._failed += 1 + len(action_errors)
+                                self._add_stats(failed=1 + len(action_errors))
                             if self._error_policy is ErrorPolicy.RAISE:
                                 subscription.cancel()
                                 raise ExceptionGroup(
@@ -290,7 +380,7 @@ class EventBus(BaseEventBus[T]):
                                 ) from exc
                         else:
                             with self._lock:
-                                self._delivered += 1
+                                self._add_stats(delivered=1)
                             if final:
                                 break
                     pending = subscriber.finish_replay()
@@ -322,20 +412,27 @@ class EventBus(BaseEventBus[T]):
         )
 
     def publish(self, event: T) -> PublishResult:
+        core = self._core
+        if core is not None:
+            return cast(PublishResult, core.publish(self, event))
+        return self._publish_python(event)
+
+    def _publish_python(self, event: T) -> PublishResult:
         with self._lock:
-            self._ensure_open()
+            if self._closed:
+                raise EventBusClosedError("Event bus is closed")
             if (
                 not self._subscribers
                 and self._actions.on_before is None
                 and self._actions.on_after is None
             ):
                 self._record(event)
-                self._published += 1
+                self._add_stats(published=1)
                 return PublishResult()
             event_key = self._event_routing_key(event) if self._keyed_subscribers else None
             subscribers = self._subscriber_snapshot(event_key)
             self._record(event)
-            self._published += 1
+            self._add_stats(published=1)
 
         before_error: Exception | None = None
         if self._actions.on_before is not None:
@@ -349,47 +446,66 @@ class EventBus(BaseEventBus[T]):
             errors.insert(0, before_error)
 
         delivered = 0
-        active_executors = getattr(_executor_context, "active", frozenset())
-        if self._executor is None or id(self._executor) in active_executors:
+        executor = self._executor
+        if executor is None:
             for subscriber in matched:
-                was_delivered, error = self._deliver(subscriber, event)
-                if was_delivered:
-                    delivered += 1
-                if error is not None:
-                    errors.append(error)
+                if subscriber.remaining is None:
+                    if not subscriber.subscription._active:
+                        continue
+                    try:
+                        _invoke_sync_callback(subscriber.callback, event)
+                    except Exception as exc:
+                        errors.append(exc)
+                    else:
+                        delivered += 1
+                else:
+                    was_delivered, error = self._deliver(subscriber, event)
+                    if was_delivered:
+                        delivered += 1
+                    if error is not None:
+                        errors.append(error)
         else:
-            futures: list[tuple[_Subscriber[T], Future[None]]] = []
-            dispatch_context = copy_context()
-            for subscriber in matched:
-                claimed, final = subscriber.claim()
-                if not claimed:
-                    continue
-                try:
-                    future = self._executor.submit(
-                        dispatch_context.copy().run,
-                        self._invoke_executor_callback,
-                        subscriber,
-                        event,
-                        active_executors,
-                        final,
-                    )
-                except Exception as exc:
-                    subscriber.restore_claim()
-                    errors.append(exc)
-                except BaseException:
-                    subscriber.restore_claim()
-                    raise
-                else:
-                    futures.append((subscriber, future))
-            for subscriber, future in futures:
-                try:
-                    future.result()
-                except Exception as exc:
-                    if future.cancelled():
+            active_executors = getattr(_executor_context, "active", frozenset())
+            if id(executor) in active_executors:
+                for subscriber in matched:
+                    was_delivered, error = self._deliver(subscriber, event)
+                    if was_delivered:
+                        delivered += 1
+                    if error is not None:
+                        errors.append(error)
+            else:
+                futures: list[tuple[_Subscriber[T], Future[None]]] = []
+                dispatch_context = copy_context()
+                for subscriber in matched:
+                    claimed, final = subscriber.claim()
+                    if not claimed:
+                        continue
+                    try:
+                        future = executor.submit(
+                            dispatch_context.copy().run,
+                            self._invoke_executor_callback,
+                            subscriber,
+                            event,
+                            active_executors,
+                            final,
+                        )
+                    except Exception as exc:
                         subscriber.restore_claim()
-                    errors.append(exc)
-                else:
-                    delivered += 1
+                        errors.append(exc)
+                    except BaseException:
+                        subscriber.restore_claim()
+                        raise
+                    else:
+                        futures.append((subscriber, future))
+                for subscriber, future in futures:
+                    try:
+                        future.result()
+                    except Exception as exc:
+                        if future.cancelled():
+                            subscriber.restore_claim()
+                        errors.append(exc)
+                    else:
+                        delivered += 1
 
         if errors and self._actions.on_error is not None:
             errors.extend(self._notify_errors(event, tuple(errors)))
@@ -411,28 +527,37 @@ class EventBus(BaseEventBus[T]):
                     failed=len(errors),
                     errors=tuple(errors),
                 )
-        with self._condition:
-            self._delivered += delivered
-            self._failed += len(errors)
-            self._condition.notify_all()
+        if delivered or errors or self._waiter_count:
+            with self._condition:
+                self._add_stats(delivered=delivered, failed=len(errors))
+                if self._waiter_count:
+                    self._condition.notify_all()
         if errors and self._error_policy is ErrorPolicy.RAISE:
             raise ExceptionGroup("Event delivery failed", errors)
         return result
 
     def _subscriber_snapshot(self, event_key: Hashable | None) -> tuple[_Subscriber[T], ...]:
         if self._routing_key is None:
-            return tuple(self._subscribers.values())
-        unkeyed = self._unkeyed_subscribers
-        keyed = self._keyed_subscribers.get(event_key, {}) if event_key is not None else {}
-        if not unkeyed:
-            return tuple(keyed.values())
+            snapshot = self._all_snapshot
+            if snapshot is None:
+                snapshot = tuple(self._subscribers.values())
+                self._all_snapshot = snapshot
+            return snapshot
+        keyed = self._keyed_subscribers.get(event_key) if event_key is not None else None
         if not keyed:
-            return tuple(unkeyed.values())
-        if ROUTING_MERGE is not None:
-            return cast(
-                tuple[_Subscriber[T], ...],
-                ROUTING_MERGE(unkeyed, keyed),
-            )
+            snapshot = self._unkeyed_snapshot
+            if snapshot is None:
+                snapshot = tuple(self._unkeyed_subscribers.values())
+                self._unkeyed_snapshot = snapshot
+            return snapshot
+        snapshot = self._route_snapshots.get(event_key)
+        if snapshot is not None:
+            return snapshot
+        unkeyed = self._unkeyed_subscribers
+        if not unkeyed:
+            snapshot = tuple(keyed.values())
+            self._route_snapshots[event_key] = snapshot
+            return snapshot
 
         unkeyed_items = iter(unkeyed.items())
         keyed_items = iter(keyed.items())
@@ -453,7 +578,9 @@ class EventBus(BaseEventBus[T]):
         if keyed_item is not None:
             merged.append(keyed_item[1])
             merged.extend(subscriber for _identifier, subscriber in keyed_items)
-        return tuple(merged)
+        snapshot = tuple(merged)
+        self._route_snapshots[event_key] = snapshot
+        return snapshot
 
     def _event_routing_key(self, event: T) -> Hashable | None:
         if self._routing_key is None:
@@ -475,14 +602,17 @@ class EventBus(BaseEventBus[T]):
         matched: list[_Subscriber[T]] = []
         errors: list[Exception] = []
         for subscriber in subscribers:
-            if not subscriber.subscription.active:
+            if not subscriber.subscription._active:
                 continue
-            try:
-                matches = subscriber.event_filter.matches(event)
-            except Exception as exc:
-                errors.append(exc)
-                continue
-            if matches:
+            if not subscriber.match_all:
+                try:
+                    matches = subscriber.event_filter.matches(event)
+                except Exception as exc:
+                    errors.append(exc)
+                    continue
+                if not matches:
+                    continue
+            if subscriber.replaying:
                 try:
                     if subscriber.buffer_if_replaying(event):
                         continue
@@ -490,7 +620,7 @@ class EventBus(BaseEventBus[T]):
                     subscriber.subscription.cancel()
                     errors.append(exc)
                     continue
-                matched.append(subscriber)
+            matched.append(subscriber)
         return matched, errors
 
     def _invoke_executor_callback(
@@ -665,12 +795,22 @@ class EventBus(BaseEventBus[T]):
         timed_out = False
         try:
             with self._condition:
-                ready = self._condition.wait_for(
-                    lambda: (
-                        bool(received) or self._closed or self._clear_generation != clear_generation
-                    ),
-                    timeout=timeout,
-                )
+                self._waiter_count += 1
+                if self._core is not None:
+                    self._core.inc_waiters()
+                try:
+                    ready = self._condition.wait_for(
+                        lambda: (
+                            bool(received)
+                            or self._closed
+                            or self._clear_generation != clear_generation
+                        ),
+                        timeout=timeout,
+                    )
+                finally:
+                    self._waiter_count -= 1
+                    if self._core is not None:
+                        self._core.dec_waiters()
                 timed_out = not ready
                 value = received[0] if ready and received else None
         finally:
@@ -691,6 +831,7 @@ class EventBus(BaseEventBus[T]):
             self._subscribers.clear()
             self._unkeyed_subscribers.clear()
             self._keyed_subscribers.clear()
+            self._invalidate_snapshots_locked()
         for subscription in subscriptions:
             subscription._deactivate()
         with self._condition:
@@ -701,6 +842,8 @@ class EventBus(BaseEventBus[T]):
             if self._closed and not self._schedules:
                 return
             self._closed = True
+            if self._core is not None:
+                self._core.set_closed(True)
             subscriptions = tuple(
                 subscriber.subscription for subscriber in self._subscribers.values()
             )
@@ -708,6 +851,7 @@ class EventBus(BaseEventBus[T]):
             self._subscribers.clear()
             self._unkeyed_subscribers.clear()
             self._keyed_subscribers.clear()
+            self._invalidate_snapshots_locked()
             self._condition.notify_all()
         for subscription in subscriptions:
             subscription._deactivate()

@@ -7,7 +7,9 @@ import threading
 from collections.abc import Mapping
 from dataclasses import dataclass
 from types import MappingProxyType
-from typing import Literal, Protocol
+from typing import Any, Literal, Protocol
+
+from ._native import CORE
 
 ObservationKind = Literal["run", "stage", "middleware"]
 ExecutionStatus = Literal["success", "error", "cancelled"]
@@ -75,11 +77,17 @@ class _MetricTotals:
 
     def record(self, observation: PipelineObservation) -> None:
         self.calls += 1
-        self.successful += observation.status == "success"
-        self.failed += observation.status == "error"
-        self.cancelled += observation.status == "cancelled"
-        self.total_seconds += observation.elapsed
-        self.max_seconds = max(self.max_seconds, observation.elapsed)
+        status = observation.status
+        if status == "success":
+            self.successful += 1
+        elif status == "error":
+            self.failed += 1
+        else:
+            self.cancelled += 1
+        elapsed = observation.elapsed
+        self.total_seconds += elapsed
+        if elapsed > self.max_seconds:
+            self.max_seconds = elapsed
 
     def freeze(self) -> ExecutionMetrics:
         return ExecutionMetrics(
@@ -197,6 +205,30 @@ class _OperationTotals:
         )
 
 
+_INF = math.inf
+
+
+def _validate_duration_slow(value: object, name: str) -> float:
+    if isinstance(value, bool) or not isinstance(value, (int, float)):
+        raise TypeError(f"{name} must be a finite non-negative number")
+    number = float(value)
+    if not (0.0 <= number < _INF):
+        raise ValueError(f"{name} must be a finite non-negative number")
+    return number
+
+
+def _validate_non_negative_counts(*values: object) -> None:
+    for value in values:
+        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+            raise ValueError(
+                "drop, retry, rejection and timeout counts must be non-negative integers"
+            )
+
+
+if CORE is not None:
+    CORE.configure_observability(OperationMetrics, OperationStatsSnapshot, MappingProxyType)
+
+
 class OperationStats:
     """Opt-in, thread-safe operation metrics with bounded label cardinality.
 
@@ -212,8 +244,14 @@ class OperationStats:
         if max_operations < 1:
             raise ValueError("max_operations must be positive")
         self._max_operations = max_operations
-        self._lock = threading.Lock()
-        self._metrics: dict[str, _OperationTotals] = {}
+        if CORE is not None:
+            self._core: Any = CORE.OperationStatsCore(max_operations)
+            self._lock: Any = None
+            self._metrics: dict[str, _OperationTotals] = {}
+        else:
+            self._core = None
+            self._lock = threading.Lock()
+            self._metrics = {}
 
     def record(
         self,
@@ -229,61 +267,96 @@ class OperationStats:
         shutdown_seconds: float = 0.0,
     ) -> None:
         """Record one completed operation without retaining user payloads."""
-        if not isinstance(name, str) or not name:
+        if self._core is not None:
+            self._core.record(
+                name,
+                status,
+                elapsed,
+                queue_depth,
+                dropped,
+                retries,
+                rejected,
+                timeouts,
+                shutdown_seconds,
+            )
+            return
+        if type(name) is not str:
+            if not isinstance(name, str):
+                raise ValueError("operation name must be a non-empty string")
+        if not name:
             raise ValueError("operation name must be a non-empty string")
         if status not in self._STATUSES:
             raise ValueError("status must be success, error, or cancelled")
-        if isinstance(elapsed, bool) or not isinstance(elapsed, (int, float)):
-            raise TypeError("elapsed must be a finite non-negative number")
-        elapsed_value = float(elapsed)
-        if not math.isfinite(elapsed_value) or elapsed_value < 0:
-            raise ValueError("elapsed must be a finite non-negative number")
-        if isinstance(shutdown_seconds, bool) or not isinstance(shutdown_seconds, (int, float)):
-            raise TypeError("shutdown_seconds must be a finite non-negative number")
-        shutdown_value = float(shutdown_seconds)
-        if not math.isfinite(shutdown_value) or shutdown_value < 0:
-            raise ValueError("shutdown_seconds must be a finite non-negative number")
-        counters = (dropped, retries, rejected, timeouts)
-        if any(
-            isinstance(value, bool) or not isinstance(value, int) or value < 0 for value in counters
+        if type(elapsed) is float and 0.0 <= elapsed < _INF:
+            elapsed_value = elapsed
+        else:
+            elapsed_value = _validate_duration_slow(elapsed, "elapsed")
+        if type(shutdown_seconds) is float and 0.0 <= shutdown_seconds < _INF:
+            shutdown_value = shutdown_seconds
+        else:
+            shutdown_value = _validate_duration_slow(shutdown_seconds, "shutdown_seconds")
+        if (
+            type(dropped) is not int
+            or dropped < 0
+            or type(retries) is not int
+            or retries < 0
+            or type(rejected) is not int
+            or rejected < 0
+            or type(timeouts) is not int
+            or timeouts < 0
         ):
-            raise ValueError(
-                "drop, retry, rejection and timeout counts must be non-negative integers"
-            )
-        if queue_depth is not None and (
-            isinstance(queue_depth, bool) or not isinstance(queue_depth, int) or queue_depth < 0
-        ):
-            raise ValueError("queue_depth must be a non-negative integer or None")
+            _validate_non_negative_counts(dropped, retries, rejected, timeouts)
+        if queue_depth is not None and (type(queue_depth) is not int or queue_depth < 0):
+            if isinstance(queue_depth, bool) or not isinstance(queue_depth, int) or queue_depth < 0:
+                raise ValueError("queue_depth must be a non-negative integer or None")
         with self._lock:
             if len(name) > 128:
                 name = "other"
-            if name not in self._metrics and (
-                self._max_operations == 1 or len(self._metrics) >= self._max_operations - 1
-            ):
-                name = "other"
-            totals = self._metrics.setdefault(name, _OperationTotals())
+            totals = self._metrics.get(name)
+            if totals is None:
+                if self._max_operations == 1 or len(self._metrics) >= self._max_operations - 1:
+                    name = "other"
+                    totals = self._metrics.get(name)
+                if totals is None:
+                    totals = _OperationTotals()
+                    self._metrics[name] = totals
             totals.calls += 1
-            totals.successful += status == "success"
-            totals.failed += status == "error"
-            totals.cancelled += status == "cancelled"
+            if status == "success":
+                totals.successful += 1
+            elif status == "error":
+                totals.failed += 1
+            else:
+                totals.cancelled += 1
             totals.total_seconds += elapsed_value
-            totals.max_seconds = max(totals.max_seconds, elapsed_value)
+            if elapsed_value > totals.max_seconds:
+                totals.max_seconds = elapsed_value
             if queue_depth is not None:
                 totals.queue_depth = queue_depth
-                totals.max_queue_depth = max(totals.max_queue_depth, queue_depth)
-            totals.dropped += dropped
-            totals.retries += retries
-            totals.rejected += rejected
-            totals.timeouts += timeouts
-            totals.shutdown_seconds += shutdown_value
+                if queue_depth > totals.max_queue_depth:
+                    totals.max_queue_depth = queue_depth
+            if dropped:
+                totals.dropped += dropped
+            if retries:
+                totals.retries += retries
+            if rejected:
+                totals.rejected += rejected
+            if timeouts:
+                totals.timeouts += timeouts
+            if shutdown_value:
+                totals.shutdown_seconds += shutdown_value
 
     def snapshot(self) -> OperationStatsSnapshot:
+        if self._core is not None:
+            return self._core.snapshot()
         with self._lock:
             return OperationStatsSnapshot(
                 MappingProxyType({name: totals.freeze() for name, totals in self._metrics.items()})
             )
 
     def reset(self) -> None:
+        if self._core is not None:
+            self._core.reset()
+            return
         with self._lock:
             self._metrics.clear()
 

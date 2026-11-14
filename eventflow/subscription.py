@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 import threading
 from collections.abc import Awaitable, Callable
+from typing import Any
 
 
 class Subscription:
@@ -12,6 +13,7 @@ class Subscription:
         self._id = subscription_id
         self._cancel = cancel
         self._active = True
+        self._active_flag: Any = None
         self._lock = threading.Lock()
         self._cancel_condition = threading.Condition(self._lock)
         self._cancel_owner: int | None = None
@@ -22,14 +24,15 @@ class Subscription:
 
     @property
     def active(self) -> bool:
-        with self._lock:
-            return self._active
+        return self._active
 
     def _deactivate(self) -> bool:
         with self._lock:
             if not self._active:
                 return False
             self._active = False
+            if self._active_flag is not None:
+                self._active_flag.set(False)
             return True
 
     def cancel(self) -> None:
@@ -45,12 +48,16 @@ class Subscription:
             if not self._active:
                 return False
             self._active = False
+            if self._active_flag is not None:
+                self._active_flag.set(False)
             self._cancel_owner = current_thread
         try:
             self._cancel()
         except BaseException:
             with self._cancel_condition:
                 self._active = True
+                if self._active_flag is not None:
+                    self._active_flag.set(True)
                 self._cancel_owner = None
                 self._cancel_condition.notify_all()
             raise
