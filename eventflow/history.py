@@ -184,7 +184,11 @@ class MemoryEventHistory(EventHistory[T]):
                     return result
                 events = self._snapshot_locked()
                 result = _query_by_type(events, event_type, limit)
-                if limit is None and plain_types and len(self._type_results) < _TYPE_RESULT_CACHE_LIMIT:
+                if (
+                    limit is None
+                    and plain_types
+                    and len(self._type_results) < _TYPE_RESULT_CACHE_LIMIT
+                ):
                     self._type_results[event_type] = result
                 return result
             events = self._snapshot_locked()

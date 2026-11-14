@@ -1092,8 +1092,7 @@ class EventBusTests(unittest.TestCase):
         history = MemoryEventHistory[object](capacity=4)
         history.append("event")
         filters = tuple(
-            EventFilter[object](event_type=type(f"EventType{index}", (), {}))
-            for index in range(80)
+            EventFilter[object](event_type=type(f"EventType{index}", (), {})) for index in range(80)
         )
 
         for event_filter in filters:
