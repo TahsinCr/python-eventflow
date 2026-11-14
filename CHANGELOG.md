@@ -10,6 +10,8 @@ All notable changes to this project are documented in this file.
   matching the Python fallback without signed integer overflow.
 - Bound both type-only history result caches to 64 entries so varied queries
   cannot retain an unbounded set of event classes.
+- Validate native subscriber snapshots before recording history or publication
+  statistics, avoiding duplicate side effects when dispatch falls back.
 
 ## [v1.4.0] - 2026-11-14
 

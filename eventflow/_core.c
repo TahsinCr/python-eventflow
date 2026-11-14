@@ -1260,6 +1260,19 @@ static PyObject *BusCore_publish(BusCoreObject *self, PyObject *const *args, Py_
         snapshot = as_tuple;
     }
 
+    Py_ssize_t total_subs = PyTuple_GET_SIZE(snapshot);
+    for (Py_ssize_t i = 0; i < total_subs; ++i) {
+        if (!Py_IS_TYPE(PyTuple_GET_ITEM(snapshot, i), st->subscriber_type)) {
+            Py_DECREF(snapshot);
+            PyObject *rel = PyObject_Vectorcall(self->lock_release, NULL, 0, NULL);
+            if (rel == NULL) {
+                return NULL;
+            }
+            Py_DECREF(rel);
+            return PyObject_CallMethodOneArg(bus, st->k__publish_python, event);
+        }
+    }
+
     if (self->history_append != NULL) {
         PyObject *rec = PyObject_CallOneArg(self->history_append, event);
         if (rec == NULL) {
@@ -1278,7 +1291,6 @@ static PyObject *BusCore_publish(BusCoreObject *self, PyObject *const *args, Py_
     }
     Py_DECREF(rel);
 
-    Py_ssize_t total_subs = PyTuple_GET_SIZE(snapshot);
     SubscriberObject *stack_matched[64];
     SubscriberObject **matched = stack_matched;
     if (total_subs > 64) {
@@ -1313,12 +1325,6 @@ static PyObject *BusCore_publish(BusCoreObject *self, PyObject *const *args, Py_
 
     for (Py_ssize_t i = 0; i < total_subs; ++i) {
         PyObject *item = PyTuple_GET_ITEM(snapshot, i);
-        if (!Py_IS_TYPE(item, st->subscriber_type)) {
-            Py_DECREF(snapshot);
-            if (matched != stack_matched) PyMem_Free(matched);
-            Py_XDECREF(errors);
-            return PyObject_CallMethodOneArg(bus, st->k__publish_python, event);
-        }
         SubscriberObject *sub = (SubscriberObject *)item;
         int active = sub_is_active(st, sub);
         if (active < 0) {

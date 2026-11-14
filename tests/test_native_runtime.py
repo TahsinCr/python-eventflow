@@ -4,10 +4,12 @@ from __future__ import annotations
 
 import os
 import unittest
+from collections.abc import Hashable
 from types import SimpleNamespace
+from typing import Any
 from unittest.mock import patch
 
-from eventflow import EventBus, _native
+from eventflow import EventBus, MemoryEventHistory, _native
 from eventflow.observability import OperationStats
 
 
@@ -98,6 +100,32 @@ class NativeRuntimeTests(unittest.TestCase):
 
         stats.reset()
         self.assertEqual(stats.snapshot().operations, {})
+
+    @unittest.skipUnless(_native.CORE is not None, "eventflow._core extension is not compiled")
+    def test_native_publish_falls_back_before_recording_side_effects(self) -> None:
+        class MalformedSnapshotBus(EventBus[str]):
+            malformed_next_snapshot = False
+
+            def _subscriber_snapshot(self, event_key: Hashable | None) -> tuple[Any, ...]:
+                if self.malformed_next_snapshot:
+                    self.malformed_next_snapshot = False
+                    return (object(),)
+                return super()._subscriber_snapshot(event_key)
+
+        history = MemoryEventHistory[str]()
+        received: list[str] = []
+        with MalformedSnapshotBus(history=history) as bus:
+            self.assertIsNotNone(bus._core)
+            bus.subscribe(received.append)
+            bus.malformed_next_snapshot = True
+
+            result = bus.publish("event")
+
+        self.assertEqual(result.delivered, 1)
+        self.assertEqual(received, ["event"])
+        self.assertEqual(history.query(), ("event",))
+        self.assertEqual(bus.stats.published, 1)
+        self.assertEqual(bus.stats.delivered, 1)
 
 
 if __name__ == "__main__":
