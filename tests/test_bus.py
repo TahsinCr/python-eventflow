@@ -1087,3 +1087,23 @@ class EventBusTests(unittest.TestCase):
         history.clear()
         self.assertEqual(history.query(int_filter, limit=1), ())
         self.assertEqual(history.query(pair_filter), ())
+
+    def test_memory_history_type_result_caches_are_bounded(self) -> None:
+        history = MemoryEventHistory[object](capacity=4)
+        history.append("event")
+        filters = tuple(
+            EventFilter[object](event_type=type(f"EventType{index}", (), {}))
+            for index in range(80)
+        )
+
+        for event_filter in filters:
+            history.query(event_filter)
+            history.query(event_filter, limit=1)
+
+        self.assertLessEqual(len(history._type_results), 64)
+        self.assertLessEqual(len(history._limited_type_results), 64)
+        self.assertEqual(history.query(filters[-1]), ())
+
+        history.append("next")
+        self.assertEqual(history._type_results, {})
+        self.assertEqual(history._limited_type_results, {})
