@@ -90,13 +90,34 @@ class NativeRuntimeTests(unittest.TestCase):
             retries=maximum,
             rejected=maximum,
             timeouts=maximum,
+            queue_depth=oversized,
         )
-        stats.record("overflow", dropped=5, retries=oversized, rejected=7, timeouts=9)
+        stats.record(
+            "overflow", dropped=5, retries=oversized, rejected=7, timeouts=9, queue_depth=9
+        )
         metrics = stats.snapshot().operations["overflow"]
         self.assertEqual(metrics.dropped, maximum + 5)
         self.assertEqual(metrics.retries, maximum + oversized)
         self.assertEqual(metrics.rejected, maximum + 7)
         self.assertEqual(metrics.timeouts, maximum + 9)
+        self.assertEqual(metrics.queue_depth, 9)
+        self.assertEqual(metrics.max_queue_depth, oversized)
+
+        stats.record("overflow")
+        metrics = stats.snapshot().operations["overflow"]
+        self.assertEqual(metrics.dropped, maximum + 5)
+        self.assertEqual(metrics.retries, maximum + oversized)
+        self.assertEqual(metrics.rejected, maximum + 7)
+        self.assertEqual(metrics.timeouts, maximum + 9)
+
+        stats.reset()
+        stats.record("zero-delta", dropped=2, retries=3, rejected=4, timeouts=5)
+        stats.record("zero-delta")
+        metrics = stats.snapshot().operations["zero-delta"]
+        self.assertEqual(
+            (metrics.dropped, metrics.retries, metrics.rejected, metrics.timeouts),
+            (2, 3, 4, 5),
+        )
 
         stats.reset()
         self.assertEqual(stats.snapshot().operations, {})

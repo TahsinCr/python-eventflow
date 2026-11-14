@@ -4,10 +4,17 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Changed
+
+- Skip zero-delta native metric updates to avoid arbitrary-precision
+  allocations after a counter exceeds the int64 fast path.
+
 ### Fixed
 
 - Preserve arbitrary-size operation counters in the native metrics core,
   matching the Python fallback without signed integer overflow.
+- Preserve arbitrary-size current and maximum queue depths in native metrics,
+  matching the Python fallback.
 - Bound both type-only history result caches to 64 entries so varied queries
   cannot retain an unbounded set of event classes.
 - Validate native subscriber snapshots before recording history or publication

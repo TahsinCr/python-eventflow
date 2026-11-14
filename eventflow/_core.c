@@ -1696,6 +1696,7 @@ typedef struct {
 typedef struct {
     int64_t small;
     PyObject *large;
+    int has_update;
 } OpCounterUpdate;
 
 typedef struct {
@@ -1707,8 +1708,8 @@ typedef struct {
     int64_t cancelled;
     double total_seconds;
     double max_seconds;
-    int64_t queue_depth;
-    int64_t max_queue_depth;
+    OpCounter queue_depth;
+    OpCounter max_queue_depth;
     OpCounter dropped;
     OpCounter retries;
     OpCounter rejected;
@@ -1766,25 +1767,6 @@ static int ef_parse_duration(PyObject *v, const char *name, double *out) {
     return 0;
 }
 
-static int ef_parse_nonneg_i64(PyObject *v, const char *err_msg, int64_t *out) {
-    if (PyBool_Check(v) || !PyLong_Check(v)) {
-        PyErr_SetString(PyExc_ValueError, err_msg);
-        return -1;
-    }
-    int overflow = 0;
-    long long val = PyLong_AsLongLongAndOverflow(v, &overflow);
-    if (overflow < 0 || (overflow == 0 && val < 0)) {
-        PyErr_SetString(PyExc_ValueError, err_msg);
-        return -1;
-    }
-    if (overflow > 0) {
-        PyErr_SetString(PyExc_OverflowError, err_msg);
-        return -1;
-    }
-    *out = (int64_t)val;
-    return 0;
-}
-
 static int ef_parse_nonneg_counter_delta(
     PyObject *value,
     const char *err_msg,
@@ -1818,12 +1800,15 @@ static int op_counter_prepare_add(
     const OpCounterDelta *delta,
     OpCounterUpdate *update
 ) {
+    if (delta->large == NULL && delta->small == 0) return 0;
+
     if (
         counter->large == NULL
         && delta->large == NULL
         && counter->small <= INT64_MAX - delta->small
     ) {
         update->small = counter->small + delta->small;
+        update->has_update = 1;
         return 0;
     }
 
@@ -1841,10 +1826,37 @@ static int op_counter_prepare_add(
     update->large = PyNumber_Add(base, increment);
     Py_DECREF(base);
     Py_DECREF(increment);
-    return update->large == NULL ? -1 : 0;
+    if (update->large == NULL) return -1;
+    update->has_update = 1;
+    return 0;
 }
 
-static void op_counter_apply_update(OpCounter *counter, OpCounterUpdate *update) {
+static int op_counter_prepare_set(const OpCounterDelta *value, OpCounterUpdate *update) {
+    update->small = value->small;
+    update->large = value->large != NULL ? Py_NewRef(value->large) : NULL;
+    update->has_update = 1;
+    return 0;
+}
+
+static int op_counter_prepare_max(
+    const OpCounter *counter,
+    const OpCounterDelta *value,
+    OpCounterUpdate *update
+) {
+    if (value->large == NULL) {
+        if (counter->large != NULL || value->small <= counter->small) return 0;
+    } else if (counter->large == NULL) {
+        return op_counter_prepare_set(value, update);
+    } else {
+        int greater = PyObject_RichCompareBool(value->large, counter->large, Py_GT);
+        if (greater < 0) return -1;
+        if (!greater) return 0;
+    }
+    return op_counter_prepare_set(value, update);
+}
+
+static void op_counter_apply_add(OpCounter *counter, OpCounterUpdate *update) {
+    if (!update->has_update) return;
     if (update->large != NULL) {
         Py_XSETREF(counter->large, update->large);
         update->large = NULL;
@@ -1852,15 +1864,39 @@ static void op_counter_apply_update(OpCounter *counter, OpCounterUpdate *update)
     } else {
         counter->small = update->small;
     }
+    update->has_update = 0;
+}
+
+static void op_counter_apply_set(OpCounter *counter, OpCounterUpdate *update) {
+    if (!update->has_update) return;
+    if (update->large != NULL) {
+        Py_XSETREF(counter->large, update->large);
+        update->large = NULL;
+        counter->small = 0;
+    } else {
+        Py_CLEAR(counter->large);
+        counter->small = update->small;
+    }
+    update->has_update = 0;
 }
 
 static void op_counter_update_clear(OpCounterUpdate *update) {
     Py_CLEAR(update->large);
+    update->has_update = 0;
 }
 
 static void op_counter_clear(OpCounter *counter) {
     counter->small = 0;
     Py_CLEAR(counter->large);
+}
+
+static void op_entry_clear_counters(OpEntry *entry) {
+    op_counter_clear(&entry->queue_depth);
+    op_counter_clear(&entry->max_queue_depth);
+    op_counter_clear(&entry->dropped);
+    op_counter_clear(&entry->retries);
+    op_counter_clear(&entry->rejected);
+    op_counter_clear(&entry->timeouts);
 }
 
 static PyObject *op_counter_to_python(const OpCounter *counter) {
@@ -1871,6 +1907,8 @@ static PyObject *op_counter_to_python(const OpCounter *counter) {
 
 static void op_entry_snapshot_incref(OpEntry *entry) {
     Py_INCREF(entry->name);
+    Py_XINCREF(entry->queue_depth.large);
+    Py_XINCREF(entry->max_queue_depth.large);
     Py_XINCREF(entry->dropped.large);
     Py_XINCREF(entry->retries.large);
     Py_XINCREF(entry->rejected.large);
@@ -1879,6 +1917,8 @@ static void op_entry_snapshot_incref(OpEntry *entry) {
 
 static void op_entry_snapshot_decref(OpEntry *entry) {
     Py_XDECREF(entry->name);
+    Py_XDECREF(entry->queue_depth.large);
+    Py_XDECREF(entry->max_queue_depth.large);
     Py_XDECREF(entry->dropped.large);
     Py_XDECREF(entry->retries.large);
     Py_XDECREF(entry->rejected.large);
@@ -1978,6 +2018,8 @@ static int OperationStatsCore_traverse(OperationStatsCoreObject *self, visitproc
     Py_VISIT(Py_TYPE(self));
     for (Py_ssize_t i = 0; i < self->count; ++i) {
         Py_VISIT(self->entries[i].name);
+        Py_VISIT(self->entries[i].queue_depth.large);
+        Py_VISIT(self->entries[i].max_queue_depth.large);
         Py_VISIT(self->entries[i].dropped.large);
         Py_VISIT(self->entries[i].retries.large);
         Py_VISIT(self->entries[i].rejected.large);
@@ -1989,10 +2031,7 @@ static int OperationStatsCore_traverse(OperationStatsCoreObject *self, visitproc
 static int OperationStatsCore_clear(OperationStatsCoreObject *self) {
     for (Py_ssize_t i = 0; i < self->count; ++i) {
         Py_CLEAR(self->entries[i].name);
-        op_counter_clear(&self->entries[i].dropped);
-        op_counter_clear(&self->entries[i].retries);
-        op_counter_clear(&self->entries[i].rejected);
-        op_counter_clear(&self->entries[i].timeouts);
+        op_entry_clear_counters(&self->entries[i]);
     }
     self->count = 0;
     if (self->buckets != NULL) {
@@ -2122,15 +2161,16 @@ static PyObject *OperationStatsCore_record(
     }
 
     int has_queue_depth = 0;
-    int64_t queue_depth = 0;
+    OpCounterDelta queue_depth_delta = {0, NULL};
     if (args[3] != Py_None) {
         has_queue_depth = 1;
-        if (args[3] != st->zero_int) {
-            if (ef_parse_nonneg_i64(
-                    args[3], "queue_depth must be a non-negative integer or None", &queue_depth
-                ) < 0) {
-                return NULL;
-            }
+        if (
+            args[3] != st->zero_int
+            && ef_parse_nonneg_counter_delta(
+                args[3], "queue_depth must be a non-negative integer or None", &queue_depth_delta
+            ) < 0
+        ) {
+            return NULL;
         }
     }
 
@@ -2161,14 +2201,25 @@ static PyObject *OperationStatsCore_record(
 
     OpCounter zero_counter = {0, NULL};
     OpEntry *existing = idx >= 0 ? &self->entries[idx] : NULL;
-    OpCounterUpdate updates[4] = {{0, NULL}, {0, NULL}, {0, NULL}, {0, NULL}};
+    OpCounterUpdate updates[6] = {{0}};
     if (
         op_counter_prepare_add(existing != NULL ? &existing->dropped : &zero_counter, &dropped_delta, &updates[0]) < 0
         || op_counter_prepare_add(existing != NULL ? &existing->retries : &zero_counter, &retries_delta, &updates[1]) < 0
         || op_counter_prepare_add(existing != NULL ? &existing->rejected : &zero_counter, &rejected_delta, &updates[2]) < 0
         || op_counter_prepare_add(existing != NULL ? &existing->timeouts : &zero_counter, &timeouts_delta, &updates[3]) < 0
+        || (
+            has_queue_depth
+            && (
+                op_counter_prepare_set(&queue_depth_delta, &updates[4]) < 0
+                || op_counter_prepare_max(
+                    existing != NULL ? &existing->max_queue_depth : &zero_counter,
+                    &queue_depth_delta,
+                    &updates[5]
+                ) < 0
+            )
+        )
     ) {
-        for (int i = 0; i < 4; ++i) op_counter_update_clear(&updates[i]);
+        for (int i = 0; i < 6; ++i) op_counter_update_clear(&updates[i]);
         op_stats_lock_release(self);
         return NULL;
     }
@@ -2176,7 +2227,7 @@ static PyObject *OperationStatsCore_record(
     if (idx < 0) {
         if (self->count >= self->capacity) {
             if (op_stats_grow(self) < 0) {
-                for (int i = 0; i < 4; ++i) op_counter_update_clear(&updates[i]);
+                for (int i = 0; i < 6; ++i) op_counter_update_clear(&updates[i]);
                 op_stats_lock_release(self);
                 return NULL;
             }
@@ -2206,17 +2257,15 @@ static PyObject *OperationStatsCore_record(
     if (elapsed > e->max_seconds) {
         e->max_seconds = elapsed;
     }
+    op_counter_apply_add(&e->dropped, &updates[0]);
+    op_counter_apply_add(&e->retries, &updates[1]);
+    op_counter_apply_add(&e->rejected, &updates[2]);
+    op_counter_apply_add(&e->timeouts, &updates[3]);
     if (has_queue_depth) {
-        e->queue_depth = queue_depth;
-        if (queue_depth > e->max_queue_depth) {
-            e->max_queue_depth = queue_depth;
-        }
+        op_counter_apply_set(&e->queue_depth, &updates[4]);
+        op_counter_apply_set(&e->max_queue_depth, &updates[5]);
     }
-    op_counter_apply_update(&e->dropped, &updates[0]);
-    op_counter_apply_update(&e->retries, &updates[1]);
-    op_counter_apply_update(&e->rejected, &updates[2]);
-    op_counter_apply_update(&e->timeouts, &updates[3]);
-    for (int i = 0; i < 4; ++i) op_counter_update_clear(&updates[i]);
+    for (int i = 0; i < 6; ++i) op_counter_update_clear(&updates[i]);
     if (shutdown_seconds) e->shutdown_seconds += shutdown_seconds;
 
     op_stats_lock_release(self);
@@ -2281,8 +2330,8 @@ static PyObject *OperationStatsCore_snapshot(
         vals[3] = PyLong_FromLongLong(snap[i].cancelled);
         vals[4] = PyFloat_FromDouble(snap[i].total_seconds);
         vals[5] = PyFloat_FromDouble(snap[i].max_seconds);
-        vals[6] = PyLong_FromLongLong(snap[i].queue_depth);
-        vals[7] = PyLong_FromLongLong(snap[i].max_queue_depth);
+        vals[6] = op_counter_to_python(&snap[i].queue_depth);
+        vals[7] = op_counter_to_python(&snap[i].max_queue_depth);
         vals[8] = op_counter_to_python(&snap[i].dropped);
         vals[9] = op_counter_to_python(&snap[i].retries);
         vals[10] = op_counter_to_python(&snap[i].rejected);
@@ -2350,10 +2399,7 @@ static PyObject *OperationStatsCore_reset(
             for (Py_ssize_t i = 0; i < n; ++i) {
                 old_names[i] = self->entries[i].name;
                 self->entries[i].name = NULL;
-                op_counter_clear(&self->entries[i].dropped);
-                op_counter_clear(&self->entries[i].retries);
-                op_counter_clear(&self->entries[i].rejected);
-                op_counter_clear(&self->entries[i].timeouts);
+                op_entry_clear_counters(&self->entries[i]);
             }
         } else {
             PyObject **heap_names = (PyObject **)PyMem_Malloc((size_t)n * sizeof(PyObject *));
@@ -2363,18 +2409,12 @@ static PyObject *OperationStatsCore_reset(
                 for (Py_ssize_t i = 0; i < n; ++i) {
                     old_names[i] = self->entries[i].name;
                     self->entries[i].name = NULL;
-                    op_counter_clear(&self->entries[i].dropped);
-                    op_counter_clear(&self->entries[i].retries);
-                    op_counter_clear(&self->entries[i].rejected);
-                    op_counter_clear(&self->entries[i].timeouts);
+                    op_entry_clear_counters(&self->entries[i]);
                 }
             } else {
                 for (Py_ssize_t i = 0; i < n; ++i) {
                     Py_CLEAR(self->entries[i].name);
-                    op_counter_clear(&self->entries[i].dropped);
-                    op_counter_clear(&self->entries[i].retries);
-                    op_counter_clear(&self->entries[i].rejected);
-                    op_counter_clear(&self->entries[i].timeouts);
+                    op_entry_clear_counters(&self->entries[i]);
                 }
                 n = 0;
             }
