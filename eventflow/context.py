@@ -14,6 +14,7 @@ from uuid import uuid4
 
 T = TypeVar("T")
 _correlation: ContextVar[str | None] = ContextVar("eventflow_correlation", default=None)
+_EMPTY_MAPPING_PROXY: Mapping[str, object] = MappingProxyType({})
 __all__ = ["EventEnvelope", "correlation_context", "current_correlation_id"]
 
 
@@ -28,7 +29,7 @@ class _ReadOnlyMetadata(Mapping[str, object]):
     __slots__ = ("_mapping",)
 
     def __init__(self, values: Mapping[str, object]) -> None:
-        self._mapping = MappingProxyType(dict(values))
+        self._mapping = _EMPTY_MAPPING_PROXY if not values else MappingProxyType(dict(values))
 
     def __getitem__(self, key: str) -> object:
         return self._mapping[key]
@@ -52,7 +53,10 @@ class _ReadOnlyMetadata(Mapping[str, object]):
 @contextmanager
 def correlation_context(correlation_id: str) -> Iterator[str]:
     """Bind an identifier until exit; nested and async task contexts are isolated."""
-    if not isinstance(correlation_id, str) or not correlation_id.strip():
+    if type(correlation_id) is str:
+        if not correlation_id or correlation_id.isspace():
+            raise ValueError("Correlation ID must be a non-empty string")
+    elif not isinstance(correlation_id, str) or not correlation_id.strip():
         raise ValueError("Correlation ID must be a non-empty string")
     token = _correlation.set(correlation_id)
     try:
@@ -77,16 +81,25 @@ class EventEnvelope(Generic[T]):
     metadata: Mapping[str, object] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
-        if not isinstance(self.id, str) or not self.id.strip():
+        envelope_id = self.id
+        if type(envelope_id) is str:
+            if not envelope_id or envelope_id.isspace():
+                raise ValueError("Envelope ID must be a non-empty string")
+        elif not isinstance(envelope_id, str) or not envelope_id.strip():
             raise ValueError("Envelope ID must be a non-empty string")
         correlation = self.correlation_id
         if correlation is None:
-            correlation = current_correlation_id() or self.id
-        if not isinstance(correlation, str) or not correlation.strip():
+            correlation = current_correlation_id() or envelope_id
+        elif type(correlation) is str:
+            if not correlation or correlation.isspace():
+                raise ValueError("Correlation ID must be a non-empty string")
+        elif not isinstance(correlation, str) or not correlation.strip():
             raise ValueError("Correlation ID must be a non-empty string")
-        if not isinstance(self.timestamp, datetime) or self.timestamp.utcoffset() is None:
-            raise ValueError("Envelope timestamp must be timezone-aware")
-        object.__setattr__(self, "timestamp", self.timestamp.astimezone(timezone.utc))
+        ts = self.timestamp
+        if type(ts) is not datetime or ts.tzinfo is not timezone.utc:
+            if not isinstance(ts, datetime) or ts.utcoffset() is None:
+                raise ValueError("Envelope timestamp must be timezone-aware")
+            object.__setattr__(self, "timestamp", ts.astimezone(timezone.utc))
         object.__setattr__(self, "correlation_id", correlation)
         object.__setattr__(self, "metadata", _ReadOnlyMetadata(self.metadata))
 

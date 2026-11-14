@@ -65,6 +65,11 @@ class _ChannelRegistry(Generic[BusT]):
         with self._lock:
             return tuple(sorted(self._channels))
 
+    def get_fast(self, name: str) -> BusT | None:
+        if not self._running:
+            return None
+        return self._channels.get(name)
+
     def get_or_create(self, name: str, factory: Callable[[], BusT]) -> BusT:
         with self._lock:
             bus = self._channels.get(name)
@@ -164,19 +169,19 @@ class EventEngine:
     def channel_names(self) -> tuple[str, ...]:
         return self._channel_registry.names
 
+    def _create_channel_bus(self) -> EventBus[Any]:
+        return EventBus(
+            history=self._history,
+            error_policy=self._error_policy,
+            executor=self._executor,
+            actions=self._actions,
+        )
+
     def channel(self, name: str) -> EventBus[Any]:
         """Return a channel, creating it with engine defaults when necessary."""
 
         name = _channel_name(name)
-        return self._channel_registry.get_or_create(
-            name,
-            lambda: EventBus(
-                history=self._history,
-                error_policy=self._error_policy,
-                executor=self._executor,
-                actions=self._actions,
-            ),
-        )
+        return self._channel_registry.get_or_create(name, self._create_channel_bus)
 
     def add(self, name: str, bus: EventBus[Any]) -> EventBus[Any]:
         """Register a bus owned by this engine under a channel name.
@@ -194,6 +199,10 @@ class EventEngine:
         return bus
 
     def publish(self, channel: str, event: Any) -> PublishResult:
+        if type(channel) is str:
+            bus = self._channel_registry.get_fast(channel)
+            if bus is not None:
+                return bus.publish(event)
         return self.channel(channel).publish(event)
 
     def subscribe(
@@ -362,18 +371,18 @@ class AsyncEventEngine:
     def channel_names(self) -> tuple[str, ...]:
         return self._channel_registry.names
 
+    def _create_channel_bus(self) -> AsyncEventBus[Any]:
+        return AsyncEventBus(
+            history=self._history,
+            error_policy=self._error_policy,
+            delivery_mode=self._delivery_mode,
+            max_concurrency=self._max_concurrency,
+            actions=self._actions,
+        )
+
     def channel(self, name: str) -> AsyncEventBus[Any]:
         name = _channel_name(name)
-        return self._channel_registry.get_or_create(
-            name,
-            lambda: AsyncEventBus(
-                history=self._history,
-                error_policy=self._error_policy,
-                delivery_mode=self._delivery_mode,
-                max_concurrency=self._max_concurrency,
-                actions=self._actions,
-            ),
-        )
+        return self._channel_registry.get_or_create(name, self._create_channel_bus)
 
     def add(self, name: str, bus: AsyncEventBus[Any]) -> AsyncEventBus[Any]:
         """Register a bus owned by this engine under a channel name.
@@ -391,6 +400,10 @@ class AsyncEventEngine:
         return bus
 
     async def publish(self, channel: str, event: Any) -> PublishResult:
+        if type(channel) is str:
+            bus = self._channel_registry.get_fast(channel)
+            if bus is not None:
+                return await bus.publish(event)
         return await self.channel(channel).publish(event)
 
     async def subscribe(

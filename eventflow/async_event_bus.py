@@ -7,7 +7,6 @@ from collections import deque
 from collections.abc import Awaitable, Callable
 from concurrent.futures import Future
 from dataclasses import dataclass
-from dataclasses import field as dataclass_field
 from typing import Generic, TypeVar, cast
 
 from ._callbacks import is_async_callable
@@ -37,7 +36,8 @@ class _AsyncSubscriber(Generic[T]):
     remaining: int | None
     subscription: AsyncSubscription
     replaying: bool = False
-    pending: deque[T] = dataclass_field(default_factory=deque)
+    match_all: bool = False
+    pending: deque[T] | None = None
 
     def claim(self) -> tuple[bool, bool]:
         """Reserve one delivery and report whether it is the final one."""
@@ -58,17 +58,22 @@ class _AsyncSubscriber(Generic[T]):
     def buffer_if_replaying(self, event: T) -> bool:
         if not self.replaying:
             return False
-        if self.pending.maxlen is not None and len(self.pending) >= self.pending.maxlen:
+        pending = self.pending
+        if pending is None:
+            return False
+        if pending.maxlen is not None and len(pending) >= pending.maxlen:
             raise BufferError("Event replay buffer is full")
-        self.pending.append(event)
+        pending.append(event)
         return True
 
     def finish_replay(self) -> tuple[T, ...] | None:
-        if self.pending:
-            events = tuple(self.pending)
-            self.pending.clear()
+        pending = self.pending
+        if pending:
+            events = tuple(pending)
+            pending.clear()
             return events
         self.replaying = False
+        self.pending = None
         return None
 
 
@@ -131,6 +136,7 @@ class AsyncEventBus(BaseEventBus[T]):
         self._replay_buffer_limit = replay_buffer_limit
         self._max_schedules = max_schedules
         self._subscribers: dict[int, _AsyncSubscriber[T]] = {}
+        self._subscribers_snapshot: tuple[_AsyncSubscriber[T], ...] | None = None
         self._next_id = 0
         self._closed = False
         self._lock = asyncio.Lock()
@@ -156,9 +162,10 @@ class AsyncEventBus(BaseEventBus[T]):
 
     def _bind_loop(self) -> asyncio.AbstractEventLoop:
         loop = asyncio.get_running_loop()
-        if self._loop is None:
+        bound = self._loop
+        if bound is None:
             self._loop = loop
-        elif self._loop is not loop:
+        elif bound is not loop:
             raise EventBusError("AsyncEventBus cannot be shared across event loops")
         return loop
 
@@ -245,7 +252,8 @@ class AsyncEventBus(BaseEventBus[T]):
 
         async def cancel() -> None:
             async with self._lock:
-                self._subscribers.pop(subscription_id, None)
+                if self._subscribers.pop(subscription_id, None) is not None:
+                    self._subscribers_snapshot = None
 
         subscription = AsyncSubscription(subscription_id, cancel)
         subscriber = _AsyncSubscriber(
@@ -254,9 +262,11 @@ class AsyncEventBus(BaseEventBus[T]):
             delivery_limit,
             subscription,
             replaying=replaying,
-            pending=deque(maxlen=self._replay_buffer_limit),
+            match_all=event_filter.event_type is None and event_filter.predicate is None,
+            pending=deque(maxlen=self._replay_buffer_limit) if replaying else None,
         )
         self._subscribers[subscription_id] = subscriber
+        self._subscribers_snapshot = None
         return subscription, subscriber
 
     async def once(
@@ -279,21 +289,29 @@ class AsyncEventBus(BaseEventBus[T]):
             replay=replay,
         )
 
-    async def publish(self, event: T) -> PublishResult:
-        self._bind_loop()
-        async with self._lock:
-            self._ensure_open()
-            if (
-                not self._subscribers
-                and self._actions.on_before is None
-                and self._actions.on_after is None
-            ):
-                self._record(event)
-                self._published += 1
-                return PublishResult()
+    def _begin_publish_locked(self, event: T) -> tuple[_AsyncSubscriber[T], ...] | None:
+        self._ensure_open()
+        subscribers = self._subscribers_snapshot
+        if subscribers is None:
             subscribers = tuple(self._subscribers.values())
+            self._subscribers_snapshot = subscribers
+        if not subscribers and self._actions.on_before is None and self._actions.on_after is None:
             self._record(event)
             self._published += 1
+            return None
+        self._record(event)
+        self._published += 1
+        return subscribers
+
+    async def publish(self, event: T) -> PublishResult:
+        self._bind_loop()
+        if self._lock.locked():
+            async with self._lock:
+                subscribers = self._begin_publish_locked(event)
+        else:
+            subscribers = self._begin_publish_locked(event)
+        if subscribers is None:
+            return PublishResult()
 
         before_error: Exception | None = None
         if self._actions.on_before is not None:
@@ -302,22 +320,41 @@ class AsyncEventBus(BaseEventBus[T]):
             except Exception as exc:
                 before_error = exc
 
-        matched, errors = await self._match_subscribers(subscribers, event)
+        matched, errors, overflowed = self._match_subscribers_sync(subscribers, event)
+        for subscriber in overflowed:
+            await subscriber.subscription.cancel()
         if before_error is not None:
             errors.insert(0, before_error)
 
         delivered = 0
         if self._delivery_mode is DeliveryMode.SEQUENTIAL:
             for subscriber in matched:
-                was_delivered, error = await self._deliver(subscriber, event)
-                if was_delivered:
+                claimed, final = subscriber.claim()
+                if not claimed:
+                    continue
+                if final:
+                    try:
+                        await subscriber.subscription._consume()
+                    except BaseException:
+                        subscriber.restore_claim()
+                        raise
+                try:
+                    await subscriber.callback(event)
+                except Exception as exc:
+                    errors.append(exc)
+                else:
                     delivered += 1
-                if error is not None:
-                    errors.append(error)
         else:
             if self._max_concurrency is not None and 1 < self._max_concurrency < len(matched):
                 outcomes = await self._deliver_window(matched, event, self._max_concurrency)
                 delivered += self._collect_concurrent_outcomes(outcomes, errors)
+            elif self._max_concurrency is None:
+                if matched:
+                    outcomes = await asyncio.gather(
+                        *(self._deliver(subscriber, event) for subscriber in matched),
+                        return_exceptions=True,
+                    )
+                    delivered += self._collect_concurrent_outcomes(outcomes, errors)
             else:
                 limit = self._max_concurrency or max(1, len(matched))
                 for offset in range(0, len(matched), limit):
@@ -354,31 +391,36 @@ class AsyncEventBus(BaseEventBus[T]):
             raise ExceptionGroup("Async event delivery failed", errors)
         return result
 
-    async def _match_subscribers(
-        self,
+    @staticmethod
+    def _match_subscribers_sync(
         subscribers: tuple[_AsyncSubscriber[T], ...],
         event: T,
-    ) -> tuple[list[_AsyncSubscriber[T]], list[Exception]]:
+    ) -> tuple[list[_AsyncSubscriber[T]], list[Exception], list[_AsyncSubscriber[T]]]:
         matched: list[_AsyncSubscriber[T]] = []
         errors: list[Exception] = []
+        overflowed: list[_AsyncSubscriber[T]] = []
         for subscriber in subscribers:
             if not subscriber.subscription.active:
                 continue
-            try:
-                matches = subscriber.event_filter.matches(event)
-            except Exception as exc:
-                errors.append(exc)
-                continue
-            if matches:
+            if subscriber.match_all:
+                matches = True
+            else:
                 try:
-                    if subscriber.buffer_if_replaying(event):
-                        continue
-                except BufferError as exc:
-                    await subscriber.subscription.cancel()
+                    matches = subscriber.event_filter.matches(event)
+                except Exception as exc:
                     errors.append(exc)
                     continue
+            if matches:
+                if subscriber.replaying:
+                    try:
+                        if subscriber.buffer_if_replaying(event):
+                            continue
+                    except BufferError as exc:
+                        overflowed.append(subscriber)
+                        errors.append(exc)
+                        continue
                 matched.append(subscriber)
-        return matched, errors
+        return matched, errors, overflowed
 
     @staticmethod
     def _collect_concurrent_outcomes(
@@ -630,6 +672,7 @@ class AsyncEventBus(BaseEventBus[T]):
                 subscriber.subscription for subscriber in self._subscribers.values()
             )
             self._subscribers.clear()
+            self._subscribers_snapshot = None
             waiters = tuple(self._waiters)
             for waiter in waiters:
                 if not waiter.done():
@@ -654,7 +697,8 @@ class AsyncEventBus(BaseEventBus[T]):
         for subscription in subscriptions:
             await subscription.cancel()
             async with self._lock:
-                self._subscribers.pop(subscription.id, None)
+                if self._subscribers.pop(subscription.id, None) is not None:
+                    self._subscribers_snapshot = None
         current_task = asyncio.current_task()
         for schedule, task in schedules:
             if task is not current_task:

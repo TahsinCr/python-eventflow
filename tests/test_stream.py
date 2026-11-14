@@ -15,7 +15,7 @@ class StreamTests(unittest.IsolatedAsyncioTestCase):
     async def test_sync_primitive_transforms_skip_awaitable_detection(self):
         isawaitable = Mock()
         with patch(
-            "eventflow.stream.inspect",
+            "eventflow._callbacks.inspect",
             SimpleNamespace(isawaitable=isawaitable),
         ):
             stream = (

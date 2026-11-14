@@ -111,7 +111,7 @@ class CallbackTests(unittest.TestCase):
             timeout=1,
             on_timeout=lambda ctx: hooks.append("timeout"),
         )
-        with patch.object(time, "monotonic", side_effect=[0, 0, 2, 2]):
+        with patch.object(time, "monotonic", side_effect=[0, 2, 2]):
             with self.assertRaises(TimeoutError):
                 timeout.invoke(1)
         self.assertEqual(hooks[-1], "timeout")
@@ -355,3 +355,23 @@ class AsyncCallbackTests(unittest.IsolatedAsyncioTestCase):
             with self.assertRaisesRegex(TypeError, "awaitable"):
                 subscription.invoke("event")
         self.assertEqual(captured, [])
+
+    def test_fast_path_hookless_rejection_and_awaitable_error(self):
+        sync_sub = CallbackSubscription(1, lambda: None, lambda event: event)
+        sync_sub.disable()
+        self.assertIsNone(sync_sub.invoke("ignored"))
+
+        bad_sync = CallbackSubscription(2, lambda: None, lambda _event: asyncio.sleep(0))
+        with warnings.catch_warnings(record=True) as captured:
+            warnings.simplefilter("always", RuntimeWarning)
+            with self.assertRaisesRegex(TypeError, "awaitable"):
+                bad_sync.invoke("event")
+        self.assertEqual(captured, [])
+
+    async def test_async_fast_path_hookless_rejection(self):
+        async def handler(event):
+            return event
+
+        async_sub = CallbackSubscription(1, lambda: None, handler, asynchronous=True)
+        async_sub.disable()
+        self.assertIsNone(await async_sub.invoke_async("ignored"))

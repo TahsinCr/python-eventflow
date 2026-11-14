@@ -12,7 +12,7 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Any
 
-from ._callbacks import synchronous_result
+from ._callbacks import _NON_AWAITABLE_TYPES, synchronous_result
 from ._compatibility import ExceptionGroup
 from ._lifecycle import ensure_future_safely, finish_cleanup
 from .errors import CallbackTimeoutError
@@ -88,6 +88,7 @@ class CallbackSubscription(Subscription):
         self._calls = 0
         self._policy_lock = threading.RLock()
         self._hooks: dict[str, list[Callable]] = {}
+        self._has_hooks = False
         for name, hook in (
             ("before", on_before),
             ("success", on_success),
@@ -124,6 +125,7 @@ class CallbackSubscription(Subscription):
             raise TypeError("Hook must match callback sync/async mode")
         with self._policy_lock:
             self._hooks.setdefault(name, []).append(callback)
+            self._has_hooks = True
         return callback
 
     def on_before(self, callback: Callable) -> Callable:
@@ -142,21 +144,28 @@ class CallbackSubscription(Subscription):
         return self._hook("after", callback)
 
     def _accept(self, event: Any) -> bool:
-        if not self.active or not self.enabled:
+        if not self.active or not self._enabled:
             return False
         if self.predicate is not None:
             accepted = self.predicate(event)
-            if inspect.isawaitable(accepted):
-                if inspect.iscoroutine(accepted):
-                    accepted.close()
-                raise TypeError("predicate returned an awaitable")
-            if not isinstance(accepted, bool):
-                raise TypeError("predicate must return bool")
+            if type(accepted) is not bool:
+                if inspect.isawaitable(accepted):
+                    if inspect.iscoroutine(accepted):
+                        accepted.close()
+                    raise TypeError("predicate returned an awaitable")
+                if not isinstance(accepted, bool):
+                    raise TypeError("predicate must return bool")
             if not accepted:
                 return False
+        if self._interval == 0.0 and self._maximum is None:
+            return True
         with self._policy_lock:
-            now = time.monotonic()
-            if not self.active or not self._enabled or now - self._last < self._interval:
+            now = time.monotonic() if self._interval > 0.0 else 0.0
+            if (
+                not self.active
+                or not self._enabled
+                or (self._interval > 0.0 and now - self._last < self._interval)
+            ):
                 return False
             if self._maximum is not None and self._calls >= self._maximum:
                 return False
@@ -219,6 +228,13 @@ class CallbackSubscription(Subscription):
             raise ExceptionGroup("Callback and error hook failed", [error, hook_error]) from None
 
     def invoke(self, event: Any) -> Any:
+        if not self._has_hooks and self.timeout is None:
+            if not self._accept(event):
+                return None
+            result = self.callback(event)
+            if result is not None and type(result) not in _NON_AWAITABLE_TYPES:
+                synchronous_result(result)
+            return result
         context = CallbackContext(event)
         started = time.monotonic()
         try:
@@ -229,11 +245,10 @@ class CallbackSubscription(Subscription):
             raise
         try:
             self._run_hooks("before", context)
-            context.result = self.callback(event)
-            if inspect.isawaitable(context.result):
-                if inspect.iscoroutine(context.result):
-                    context.result.close()
-                raise TypeError("Sync callback returned an awaitable")
+            result = self.callback(event)
+            context.result = result
+            if result is not None and type(result) not in _NON_AWAITABLE_TYPES:
+                synchronous_result(result)
             context.elapsed = time.monotonic() - started
             if self.timeout is not None and context.elapsed > self.timeout:
                 raise CallbackTimeoutError("Callback exceeded its synchronous time budget")
@@ -263,6 +278,10 @@ class CallbackSubscription(Subscription):
                 self._raise_errors(failures)
 
     async def invoke_async(self, event: Any) -> Any:
+        if not self._has_hooks and self.timeout is None:
+            if not self._accept(event):
+                return None
+            return await self.callback(event)
         context = CallbackContext(event)
         started = time.monotonic()
         try:

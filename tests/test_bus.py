@@ -1046,3 +1046,44 @@ class EventBusTests(unittest.TestCase):
             self.assertEqual(bus._schedules, {})
         finally:
             bus.close()
+
+    def test_memory_history_type_filter_cache_and_invalidation(self) -> None:
+        from collections import deque
+        from collections.abc import Sequence
+
+        history = MemoryEventHistory[object](capacity=8)
+        history.append("a")
+        history.append(1)
+        history.append("b")
+        history.append(2)
+
+        int_filter = EventFilter[object](event_type=int)
+        pair_filter = EventFilter[object](event_type=(int, str))
+        abc_filter = EventFilter[object](event_type=Sequence)
+
+        self.assertEqual(history.latest(int_filter), 2)
+        self.assertEqual(history.latest(EventFilter[object](event_type=bytes)), None)
+
+        limited_first = history.query(int_filter, limit=1)
+        limited_second = history.query(int_filter, limit=1)
+        self.assertEqual(limited_first, (2,))
+        self.assertIs(limited_second, limited_first)
+
+        all_first = history.query(pair_filter)
+        all_second = history.query(pair_filter)
+        self.assertEqual(all_first, ("a", 1, "b", 2))
+        self.assertIs(all_second, all_first)
+        self.assertEqual(history.query(pair_filter, limit=2), ("b", 2))
+        self.assertEqual(history.query(abc_filter, limit=1), ("b",))
+
+        history.append(3)
+        self.assertEqual(history.query(int_filter, limit=1), (3,))
+        self.assertEqual(history.query(pair_filter), ("a", 1, "b", 2, 3))
+
+        history._events = deque(["z", 9], maxlen=8)
+        self.assertEqual(history.query(int_filter, limit=1), (9,))
+        self.assertEqual(history.query(pair_filter), ("z", 9))
+
+        history.clear()
+        self.assertEqual(history.query(int_filter, limit=1), ())
+        self.assertEqual(history.query(pair_filter), ())

@@ -3,10 +3,10 @@
 from __future__ import annotations
 
 import asyncio
-import inspect
 from collections.abc import AsyncIterable, AsyncIterator, Awaitable, Callable
 from typing import Any, Generic, Literal, NoReturn, TypeVar, cast
 
+from ._callbacks import _NON_AWAITABLE_TYPES, is_awaitable
 from ._lifecycle import bind_running_loop, create_task_safely, finish_cleanup
 from .base import validate_finite_duration, validate_positive_capacity
 
@@ -120,12 +120,7 @@ class AsyncStream(AsyncIterator[T], Generic[T]):
                         value = await source.__anext__()
                     for operation, transform in self._operators:
                         result = transform(value)
-                        result_type = type(result)
-                        if (
-                            result_type is not int
-                            and result_type is not bool
-                            and inspect.isawaitable(result)
-                        ):
+                        if type(result) not in _NON_AWAITABLE_TYPES and is_awaitable(result):
                             result = await result
                         if operation == "filter":
                             if type(result) is not bool:
