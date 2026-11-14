@@ -181,6 +181,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Run the pure-Python fallback test suite on Windows by passing
+  `EVENTFLOW_NO_EXTENSIONS` through the workflow step environment, not a
+  POSIX-only inline assignment.
 - Keep Cython-generated files and MSVC intermediate objects in a short native
   build directory so Windows wheel links do not exceed path limits.
 - Format the raw-latency collector, native summary exporter and benchmark tests

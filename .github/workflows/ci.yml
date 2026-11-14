@@ -33,11 +33,15 @@ jobs:
       - name: Install package and development tools
         run: python -m pip install -e ".[dev]"
 
-      - name: Run unit tests
+      - name: Run unit tests with the compiled extension
         if: matrix.os != 'ubuntu-latest' || matrix.python-version != '3.10'
-        run: |
-          python run_tests.py
-          EVENTFLOW_NO_EXTENSIONS=1 python run_tests.py
+        run: python run_tests.py
+
+      - name: Run unit tests with the pure-Python fallback
+        if: matrix.os != 'ubuntu-latest' || matrix.python-version != '3.10'
+        env:
+          EVENTFLOW_NO_EXTENSIONS: "1"
+        run: python run_tests.py
 
       - name: Measure package and branch coverage
         if: matrix.os == 'ubuntu-latest' && matrix.python-version == '3.10'
@@ -140,9 +144,15 @@ jobs:
           PYTHON_GIL: "0"
           PYTHONASYNCIODEBUG: "1"
           PYTHONWARNINGS: error
-        run: |
-          python run_tests.py
-          EVENTFLOW_NO_EXTENSIONS=1 python run_tests.py
+        run: python run_tests.py
+
+      - name: Run pure-Python unit tests without the GIL
+        env:
+          PYTHON_GIL: "0"
+          PYTHONASYNCIODEBUG: "1"
+          PYTHONWARNINGS: error
+          EVENTFLOW_NO_EXTENSIONS: "1"
+        run: python run_tests.py
 
   dependency-audit:
     name: Audit runtime dependencies
