@@ -13,6 +13,7 @@ from ._callbacks import synchronous_result
 PolicyResult = Literal["allow", "deny", "abstain"]
 Rule = Callable[[object, str, object, Mapping[str, object]], PolicyResult | bool | None]
 __all__ = ["PolicyDecision", "PolicyEvaluator"]
+_EMPTY_CONTEXT: Mapping[str, object] = MappingProxyType({})
 
 
 @dataclass(frozen=True, slots=True)
@@ -71,14 +72,19 @@ class PolicyEvaluator:
         resource: object,
         context: Mapping[str, object] | None = None,
     ) -> PolicyDecision:
-        if not isinstance(action, str) or not action.strip():
+        if type(action) is str:
+            if not action or action.isspace():
+                raise ValueError("action must be a non-empty string")
+        elif not isinstance(action, str) or not action.strip():
             raise ValueError("action must be a non-empty string")
-        values = MappingProxyType(dict(context) if context is not None else {})
-        with self._lock:
-            rules = self._rules_snapshot
-            if rules is None:
-                rules = tuple(self._rules.items())
-                self._rules_snapshot = rules
+        values = _EMPTY_CONTEXT if context is None else MappingProxyType(dict(context))
+        rules = self._rules_snapshot
+        if rules is None:
+            with self._lock:
+                rules = self._rules_snapshot
+                if rules is None:
+                    rules = tuple(self._rules.items())
+                    self._rules_snapshot = rules
         if not rules:
             decision = PolicyDecision(self._default == "allow", "default policy", ())
             if self._observer is not None:
@@ -87,15 +93,32 @@ class PolicyEvaluator:
         allowed: list[str] = []
         denied: list[str] = []
         for name, rule in rules:
-            result = synchronous_result(rule(subject, action, resource, values))
-            if result is True or (type(result) is str and result == "allow"):
+            result = rule(subject, action, resource, values)
+            if result is True:
                 allowed.append(name)
-            elif result is False or (type(result) is str and result == "deny"):
+            elif result is False:
                 denied.append(name)
-            elif result is not None and not (type(result) is str and result == "abstain"):
-                raise TypeError(
-                    f"Policy rule {name!r} must return allow, deny, abstain, bool, or None"
-                )
+            elif result is None:
+                continue
+            elif type(result) is str:
+                if result == "allow":
+                    allowed.append(name)
+                elif result == "deny":
+                    denied.append(name)
+                elif result != "abstain":
+                    raise TypeError(
+                        f"Policy rule {name!r} must return allow, deny, abstain, bool, or None"
+                    )
+            else:
+                resolved = synchronous_result(result)
+                if resolved is True:
+                    allowed.append(name)
+                elif resolved is False:
+                    denied.append(name)
+                elif resolved is not None:
+                    raise TypeError(
+                        f"Policy rule {name!r} must return allow, deny, abstain, bool, or None"
+                    )
         if denied:
             decision = PolicyDecision(False, "explicit deny", tuple(denied))
         elif allowed:

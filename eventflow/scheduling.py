@@ -13,7 +13,7 @@ from collections.abc import Callable, Hashable
 from dataclasses import dataclass
 from typing import Any, Generic, Literal, TypeVar
 
-from ._callbacks import close_awaitable, synchronous_result
+from ._callbacks import _NON_AWAITABLE_TYPES, close_awaitable, synchronous_result
 from ._compatibility import BaseExceptionGroup, ExceptionGroup
 from ._lifecycle import (
     bind_running_loop,
@@ -107,8 +107,9 @@ class KeyedCoalescer(Generic[K, T]):
         self._thread_started = False
 
     def push(self, value: T) -> None:
-        key = synchronous_result(self._key(value))
-        now = time.monotonic()
+        key = self._key(value)
+        if type(key) not in _NON_AWAITABLE_TYPES:
+            key = synchronous_result(key)
         with self._condition:
             if self._closed:
                 raise RuntimeError("KeyedCoalescer is closed")
@@ -121,14 +122,17 @@ class KeyedCoalescer(Generic[K, T]):
                     self._thread.start()
                     self._thread_started = True
                 self._sequence += 1
-                entry = _Coalesced(value, now + self._interval, self._sequence)
+                entry = _Coalesced(value, time.monotonic() + self._interval, self._sequence)
                 self._pending[key] = entry
                 heapq.heappush(self._due_heap, (entry.deadline, entry.sequence, key))
                 self._submitted += 1
+                self._condition.notify()
             else:
-                entry.value = synchronous_result(self._merge(entry.value, value))
+                merged = self._merge(entry.value, value)
+                if type(merged) not in _NON_AWAITABLE_TYPES:
+                    merged = synchronous_result(merged)
+                entry.value = merged
                 self._merged += 1
-            self._condition.notify()
 
     def _next_due(self) -> tuple[K, T] | None:
         if self._flushing and self._pending:

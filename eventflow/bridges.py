@@ -4,7 +4,6 @@ from __future__ import annotations
 
 import asyncio
 import concurrent.futures
-import inspect
 import threading
 import time
 from collections import deque
@@ -12,7 +11,7 @@ from collections.abc import AsyncIterator, Awaitable, Callable, Hashable
 from dataclasses import dataclass
 from typing import Any, Generic, Literal, TypeVar, cast
 
-from ._callbacks import close_awaitable
+from ._callbacks import close_awaitable, is_awaitable
 from ._lifecycle import bind_running_loop
 from .base import validate_nonnegative_timeout, validate_positive_capacity
 from .errors import EventQueueClosedError, LoopPortalClosedError, QueueOverflowError
@@ -235,6 +234,97 @@ class AsyncEventQueue(Generic[T]):
         await self.aclose()
 
 
+class _PortalSubmission(Generic[T]):
+    __slots__ = (
+        "portal",
+        "loop",
+        "operation",
+        "args",
+        "kwargs",
+        "future",
+        "task",
+        "started",
+    )
+
+    def __init__(
+        self,
+        portal: LoopPortal,
+        loop: asyncio.AbstractEventLoop,
+        operation: Callable[..., Awaitable[T]] | Awaitable[T],
+        args: tuple[object, ...],
+        kwargs: dict[str, object],
+        future: concurrent.futures.Future[T],
+    ) -> None:
+        self.portal = portal
+        self.loop = loop
+        self.operation = operation
+        self.args = args
+        self.kwargs = kwargs
+        self.future = future
+        self.task: asyncio.Task[T] | None = None
+        self.started = False
+
+    def close_input(self) -> None:
+        if not callable(self.operation):
+            close_awaitable(self.operation)
+
+    def on_future_done(self, completed: concurrent.futures.Future[T]) -> None:
+        portal = self.portal
+        with portal._lock:
+            portal._futures.discard(completed)
+        if completed.cancelled():
+            try:
+                self.loop.call_soon_threadsafe(self.cancel_on_loop)
+            except RuntimeError:
+                pass
+
+    def cancel_on_loop(self) -> None:
+        task = self.task
+        if task is not None and not task.done():
+            task.cancel()
+
+    async def _run(self) -> T:
+        self.started = True
+        operation = self.operation
+        result = operation(*self.args, **self.kwargs) if callable(operation) else operation
+        if not is_awaitable(result):
+            raise TypeError("portal operation must return an awaitable")
+        return await cast(Awaitable[T], result)
+
+    def on_task_done(self, completed: asyncio.Task[T]) -> None:
+        if not self.started:
+            self.close_input()
+        future = self.future
+        if future.done():
+            return
+        if completed.cancelled():
+            future.cancel()
+            return
+        try:
+            future.set_result(completed.result())
+        except BaseException as error:
+            future.set_exception(error)
+
+    def schedule(self) -> None:
+        future = self.future
+        if future.cancelled():
+            self.close_input()
+            return
+        coroutine = self._run()
+        try:
+            task = self.loop.create_task(coroutine, name="EventFlowPortalCall")
+        except BaseException as error:
+            coroutine.close()
+            self.close_input()
+            if not future.done():
+                future.set_exception(error)
+            return
+        self.task = task
+        if future.cancelled():
+            task.cancel()
+        task.add_done_callback(self.on_task_done)
+
+
 class LoopPortal:
     """Own a background event loop and submit async operations from other threads."""
 
@@ -347,77 +437,13 @@ class LoopPortal:
             loop = self._loop
             future: concurrent.futures.Future[T] = concurrent.futures.Future()
             self._futures.add(future)
-            task: asyncio.Task[T] | None = None
-
-            def forget(completed: concurrent.futures.Future[T]) -> None:
-                with self._lock:
-                    self._futures.discard(completed)
-
-            def cancel_on_loop() -> None:
-                if task is not None and not task.done():
-                    task.cancel()
-
-            def cancel_task(completed: concurrent.futures.Future[T]) -> None:
-                if completed.cancelled():
-                    try:
-                        loop.call_soon_threadsafe(cancel_on_loop)
-                    except RuntimeError:
-                        pass
-
-            future.add_done_callback(forget)
-            future.add_done_callback(cancel_task)
-
-            def close_input() -> None:
-                if not callable(operation):
-                    close_awaitable(operation)
-
-            def schedule() -> None:
-                nonlocal task
-                if future.cancelled():
-                    close_input()
-                    return
-                started = False
-
-                async def run() -> T:
-                    nonlocal started
-                    started = True
-                    result = operation(*args, **kwargs) if callable(operation) else operation
-                    if not inspect.isawaitable(result):
-                        raise TypeError("portal operation must return an awaitable")
-                    return await cast(Awaitable[T], result)
-
-                coroutine = run()
-                try:
-                    task = loop.create_task(coroutine, name="EventFlowPortalCall")
-                except BaseException as error:
-                    coroutine.close()
-                    close_input()
-                    if not future.done():
-                        future.set_exception(error)
-                    return
-                if future.cancelled():
-                    task.cancel()
-
-                def transfer_result(completed: asyncio.Task[T]) -> None:
-                    if not started:
-                        close_input()
-                    if future.done():
-                        return
-                    if completed.cancelled():
-                        future.cancel()
-                        return
-                    try:
-                        future.set_result(completed.result())
-                    except BaseException as error:
-                        future.set_exception(error)
-
-                task.add_done_callback(transfer_result)
-
+            submission = _PortalSubmission(self, loop, operation, args, kwargs, future)
+            future.add_done_callback(submission.on_future_done)
             try:
-                loop.call_soon_threadsafe(schedule)
+                loop.call_soon_threadsafe(submission.schedule)
             except RuntimeError as error:
                 self._futures.discard(future)
-                close_input()
+                submission.close_input()
                 raise LoopPortalClosedError("LoopPortal event loop is not accepting work") from (
                     error
                 )

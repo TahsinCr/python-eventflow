@@ -157,26 +157,25 @@ class _PipelineBase(Generic[C, M]):
     ) -> Exception | None:
         if self._observer is None:
             return None
-        status: Literal["success", "error", "cancelled"] = (
-            "cancelled"
-            if isinstance(error, asyncio.CancelledError)
-            else "error"
-            if error is not None
-            else "success"
-        )
+        if error is None:
+            status: Literal["success", "error", "cancelled"] = "success"
+        elif isinstance(error, asyncio.CancelledError):
+            status = "cancelled"
+        else:
+            status = "error"
         try:
-            synchronous_result(
-                self._observer(
-                    PipelineObservation(
-                        kind,
-                        name,
-                        perf_counter() - started,
-                        status,
-                        current_correlation_id(),
-                        error,
-                    )
+            result = self._observer(
+                PipelineObservation(
+                    kind,
+                    name,
+                    perf_counter() - started,
+                    status,
+                    current_correlation_id(),
+                    error,
                 )
             )
+            if result is not None:
+                synchronous_result(result)
         except Exception as observer_error:
             return observer_error
         return None

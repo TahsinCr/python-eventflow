@@ -63,6 +63,7 @@ class VersionedCache(Generic[K, V]):
             raise TypeError("clock must be callable")
         self._max_bytes = max_bytes
         self._ttl = ttl
+        self._has_custom_getsizeof = getsizeof is not None
         self._getsizeof = getsizeof if getsizeof is not None else (lambda _key, _value: 1)
         self._clock = clock
         self._entries: OrderedDict[K, _Entry[V]] = OrderedDict()
@@ -92,31 +93,47 @@ class VersionedCache(Generic[K, V]):
 
     def put(self, key: K, value: V, *, version: int, ttl: float | None = None) -> bool:
         """Store a value; reject stale versions and values too large for the byte bound."""
-        if isinstance(version, bool) or not isinstance(version, int) or version < 0:
-            raise ValueError("version must be a non-negative integer")
+        if type(version) is not int or version < 0:
+            if isinstance(version, bool) or not isinstance(version, int) or version < 0:
+                raise ValueError("version must be a non-negative integer")
         lifetime = self._ttl if ttl is None else validate_finite_duration(ttl, name="ttl")
-        size = synchronous_result(self._getsizeof(key, value))
-        if isinstance(size, bool) or not isinstance(size, int) or size < 0:
-            raise ValueError("getsizeof must return a non-negative integer")
+        if self._has_custom_getsizeof:
+            size = synchronous_result(self._getsizeof(key, value))
+            if isinstance(size, bool) or not isinstance(size, int) or size < 0:
+                raise ValueError("getsizeof must return a non-negative integer")
+        else:
+            size = 1
         if self._max_bytes is not None and size > self._max_bytes:
             return False
-        now = self._clock()
         with self._lock:
-            self._expire(now)
+            now = self._clock() if lifetime is not None or self._expiry_heap else 0.0
+            if self._expiry_heap:
+                self._expire(now)
             current = self._entries.get(key)
             if current is not None and version < current.version:
                 self._stale_writes += 1
                 return False
+            if lifetime is None:
+                expires_at = None
+                expiry_token = -1
+            else:
+                expires_at = now + lifetime
+                expiry_token = next(self._expiry_tokens)
             if current is not None:
-                self._bytes -= current.size
-                self._entries.pop(key)
-            expires_at = None if lifetime is None else now + lifetime
-            expiry_token = next(self._expiry_tokens)
-            self._entries[key] = _Entry(value, version, size, expires_at, expiry_token)
+                self._bytes += size - current.size
+                current.value = value
+                current.version = version
+                current.size = size
+                current.expires_at = expires_at
+                current.expiry_token = expiry_token
+                self._entries.move_to_end(key)
+            else:
+                self._entries[key] = _Entry(value, version, size, expires_at, expiry_token)
+                self._bytes += size
             if expires_at is not None:
                 heapq.heappush(self._expiry_heap, (expires_at, expiry_token, key))
-                self._expire(now)
-            self._bytes += size
+                if expires_at <= now:
+                    self._expire(now)
             while len(self._entries) > self._max_entries or (
                 self._max_bytes is not None and self._bytes > self._max_bytes
             ):
@@ -127,13 +144,12 @@ class VersionedCache(Generic[K, V]):
 
     def get(self, key: K, *, version: int | None = None) -> V | None:
         """Return and promote a matching value; None means absent, expired, or stale."""
-        if version is not None and (
-            isinstance(version, bool) or not isinstance(version, int) or version < 0
-        ):
-            raise ValueError("version must be a non-negative integer or None")
-        now = self._clock()
+        if version is not None and (type(version) is not int or version < 0):
+            if isinstance(version, bool) or not isinstance(version, int) or version < 0:
+                raise ValueError("version must be a non-negative integer or None")
         with self._lock:
-            self._expire(now)
+            if self._expiry_heap:
+                self._expire(self._clock())
             entry = self._entries.get(key)
             if entry is None or (version is not None and entry.version != version):
                 self._misses += 1
@@ -144,7 +160,8 @@ class VersionedCache(Generic[K, V]):
 
     def remove(self, key: K) -> V | None:
         with self._lock:
-            self._expire(self._clock())
+            if self._expiry_heap:
+                self._expire(self._clock())
             entry = self._entries.pop(key, None)
             if entry is None:
                 return None
@@ -159,13 +176,16 @@ class VersionedCache(Generic[K, V]):
 
     def prune(self) -> int:
         with self._lock:
+            if not self._expiry_heap:
+                return 0
             before = len(self._entries)
             self._expire(self._clock())
             return before - len(self._entries)
 
     def stats(self) -> CacheStats:
         with self._lock:
-            self._expire(self._clock())
+            if self._expiry_heap:
+                self._expire(self._clock())
             return CacheStats(
                 len(self._entries),
                 self._bytes,

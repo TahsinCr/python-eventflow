@@ -2,14 +2,13 @@
 
 from __future__ import annotations
 
-import inspect
 import threading
 from collections.abc import Callable, Hashable, Mapping, Set
 from dataclasses import dataclass
 from types import MappingProxyType
 from typing import Generic, TypeVar
 
-from ._callbacks import close_awaitable
+from ._callbacks import _NON_AWAITABLE_TYPES, close_awaitable, is_awaitable
 
 S = TypeVar("S", bound=Hashable)
 T = TypeVar("T")
@@ -100,12 +99,12 @@ class StateMachine(Generic[S]):
         if self._guard is None:
             return True
         result = self._guard(current, target)
-        if inspect.isawaitable(result):
+        if type(result) is bool:
+            return result
+        if is_awaitable(result):
             close_awaitable(result)
             raise TypeError("StateMachine guard must be synchronous")
-        if type(result) is not bool:
-            raise TypeError("StateMachine guard must return bool")
-        return result
+        raise TypeError("StateMachine guard must return bool")
 
     def transition(self, target: S) -> StateSnapshot[S]:
         result = self._transition(target, expected_version=None)
@@ -121,32 +120,57 @@ class StateMachine(Generic[S]):
         return self._transition(target, expected_version=expected_version)
 
     def _transition(self, target: S, expected_version: int | None) -> StateSnapshot[S] | None:
-        while True:
+        previous: StateSnapshot[S] | None = None
+        if self._guard is None:
             with self._lock:
                 if expected_version is not None and expected_version != self._version:
                     return None
                 previous_state = self._state
-                observed_version = self._version
-
-            allowed = self._allows(previous_state, target)
-
-            with self._lock:
-                if self._version != observed_version:
-                    if expected_version is not None:
-                        return None
-                    continue
-                if not allowed:
+                if previous_state in self._terminal or target not in self._transitions.get(
+                    previous_state, ()
+                ):
                     raise StateTransitionError(
                         f"Transition from {previous_state!r} to {target!r} is not allowed"
                     )
-                previous = StateSnapshot(previous_state, observed_version)
+                observed_version = self._version
+                if self._observer is not None:
+                    previous = StateSnapshot(previous_state, observed_version)
                 self._state = target
-                self._version += 1
-                current = StateSnapshot(self._state, self._version)
-                break
+                self._version = observed_version + 1
+                current = StateSnapshot(target, self._version)
+        else:
+            while True:
+                with self._lock:
+                    if expected_version is not None and expected_version != self._version:
+                        return None
+                    previous_state = self._state
+                    observed_version = self._version
+
+                allowed = self._allows(previous_state, target)
+
+                with self._lock:
+                    if self._version != observed_version:
+                        if expected_version is not None:
+                            return None
+                        continue
+                    if not allowed:
+                        raise StateTransitionError(
+                            f"Transition from {previous_state!r} to {target!r} is not allowed"
+                        )
+                    if self._observer is not None:
+                        previous = StateSnapshot(previous_state, observed_version)
+                    self._state = target
+                    self._version = observed_version + 1
+                    current = StateSnapshot(target, self._version)
+                    break
         if self._observer is not None:
+            assert previous is not None
             result = self._observer(previous, current)
-            if inspect.isawaitable(result):
+            if (
+                result is not None
+                and type(result) not in _NON_AWAITABLE_TYPES
+                and is_awaitable(result)
+            ):
                 close_awaitable(result)
                 raise TypeError("StateMachine observer must be synchronous")
         return current

@@ -12,7 +12,7 @@ from collections.abc import Awaitable, Callable, Hashable
 from dataclasses import dataclass
 from typing import Generic, Literal, TypeVar
 
-from ._callbacks import close_awaitable, synchronous_result
+from ._callbacks import _NON_AWAITABLE_TYPES, close_awaitable, is_awaitable, synchronous_result
 from ._compatibility import ExceptionGroup
 from .base import (
     validate_finite_duration,
@@ -104,10 +104,12 @@ class RetryPolicy:
     def _should_retry(predicate: Callable[[Exception], bool] | None, error: Exception) -> bool:
         if predicate is None:
             return False
-        result = synchronous_result(predicate(error))
-        if type(result) is not bool:
-            raise TypeError("should_retry must return bool")
-        return result
+        result = predicate(error)
+        if type(result) is bool:
+            return result
+        if type(result) not in _NON_AWAITABLE_TYPES:
+            synchronous_result(result)
+        raise TypeError("should_retry must return bool")
 
     def run(
         self,
@@ -127,7 +129,7 @@ class RetryPolicy:
             started = time.monotonic() if self._observer is not None else 0.0
             try:
                 result = operation()
-                if inspect.isawaitable(result):
+                if type(result) not in _NON_AWAITABLE_TYPES and is_awaitable(result):
                     close_awaitable(result)
                     raise _UnexpectedAwaitable("RetryPolicy.run requires a synchronous operation")
             except _UnexpectedAwaitable:
@@ -247,6 +249,7 @@ class CooldownRegistry(Generic[K]):
         self._clock = clock
         self._condition = threading.Condition()
         self._deadlines: dict[K, float] = {}
+        self._sync_waiters = 0
         self._async_waiters: dict[
             K, set[tuple[asyncio.AbstractEventLoop, asyncio.Future[None]]]
         ] = {}
@@ -293,17 +296,18 @@ class CooldownRegistry(Generic[K]):
                 self._deadlines.pop(key, None)
             else:
                 self._deadlines[key] = deadline
-            self._condition.notify_all()
-            self._notify_async(key)
+            if self._sync_waiters:
+                self._condition.notify_all()
+            if self._async_waiters:
+                self._notify_async(key)
             return max(0.0, deadline - now)
 
     def remaining(self, key: K) -> float:
-        now = self._clock()
         with self._condition:
             deadline = self._deadlines.get(key)
             if deadline is None:
                 return 0.0
-            remaining = deadline - now
+            remaining = deadline - self._clock()
             if remaining <= 0:
                 self._deadlines.pop(key, None)
                 return 0.0
@@ -315,12 +319,16 @@ class CooldownRegistry(Generic[K]):
     def clear(self, key: K) -> bool:
         with self._condition:
             removed = self._deadlines.pop(key, None) is not None
-            self._condition.notify_all()
-            self._notify_async(key)
+            if self._sync_waiters:
+                self._condition.notify_all()
+            if self._async_waiters:
+                self._notify_async(key)
             return removed
 
     def prune(self) -> int:
         with self._condition:
+            if not self._deadlines:
+                return 0
             return self._prune_locked(self._clock())
 
     def wait(self, key: K, timeout: float | None = None) -> bool:
@@ -340,7 +348,11 @@ class CooldownRegistry(Generic[K]):
                     if remaining_timeout <= 0:
                         return False
                     remaining = min(remaining, remaining_timeout)
-                self._condition.wait(remaining)
+                self._sync_waiters += 1
+                try:
+                    self._condition.wait(remaining)
+                finally:
+                    self._sync_waiters -= 1
 
     async def wait_async(self, key: K, timeout: float | None = None) -> bool:
         """Wait without blocking the loop; cancellation unregisters the waiter."""
@@ -468,12 +480,13 @@ class CircuitBreaker:
         if error is not None:
             try:
                 decision = self._should_count(error)
-                if inspect.isawaitable(decision):
-                    close_awaitable(decision)
-                    raise TypeError("CircuitBreaker should_count must be synchronous")
-                if type(decision) is not bool:
+                if type(decision) is bool:
+                    counted = decision
+                else:
+                    if is_awaitable(decision):
+                        close_awaitable(decision)
+                        raise TypeError("CircuitBreaker should_count must be synchronous")
                     raise TypeError("should_count must return bool")
-                counted = decision
             except Exception as exc:
                 counted = True
                 classification_error = exc
@@ -502,14 +515,15 @@ class CircuitBreaker:
                     self._state = "open"
                     self._opened_at = self._clock()
                     self._generation += 1
-        try:
-            self._notify()
-        except Exception as observer_error:
-            if error is not None:
-                raise ExceptionGroup(
-                    "Circuit operation and observer both failed", [error, observer_error]
-                ) from error
-            raise
+        if self._observer is not None:
+            try:
+                self._notify()
+            except Exception as observer_error:
+                if error is not None:
+                    raise ExceptionGroup(
+                        "Circuit operation and observer both failed", [error, observer_error]
+                    ) from error
+                raise
         if classification_error is not None and error is not None:
             raise ExceptionGroup(
                 "Circuit failure classifier failed", [error, classification_error]
@@ -518,7 +532,7 @@ class CircuitBreaker:
     def _notify(self) -> None:
         if self._observer is not None:
             result = self._observer(self.stats())
-            if inspect.isawaitable(result):
+            if type(result) not in _NON_AWAITABLE_TYPES and is_awaitable(result):
                 close_awaitable(result)
                 raise TypeError("CircuitBreaker observer must be synchronous")
 
@@ -535,7 +549,8 @@ class CircuitBreaker:
             self._failures = self._probes = 0
             self._opened_at = 0.0
             self._generation += 1
-        self._notify()
+        if self._observer is not None:
+            self._notify()
 
     def call(self, operation: Callable[[], T]) -> T:
         if not callable(operation):
@@ -543,7 +558,7 @@ class CircuitBreaker:
         probe, epoch = self._enter()
         try:
             result = operation()
-            if inspect.isawaitable(result):
+            if type(result) not in _NON_AWAITABLE_TYPES and is_awaitable(result):
                 close_awaitable(result)
                 raise _UnexpectedAwaitable("CircuitBreaker.call requires a synchronous operation")
         except _UnexpectedAwaitable:

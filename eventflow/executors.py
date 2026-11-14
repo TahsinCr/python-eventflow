@@ -6,9 +6,9 @@ import threading
 from collections.abc import Callable
 from concurrent.futures import Future, ThreadPoolExecutor
 from dataclasses import dataclass
-from typing import Any, TypeVar
+from typing import Any, Generic, TypeVar
 
-from ._callbacks import is_async_callable, synchronous_result
+from ._callbacks import _NON_AWAITABLE_TYPES, is_async_callable, synchronous_result
 from .base import validate_positive_capacity
 from .observability import OperationStats, _require_operation_stats
 
@@ -24,6 +24,51 @@ class WorkPoolStats:
     completed: int
     rejected: int
     closed: bool
+
+
+class _WorkItem(Generic[T]):
+    __slots__ = ("pool", "operation", "args", "kwargs", "started")
+
+    def __init__(
+        self,
+        pool: BoundedWorkPool,
+        operation: Callable[..., T],
+        args: tuple[Any, ...],
+        kwargs: dict[str, Any],
+    ) -> None:
+        self.pool = pool
+        self.operation = operation
+        self.args = args
+        self.kwargs = kwargs
+        self.started = False
+
+    def run(self) -> T:
+        pool = self.pool
+        with pool._lock:
+            self.started = True
+            pool._pending -= 1
+            pool._running += 1
+            pool._worker_threads.add(threading.current_thread())
+        result = self.operation(*self.args, **self.kwargs)
+        return result if type(result) in _NON_AWAITABLE_TYPES else synchronous_result(result)
+
+    def finished(self, future: Future[T]) -> None:
+        pool = self.pool
+        with pool._lock:
+            if self.started:
+                pool._running -= 1
+            else:
+                pool._pending -= 1
+            pool._completed += 1
+        pool._slots.release()
+        observer = pool._observer
+        if observer is not None:
+            status = (
+                "cancelled"
+                if future.cancelled()
+                else ("error" if future.exception() is not None else "success")
+            )
+            observer.record("work_pool.job", status=status)
 
 
 class BoundedWorkPool:
@@ -78,27 +123,18 @@ class BoundedWorkPool:
                 raise RuntimeError("BoundedWorkPool is shut down")
             if not self._slots.acquire(blocking=False):
                 self._rejected += 1
+                item: _WorkItem[T] | None = None
             else:
                 self._pending += 1
-                started = False
-
-                def run() -> T:
-                    nonlocal started
-                    with self._lock:
-                        started = True
-                        self._pending -= 1
-                        self._running += 1
-                        self._worker_threads.add(threading.current_thread())
-                    return synchronous_result(operation(*args, **kwargs))
-
+                item = _WorkItem(self, operation, args, kwargs)
                 try:
-                    future = self._executor.submit(run)
+                    future = self._executor.submit(item.run)
                 except BaseException:
                     self._pending -= 1
                     self._slots.release()
                     raise
 
-        if future is None:
+        if future is None or item is None:
             capacity_error = RuntimeError("BoundedWorkPool capacity is full")
             if self._observer is not None:
                 try:
@@ -107,23 +143,7 @@ class BoundedWorkPool:
                     raise capacity_error from observer_error
             raise capacity_error
 
-        def finished(_future: Future[T]) -> None:
-            with self._lock:
-                if started:
-                    self._running -= 1
-                else:
-                    self._pending -= 1
-                self._completed += 1
-            self._slots.release()
-            if self._observer is not None:
-                status = (
-                    "cancelled"
-                    if _future.cancelled()
-                    else ("error" if _future.exception() is not None else "success")
-                )
-                self._observer.record("work_pool.job", status=status)
-
-        future.add_done_callback(finished)
+        future.add_done_callback(item.finished)
         return future
 
     def stats(self) -> WorkPoolStats:
