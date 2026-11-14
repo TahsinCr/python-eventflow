@@ -80,6 +80,25 @@ class NativeRuntimeTests(unittest.TestCase):
         stats.reset()
         self.assertEqual(stats.snapshot().operations, {})
 
+        maximum = (1 << 63) - 1
+        oversized = 1 << 100
+        stats.record(
+            "overflow",
+            dropped=maximum,
+            retries=maximum,
+            rejected=maximum,
+            timeouts=maximum,
+        )
+        stats.record("overflow", dropped=5, retries=oversized, rejected=7, timeouts=9)
+        metrics = stats.snapshot().operations["overflow"]
+        self.assertEqual(metrics.dropped, maximum + 5)
+        self.assertEqual(metrics.retries, maximum + oversized)
+        self.assertEqual(metrics.rejected, maximum + 7)
+        self.assertEqual(metrics.timeouts, maximum + 9)
+
+        stats.reset()
+        self.assertEqual(stats.snapshot().operations, {})
+
 
 if __name__ == "__main__":
     unittest.main()

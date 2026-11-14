@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Preserve arbitrary-size operation counters in the native metrics core,
+  matching the Python fallback without signed integer overflow.
+
 ## [v1.4.0] - 2026-11-14
 
 ### Added

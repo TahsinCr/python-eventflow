@@ -105,6 +105,26 @@ class PrimitiveTests(unittest.TestCase):
         with self.assertRaises(TypeError):
             snapshot.operations["new"] = snapshot.operations["other"]
 
+    def test_operation_stats_python_fallback_accepts_unbounded_counters(self):
+        maximum = (1 << 63) - 1
+        oversized = 1 << 100
+        with patch("eventflow.observability.CORE", None):
+            stats = OperationStats()
+            stats.record(
+                "overflow",
+                dropped=maximum,
+                retries=maximum,
+                rejected=maximum,
+                timeouts=maximum,
+            )
+            stats.record("overflow", dropped=5, retries=oversized, rejected=7, timeouts=9)
+
+        metrics = stats.snapshot().operations["overflow"]
+        self.assertEqual(metrics.dropped, maximum + 5)
+        self.assertEqual(metrics.retries, maximum + oversized)
+        self.assertEqual(metrics.rejected, maximum + 7)
+        self.assertEqual(metrics.timeouts, maximum + 9)
+
     def test_resource_scope_order_borrowing_detach_and_retry(self):
         calls = []
 
