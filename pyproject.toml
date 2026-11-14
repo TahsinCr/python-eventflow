@@ -29,6 +29,7 @@ classifiers = [
   "Programming Language :: Python :: 3.12",
   "Programming Language :: Python :: 3.13",
   "Programming Language :: Python :: 3.14",
+  "Programming Language :: Python :: 3.15",
   "Framework :: AsyncIO",
   "Topic :: Software Development :: Libraries :: Python Modules",
 ]
@@ -45,18 +46,22 @@ dev = [
   "pyright>=1.1.400,<2",
   "ruff>=0.12,<1",
 ]
-native-bench = [
-  "Cython>=3.1,<4",
-  "pyperf>=2.7,<3",
-  "setuptools>=77",
-]
 
 [tool.setuptools.packages.find]
 where = ["."]
 include = ["eventflow*"]
 
 [tool.setuptools.package-data]
-eventflow = ["py.typed"]
+eventflow = ["py.typed", "_core.pyi"]
+
+[tool.setuptools.exclude-package-data]
+eventflow = ["*.c"]
+
+[tool.cibuildwheel]
+build-verbosity = 1
+enable = ["cpython-freethreading"]
+skip = ["pp*", "*-manylinux_i686", "*-musllinux_i686", "*-win32"]
+test-command = "python -c \"import pathlib, sys, sysconfig, unittest, eventflow, eventflow._native as n; assert n.CORE is not None; assert not sysconfig.get_config_var('Py_GIL_DISABLED') or not sys._is_gil_enabled(); assert not pathlib.Path(eventflow.__file__).resolve().is_relative_to(pathlib.Path(r'{project}').resolve()); sys.path.extend([r'{project}', r'{project}/tests']); res = unittest.TextTestRunner().run(unittest.defaultTestLoader.discover(r'{project}/tests')); sys.exit(0 if res.wasSuccessful() else 1)\""
 
 [tool.ruff]
 target-version = "py310"

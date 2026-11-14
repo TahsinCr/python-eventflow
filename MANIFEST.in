@@ -1,6 +1,10 @@
 include LICENSE README.md README-TR.md CHANGELOG.md
+include setup.py pyproject.toml
+include eventflow/_core.c eventflow/_core.pyi eventflow/py.typed
 recursive-include tests *.py *.json
 recursive-include examples *.py
-recursive-include benchmarks *.py *.c *.pyx
+recursive-include benchmarks *.py
 prune benchmarks/results
-global-exclude *.py[cod]
+prune .serena
+prune .ruff_cache
+global-exclude *.py[cod] *.so *.pyd *.dll *.dylib
