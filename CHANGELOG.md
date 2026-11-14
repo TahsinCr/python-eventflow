@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [v1.4.0] - 2026-11-14
+
 ### Added
 
 - Add a tag-triggered PyPI release workflow that waits for CI, CodeQL and
