@@ -67,9 +67,10 @@ def _is_source_path(relative: bytes | str) -> bool:
         return True
     if not path.parts or (path.parts[0] == "benchmarks" and "results" in path.parts):
         return False
-    return (path.parts[0] == "eventflow" and (path.suffix == ".py" or path.name == "py.typed")) or (
-        path.parts[0] == "benchmarks" and path.suffix in {".c", ".py", ".pyx"}
-    )
+    return (
+        path.parts[0] == "eventflow"
+        and (path.suffix in {".py", ".c", ".pyi"} or path.name == "py.typed")
+    ) or (path.parts[0] == "benchmarks" and path.suffix == ".py")
 
 
 def source_provenance(root: Path | None = None) -> SourceProvenance:
@@ -132,8 +133,11 @@ def benchmark_metadata(root: Path | None = None) -> dict[str, str]:
     gil_check = getattr(sys, "_is_gil_enabled", None)
     gil_enabled = "unavailable" if gil_check is None else ("enabled" if gil_check() else "disabled")
     source = source_provenance(root)
+    from eventflow import _native
+
     return {
         "eventflow_implementation": "python",
+        "eventflow_core": "c" if _native.CORE is not None else "python",
         "eventflow_gil": gil_enabled,
         "eventflow_revision": source["revision"] or "unknown",
         "eventflow_source_dirty": (
@@ -162,7 +166,7 @@ def create_runner(
             add_cmdline_args=add_cmdline_args,
         ),
     )
-    runner.argparser.set_defaults(inherit_environ=("PYTHON_GIL",))
+    runner.argparser.set_defaults(inherit_environ=("PYTHON_GIL", "EVENTFLOW_NO_EXTENSIONS"))
     runner.argparser.description = description
     return runner
 
