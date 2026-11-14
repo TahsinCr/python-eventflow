@@ -88,6 +88,9 @@ All notable changes to this project are documented in this file.
   CPython, free-threaded CPython and the Linux, Windows and macOS CI matrix.
 - Record source-matched production-runtime history and routing comparisons in
   the benchmark report, including the routing result's unresolved P99 variance.
+- Record a pure-Python 1.4.0 screen across 13 benchmark modules and compare
+  its 180 shared cases with the archived 1.3.2 results; retain the three new
+  1.4.0 routing-key cases and document measured regressions and variance.
 
 ### Changed
 

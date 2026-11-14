@@ -1,30 +1,24 @@
-# EventFlow benchmark results
+# Retained benchmark results
 
-Superseded benchmark archives and retired native-prototype result files
-(`benchmarks/results/native/`) are not kept checked into this directory. Store
-temporary pyperf JSON files here locally if needed (`benchmarks/results/` is
-excluded from source distributions and from the pyperf source fingerprint).
+This directory keeps the latest useful benchmark evidence for EventFlow 1.3.2
+and 1.4.0, plus a comparison of what the data can and cannot establish.
 
-## Comparing pure Python vs compiled `eventflow._core`
+## Datasets
 
-Install development dependencies (which builds `eventflow._core` in place if a C
-compiler is available):
+- [`v1.3.2/`](v1.3.2/) contains the 2026-11-09 broad performance screen: 31
+  pyperf JSON files and a 409-row CSV summary. The JSON files retain raw
+  measurements and source/interpreter metadata.
+- [`v1.4.0/`](v1.4.0/) contains all 1.4.0 results directly in one folder:
+  13 benchmark-module JSON files with 183 cases (180 paired with 1.3.2), four
+  focused history-query JSON files, one history summary CSV, and two routing
+  summary CSVs.
+- [`v1.3.2-v1.4.0-comparison.md`](v1.3.2-v1.4.0-comparison.md) explains the
+  pure-Python release comparison, native backend evidence, and remaining
+  measurement limits.
 
-```bash
-python -m pip install -e ".[dev]"
-```
-
-Run matching workloads with `EVENTFLOW_NO_EXTENSIONS=1` (pure-Python fallback)
-and with default extensions enabled, then compare them using `pyperf`:
-
-```bash
-EVENTFLOW_NO_EXTENSIONS=1 python -m benchmarks.benchmark_publish --rigorous --output benchmarks/results/publish-python.json
-python -m benchmarks.benchmark_publish --rigorous --output benchmarks/results/publish-core.json
-python -m pyperf compare_to benchmarks/results/publish-python.json benchmarks/results/publish-core.json --table
-```
-
-Each JSON result records `eventflow_core` (`c` or `python`), `eventflow_gil`
-(`enabled`, `disabled`, or `unavailable`), Git revision, source dirty status,
-and the SHA-256 fingerprint of `pyproject.toml`, `eventflow/`, and
-`benchmarks/`. Keep the interpreter build, GIL mode, machine load, and pyperf
-flags identical between runs.
+The 1.3.2 files were recovered from Git history at the last commit before the
+old result archive was pruned. The 1.4.0 broad screen used the existing
+benchmark modules and matching settings; its focused runtime measurements are
+kept alongside it in the same version folder. Superseded prototype runs and
+older overlapping archives are not retained here. No additional benchmark
+runner or comparison script was added.
