@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Run GCC static analysis and native dispatch/metrics tests under ASan and
+  UBSan in CI.
+
 ### Changed
 
 - Skip zero-delta native metric updates to avoid arbitrary-precision
