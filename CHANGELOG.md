@@ -20,6 +20,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Install the declared setuptools build backend in the native sanitizer job so
+  the forced extension rebuild works on clean Python runners.
 - Preserve arbitrary-size operation counters in the native metrics core,
   matching the Python fallback without signed integer overflow.
 - Preserve arbitrary-size current and maximum queue depths in native metrics,

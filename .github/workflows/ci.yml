@@ -359,7 +359,7 @@ jobs:
           python-version: "3.14"
 
       - name: Install package and development tools
-        run: python -m pip install -e ".[dev]"
+        run: python -m pip install -e ".[dev]" "setuptools>=77"
 
       - name: Analyze native C source with GCC
         run: >-
