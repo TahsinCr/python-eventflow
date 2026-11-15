@@ -169,6 +169,26 @@ class NativeRuntimeTests(unittest.TestCase):
         self.assertEqual(bus.stats.published, 1)
         self.assertEqual(bus.stats.delivered, 1)
 
+    def test_native_publish_respects_subclass_subscribe_overrides(self) -> None:
+        class CustomSubscribeBus(EventBus[str]):
+            snapshot_calls = 0
+
+            def subscribe(self, *args: Any, **kwargs: Any) -> Any:
+                return super().subscribe(*args, **kwargs)
+
+            def _subscriber_snapshot(self, event_key: Hashable | None) -> tuple[Any, ...]:
+                self.snapshot_calls += 1
+                return super()._subscriber_snapshot(event_key)
+
+        received: list[str] = []
+        with CustomSubscribeBus() as bus:
+            bus.subscribe(received.append)
+            result = bus.publish("event")
+
+        self.assertEqual(received, ["event"])
+        self.assertEqual((result.matched, result.delivered), (1, 1))
+        self.assertEqual(bus.snapshot_calls, 1)
+
 
 if __name__ == "__main__":
     unittest.main()

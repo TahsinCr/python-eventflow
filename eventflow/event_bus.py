@@ -41,6 +41,7 @@ from .history import EventHistory
 from .subscription import Subscription
 
 T = TypeVar("T")
+_MAX_ROUTE_SNAPSHOTS = 64
 _executor_context = threading.local()
 if CORE is not None:
     CORE.configure(
@@ -220,7 +221,8 @@ class EventBus(BaseEventBus[T]):
                 self._actions.on_after,
                 self._actions.on_error,
                 self._error_policy is ErrorPolicy.RAISE,
-                type(self)._subscriber_snapshot is EventBus._subscriber_snapshot,
+                type(self)._subscriber_snapshot is EventBus._subscriber_snapshot
+                and type(self).subscribe is EventBus.subscribe,
             )
             if CORE is not None
             else None
@@ -556,7 +558,8 @@ class EventBus(BaseEventBus[T]):
         unkeyed = self._unkeyed_subscribers
         if not unkeyed:
             snapshot = tuple(keyed.values())
-            self._route_snapshots[event_key] = snapshot
+            if len(self._route_snapshots) < _MAX_ROUTE_SNAPSHOTS:
+                self._route_snapshots[event_key] = snapshot
             return snapshot
 
         unkeyed_items = iter(unkeyed.items())
@@ -579,7 +582,8 @@ class EventBus(BaseEventBus[T]):
             merged.append(keyed_item[1])
             merged.extend(subscriber for _identifier, subscriber in keyed_items)
         snapshot = tuple(merged)
-        self._route_snapshots[event_key] = snapshot
+        if len(self._route_snapshots) < _MAX_ROUTE_SNAPSHOTS:
+            self._route_snapshots[event_key] = snapshot
         return snapshot
 
     def _event_routing_key(self, event: T) -> Hashable | None:

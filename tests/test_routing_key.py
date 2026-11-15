@@ -205,6 +205,36 @@ class EventBusRoutingTests(unittest.TestCase):
         self.assertEqual(result, ("a", 2))
         self.assertFalse(publisher.is_alive())
 
+    def test_route_snapshot_cache_is_bounded_without_changing_delivery(self) -> None:
+        route_count = 80
+        for include_wildcard in (False, True):
+            with self.subTest(include_wildcard=include_wildcard):
+                seen: list[tuple[str, int]] = []
+                with EventBus[tuple[int, int]](routing_key=lambda event: event[0]) as bus:
+                    if include_wildcard:
+                        bus.subscribe(lambda event: seen.append(("wildcard", event[0])))
+                    for key in range(route_count):
+                        bus.subscribe(
+                            lambda event, key=key: seen.append((f"key-{key}", event[0])),
+                            routing_key=key,
+                        )
+
+                    for key in range(route_count):
+                        result = bus.publish((key, key))
+                        expected_matches = 2 if include_wildcard else 1
+                        self.assertEqual(
+                            (result.matched, result.delivered), (expected_matches, expected_matches)
+                        )
+
+                    self.assertEqual(len(bus._route_snapshots), 64)
+
+                expected: list[tuple[str, int]] = []
+                for key in range(route_count):
+                    if include_wildcard:
+                        expected.append(("wildcard", key))
+                    expected.append((f"key-{key}", key))
+                self.assertEqual(seen, expected)
+
     def test_routing_key_is_lazy_without_indexed_subscribers(self) -> None:
         extracted: list[int] = []
         with EventBus[int](routing_key=lambda event: extracted.append(event) or event) as bus:

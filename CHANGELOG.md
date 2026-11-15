@@ -8,6 +8,10 @@ All notable changes to this project are documented in this file.
 
 - Skip zero-delta native metric updates to avoid arbitrary-precision
   allocations after a counter exceeds the int64 fast path.
+- Limit synchronous EventBus routing snapshots to 64 cached keys, bounding
+  retained subscriber references for high-cardinality routing workloads.
+- Skip the native subscriber type pre-scan for the verified built-in snapshot
+  and subscription paths while retaining validation for custom subclasses.
 
 ### Fixed
 

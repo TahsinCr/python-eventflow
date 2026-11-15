@@ -7,6 +7,8 @@
 #include <string.h>
 #include <structmember.h>
 
+#define EVENTFLOW_ROUTE_SNAPSHOT_CACHE_LIMIT 64
+
 #if defined(_MSC_VER)
 #include <intrin.h>
 static inline uint8_t ef_atomic_load_u8(const uint8_t *ptr) {
@@ -1237,7 +1239,10 @@ static PyObject *BusCore_publish(BusCoreObject *self, PyObject *const *args, Py_
                     snapshot = merge_subscriber_dicts_c(self->unkeyed_dict, keyed);
                 }
                 if (snapshot != NULL) {
-                    if (PyDict_SetItem(self->route_snapshots, event_key, snapshot) < 0) {
+                    if (
+                        PyDict_Size(self->route_snapshots) < EVENTFLOW_ROUTE_SNAPSHOT_CACHE_LIMIT
+                        && PyDict_SetItem(self->route_snapshots, event_key, snapshot) < 0
+                    ) {
                         Py_CLEAR(snapshot);
                     }
                 }
@@ -1261,15 +1266,17 @@ static PyObject *BusCore_publish(BusCoreObject *self, PyObject *const *args, Py_
     }
 
     Py_ssize_t total_subs = PyTuple_GET_SIZE(snapshot);
-    for (Py_ssize_t i = 0; i < total_subs; ++i) {
-        if (!Py_IS_TYPE(PyTuple_GET_ITEM(snapshot, i), st->subscriber_type)) {
-            Py_DECREF(snapshot);
-            PyObject *rel = PyObject_Vectorcall(self->lock_release, NULL, 0, NULL);
-            if (rel == NULL) {
-                return NULL;
+    if (!self->fast_snapshot) {
+        for (Py_ssize_t i = 0; i < total_subs; ++i) {
+            if (!Py_IS_TYPE(PyTuple_GET_ITEM(snapshot, i), st->subscriber_type)) {
+                Py_DECREF(snapshot);
+                PyObject *rel = PyObject_Vectorcall(self->lock_release, NULL, 0, NULL);
+                if (rel == NULL) {
+                    return NULL;
+                }
+                Py_DECREF(rel);
+                return PyObject_CallMethodOneArg(bus, st->k__publish_python, event);
             }
-            Py_DECREF(rel);
-            return PyObject_CallMethodOneArg(bus, st->k__publish_python, event);
         }
     }
 
