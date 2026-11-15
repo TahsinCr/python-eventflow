@@ -217,12 +217,28 @@ def _validate_duration_slow(value: object, name: str) -> float:
     return number
 
 
-def _validate_non_negative_counts(*values: object) -> None:
-    for value in values:
-        if isinstance(value, bool) or not isinstance(value, int) or value < 0:
-            raise ValueError(
-                "drop, retry, rejection and timeout counts must be non-negative integers"
-            )
+def _normalize_non_negative_count(value: object, error_message: str) -> int:
+    if isinstance(value, bool) or not isinstance(value, int):
+        raise ValueError(error_message)
+    normalized = value if type(value) is int else int(value)
+    if normalized < 0:
+        raise ValueError(error_message)
+    return normalized
+
+
+def _normalize_non_negative_counts(
+    dropped: object,
+    retries: object,
+    rejected: object,
+    timeouts: object,
+) -> tuple[int, int, int, int]:
+    error_message = "drop, retry, rejection and timeout counts must be non-negative integers"
+    return (
+        _normalize_non_negative_count(dropped, error_message),
+        _normalize_non_negative_count(retries, error_message),
+        _normalize_non_negative_count(rejected, error_message),
+        _normalize_non_negative_count(timeouts, error_message),
+    )
 
 
 if CORE is not None:
@@ -305,10 +321,13 @@ class OperationStats:
             or type(timeouts) is not int
             or timeouts < 0
         ):
-            _validate_non_negative_counts(dropped, retries, rejected, timeouts)
+            dropped, retries, rejected, timeouts = _normalize_non_negative_counts(
+                dropped, retries, rejected, timeouts
+            )
         if queue_depth is not None and (type(queue_depth) is not int or queue_depth < 0):
-            if isinstance(queue_depth, bool) or not isinstance(queue_depth, int) or queue_depth < 0:
-                raise ValueError("queue_depth must be a non-negative integer or None")
+            queue_depth = _normalize_non_negative_count(
+                queue_depth, "queue_depth must be a non-negative integer or None"
+            )
         with self._lock:
             if len(name) > 128:
                 name = "other"

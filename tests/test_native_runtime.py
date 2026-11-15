@@ -122,6 +122,27 @@ class NativeRuntimeTests(unittest.TestCase):
         stats.reset()
         self.assertEqual(stats.snapshot().operations, {})
 
+        class Counter(int):
+            normalized: list[int] = []
+
+            def __int__(self) -> int:
+                value = int.__int__(self)
+                self.normalized.append(value)
+                return value
+
+        stats.record(
+            "subclass",
+            dropped=Counter(5),
+            retries=Counter(oversized),
+            queue_depth=Counter(7),
+        )
+        metrics = stats.snapshot().operations["subclass"]
+        self.assertEqual(metrics.dropped, 5)
+        self.assertEqual(metrics.retries, oversized)
+        self.assertEqual(metrics.queue_depth, 7)
+        self.assertIs(type(metrics.retries), int)
+        self.assertEqual(Counter.normalized, [5, oversized, 7])
+
     @unittest.skipUnless(_native.CORE is not None, "eventflow._core extension is not compiled")
     def test_native_publish_falls_back_before_recording_side_effects(self) -> None:
         class MalformedSnapshotBus(EventBus[str]):

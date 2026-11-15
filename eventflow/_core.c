@@ -1691,6 +1691,7 @@ typedef struct {
 typedef struct {
     int64_t small;
     PyObject *large;
+    PyObject *owned;
 } OpCounterDelta;
 
 typedef struct {
@@ -1772,27 +1773,52 @@ static int ef_parse_nonneg_counter_delta(
     const char *err_msg,
     OpCounterDelta *out
 ) {
-    if (PyBool_Check(value) || !PyLong_CheckExact(value)) {
+    if (PyBool_Check(value) || !PyLong_Check(value)) {
         PyErr_SetString(PyExc_ValueError, err_msg);
         return -1;
     }
+
+    PyObject *integer = value;
+    if (!PyLong_CheckExact(value)) {
+        /* Normalize before the metrics lock; subclasses may run Python in __int__. */
+        integer = PyNumber_Long(value);
+        if (integer == NULL) return -1;
+        if (!PyLong_CheckExact(integer)) {
+            Py_DECREF(integer);
+            PyErr_SetString(PyExc_TypeError, "integer normalization must return an exact int");
+            return -1;
+        }
+        out->owned = integer;
+    }
+
     int overflow = 0;
-    long long parsed = PyLong_AsLongLongAndOverflow(value, &overflow);
+    long long parsed = PyLong_AsLongLongAndOverflow(integer, &overflow);
     if (overflow < 0 || (overflow == 0 && parsed < 0)) {
         if (PyErr_Occurred()) PyErr_Clear();
+        Py_CLEAR(out->owned);
         PyErr_SetString(PyExc_ValueError, err_msg);
         return -1;
     }
     if (overflow > 0) {
         if (PyErr_Occurred()) PyErr_Clear();
         out->small = 0;
-        out->large = value;
+        out->large = integer;
         return 0;
     }
-    if (PyErr_Occurred()) return -1;
+    if (PyErr_Occurred()) {
+        Py_CLEAR(out->owned);
+        return -1;
+    }
     out->small = (int64_t)parsed;
     out->large = NULL;
+    Py_CLEAR(out->owned);
     return 0;
+}
+
+static void op_counter_deltas_clear(OpCounterDelta *deltas, Py_ssize_t count) {
+    for (Py_ssize_t i = 0; i < count; ++i) {
+        Py_CLEAR(deltas[i].owned);
+    }
 }
 
 static int op_counter_prepare_add(
@@ -2147,29 +2173,27 @@ static PyObject *OperationStatsCore_record(
     }
 
     const char *count_err = "drop, retry, rejection and timeout counts must be non-negative integers";
-    OpCounterDelta dropped_delta = {0, NULL};
-    OpCounterDelta retries_delta = {0, NULL};
-    OpCounterDelta rejected_delta = {0, NULL};
-    OpCounterDelta timeouts_delta = {0, NULL};
+    OpCounterDelta deltas[5] = {{0}};
     if (
-        (args[4] != st->zero_int && ef_parse_nonneg_counter_delta(args[4], count_err, &dropped_delta) < 0)
-        || (args[5] != st->zero_int && ef_parse_nonneg_counter_delta(args[5], count_err, &retries_delta) < 0)
-        || (args[6] != st->zero_int && ef_parse_nonneg_counter_delta(args[6], count_err, &rejected_delta) < 0)
-        || (args[7] != st->zero_int && ef_parse_nonneg_counter_delta(args[7], count_err, &timeouts_delta) < 0)
+        (args[4] != st->zero_int && ef_parse_nonneg_counter_delta(args[4], count_err, &deltas[0]) < 0)
+        || (args[5] != st->zero_int && ef_parse_nonneg_counter_delta(args[5], count_err, &deltas[1]) < 0)
+        || (args[6] != st->zero_int && ef_parse_nonneg_counter_delta(args[6], count_err, &deltas[2]) < 0)
+        || (args[7] != st->zero_int && ef_parse_nonneg_counter_delta(args[7], count_err, &deltas[3]) < 0)
     ) {
+        op_counter_deltas_clear(deltas, 5);
         return NULL;
     }
 
     int has_queue_depth = 0;
-    OpCounterDelta queue_depth_delta = {0, NULL};
     if (args[3] != Py_None) {
         has_queue_depth = 1;
         if (
             args[3] != st->zero_int
             && ef_parse_nonneg_counter_delta(
-                args[3], "queue_depth must be a non-negative integer or None", &queue_depth_delta
+                args[3], "queue_depth must be a non-negative integer or None", &deltas[4]
             ) < 0
         ) {
+            op_counter_deltas_clear(deltas, 5);
             return NULL;
         }
     }
@@ -2182,7 +2206,10 @@ static PyObject *OperationStatsCore_record(
     } else {
         key = orig_name;
         h = PyObject_Hash(key);
-        if (h == -1) return NULL;
+        if (h == -1) {
+            op_counter_deltas_clear(deltas, 5);
+            return NULL;
+        }
     }
 
     op_stats_lock_acquire(self);
@@ -2203,17 +2230,17 @@ static PyObject *OperationStatsCore_record(
     OpEntry *existing = idx >= 0 ? &self->entries[idx] : NULL;
     OpCounterUpdate updates[6] = {{0}};
     if (
-        op_counter_prepare_add(existing != NULL ? &existing->dropped : &zero_counter, &dropped_delta, &updates[0]) < 0
-        || op_counter_prepare_add(existing != NULL ? &existing->retries : &zero_counter, &retries_delta, &updates[1]) < 0
-        || op_counter_prepare_add(existing != NULL ? &existing->rejected : &zero_counter, &rejected_delta, &updates[2]) < 0
-        || op_counter_prepare_add(existing != NULL ? &existing->timeouts : &zero_counter, &timeouts_delta, &updates[3]) < 0
+        op_counter_prepare_add(existing != NULL ? &existing->dropped : &zero_counter, &deltas[0], &updates[0]) < 0
+        || op_counter_prepare_add(existing != NULL ? &existing->retries : &zero_counter, &deltas[1], &updates[1]) < 0
+        || op_counter_prepare_add(existing != NULL ? &existing->rejected : &zero_counter, &deltas[2], &updates[2]) < 0
+        || op_counter_prepare_add(existing != NULL ? &existing->timeouts : &zero_counter, &deltas[3], &updates[3]) < 0
         || (
             has_queue_depth
             && (
-                op_counter_prepare_set(&queue_depth_delta, &updates[4]) < 0
+                op_counter_prepare_set(&deltas[4], &updates[4]) < 0
                 || op_counter_prepare_max(
                     existing != NULL ? &existing->max_queue_depth : &zero_counter,
-                    &queue_depth_delta,
+                    &deltas[4],
                     &updates[5]
                 ) < 0
             )
@@ -2221,6 +2248,7 @@ static PyObject *OperationStatsCore_record(
     ) {
         for (int i = 0; i < 6; ++i) op_counter_update_clear(&updates[i]);
         op_stats_lock_release(self);
+        op_counter_deltas_clear(deltas, 5);
         return NULL;
     }
 
@@ -2229,6 +2257,7 @@ static PyObject *OperationStatsCore_record(
             if (op_stats_grow(self) < 0) {
                 for (int i = 0; i < 6; ++i) op_counter_update_clear(&updates[i]);
                 op_stats_lock_release(self);
+                op_counter_deltas_clear(deltas, 5);
                 return NULL;
             }
             slot = (Py_ssize_t)((size_t)h & (size_t)self->mask);
@@ -2269,6 +2298,7 @@ static PyObject *OperationStatsCore_record(
     if (shutdown_seconds) e->shutdown_seconds += shutdown_seconds;
 
     op_stats_lock_release(self);
+    op_counter_deltas_clear(deltas, 5);
     Py_RETURN_NONE;
 }
 

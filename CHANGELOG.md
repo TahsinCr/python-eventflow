@@ -19,6 +19,9 @@ All notable changes to this project are documented in this file.
   cannot retain an unbounded set of event classes.
 - Validate native subscriber snapshots before recording history or publication
   statistics, avoiding duplicate side effects when dispatch falls back.
+- Normalize `int` subclasses before updating operation metrics so native and
+  Python backends apply the same values without running subclass methods under
+  the metrics lock.
 
 ## [v1.4.0] - 2026-11-14
 
