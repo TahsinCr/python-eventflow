@@ -22,6 +22,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Run custom history type matching outside the history lock.
+
 - Install the declared setuptools build backend in the native sanitizer job so
   the forced extension rebuild works on clean Python runners.
 - Preserve arbitrary-size operation counters in the native metrics core,

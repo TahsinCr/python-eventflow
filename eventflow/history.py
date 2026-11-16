@@ -152,6 +152,7 @@ class MemoryEventHistory(EventHistory[T]):
                 type(event_filter) is EventFilter
                 and event_filter.predicate is None
                 and event_filter.event_type is not None
+                and _are_plain_types(event_filter.event_type)
             ):
                 event_type = event_filter.event_type
                 if self._snapshot_source is not self._events:

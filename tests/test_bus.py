@@ -39,6 +39,28 @@ from eventflow._compatibility import ExceptionGroup
 
 
 class EventBusTests(unittest.TestCase):
+    def test_history_custom_instancecheck_does_not_hold_history_lock(self):
+        history = MemoryEventHistory()
+        history.append(1)
+        written = threading.Event()
+
+        class Meta(type):
+            def __instancecheck__(cls, value):
+                worker = threading.Thread(target=lambda: (history.append(2), written.set()))
+                worker.start()
+                try:
+                    if not written.wait(2):
+                        raise RuntimeError("history writer blocked by instancecheck")
+                finally:
+                    worker.join(timeout=0.01)
+                return True
+
+        class Custom(metaclass=Meta):
+            pass
+
+        self.assertEqual(history.query(EventFilter(event_type=Custom)), (1,))
+        self.assertEqual(history.query(), (1, 2))
+
     def test_executor_callbacks_receive_isolated_publish_contexts(self) -> None:
         marker = contextvars.ContextVar("executor-callback-marker", default=None)
         seen: list[tuple[int, str | None, str | None]] = []
