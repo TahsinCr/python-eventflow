@@ -186,6 +186,20 @@ class NativeRuntimeTests(unittest.TestCase):
             self.assertEqual(tuple(result), ("worker",))
             self.assertEqual(result["worker"].calls, 2)
 
+    def test_subscriber_claim_restore_integer_boundaries(self):
+        for limit in (1, 2, 256, 1000):
+            with self.subTest(limit=limit), EventBus() as bus:
+                bus.subscribe(lambda event: None, times=limit)
+                subscriber = next(iter(bus._subscribers.values()))
+                self.assertEqual(subscriber.claim(), (True, limit == 1))
+                self.assertEqual(subscriber.remaining, limit - 1)
+                subscriber.restore_claim()
+                self.assertEqual(subscriber.remaining, limit)
+                for remaining in range(limit - 1, -1, -1):
+                    self.assertEqual(subscriber.claim(), (True, remaining == 0))
+                    self.assertEqual(subscriber.remaining, remaining)
+                self.assertEqual(subscriber.claim(), (False, False))
+
     def test_load_core_respects_no_extensions_env(self) -> None:
         with patch.dict(os.environ, {"EVENTFLOW_NO_EXTENSIONS": "1"}):
             self.assertIsNone(_native._load_core())
