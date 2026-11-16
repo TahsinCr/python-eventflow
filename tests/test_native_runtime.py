@@ -8,17 +8,48 @@ import sys
 import sysconfig
 import textwrap
 import unittest
+from collections import deque
 from collections.abc import Hashable
 from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
 
-from eventflow import EventBus, MemoryEventHistory, _native
+from eventflow import EventBus, EventFilter, MemoryEventHistory, _native
 from eventflow.observability import OperationStats
 
 
 class NativeRuntimeTests(unittest.TestCase):
+    @unittest.skipUnless(_native.CORE is not None, "native core required")
+    def test_native_subscriber_replay_methods_and_replaying_property(self) -> None:
+        class InvalidTruthValue:
+            def __bool__(self) -> bool:
+                raise RuntimeError("truth conversion failed")
+
+        subscriber = _native.CORE.Subscriber(
+            lambda _event: None,
+            EventFilter(),
+            None,
+            object(),
+            match_all=True,
+            pending=deque(maxlen=1),
+        )
+
+        self.assertFalse(subscriber.replaying)
+        self.assertFalse(subscriber.buffer_if_replaying("ignored"))
+        with self.assertRaisesRegex(RuntimeError, "truth conversion failed"):
+            subscriber.replaying = InvalidTruthValue()
+        self.assertFalse(subscriber.replaying)
+
+        subscriber.replaying = True
+        self.assertTrue(subscriber.buffer_if_replaying("queued"))
+        with self.assertRaisesRegex(BufferError, "replay buffer is full"):
+            subscriber.buffer_if_replaying("overflow")
+        self.assertEqual(subscriber.finish_replay(), ("queued",))
+        self.assertTrue(subscriber.replaying)
+        self.assertIsNone(subscriber.finish_replay())
+        self.assertFalse(subscriber.replaying)
+
     @unittest.skipUnless(_native.CORE is not None, "native core required")
     @unittest.skipIf(sysconfig.get_config_var("Py_GIL_DISABLED"), "allocator hooks require GIL")
     def test_metrics_growth_recovers_from_allocator_failure(self):

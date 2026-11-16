@@ -345,6 +345,34 @@ jobs:
           asyncio.run(smoke())
           PY
 
+  native-coverage:
+    name: Native C line, branch, and function coverage
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Check out source
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Set up Python
+        uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7
+        with:
+          python-version: "3.14"
+
+      - name: Install isolated coverage tools
+        run: python -m pip install "setuptools>=77" "gcovr==8.8" "pyperf==2.11.0"
+
+      - name: Build, test, and measure the native C extension
+        run: python tools/native_coverage.py --output-dir build/native-c-coverage
+
+      - name: Upload native C coverage reports
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: native-c-coverage
+          path: build/native-c-coverage/
+          if-no-files-found: warn
+          retention-days: 14
+
   native-safety:
     name: Native C sanitizers and static analysis
     runs-on: ubuntu-latest

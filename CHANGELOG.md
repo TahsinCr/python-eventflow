@@ -4,6 +4,11 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Added
+
+- Measure native C line, function, and branch coverage in an isolated GCC build and publish the reports as a CI artifact.
+- Cover the native subscriber replay-buffer methods and replaying property directly.
+
 ## [v1.4.1] - 2026-11-16
 
 ### Added
