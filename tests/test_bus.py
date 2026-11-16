@@ -1148,7 +1148,6 @@ class EventBusTests(unittest.TestCase):
 
         self.assertEqual(history.latest(int_filter), 2)
         self.assertEqual(history.latest(EventFilter[object](event_type=bytes)), None)
-
         limited_first = history.query(int_filter, limit=1)
         limited_second = history.query(int_filter, limit=1)
         self.assertEqual(limited_first, (2,))
@@ -1172,6 +1171,24 @@ class EventBusTests(unittest.TestCase):
         history.clear()
         self.assertEqual(history.query(int_filter, limit=1), ())
         self.assertEqual(history.query(pair_filter), ())
+
+    def test_memory_history_empty_filter_uses_unfiltered_path(self) -> None:
+        history = MemoryEventHistory[int](capacity=4)
+        for event in (1, 2, 3):
+            history.append(event)
+        snapshot = history.query()
+
+        with patch.object(EventFilter, "matches", side_effect=AssertionError("must not scan")):
+            self.assertIs(history.query(EventFilter()), snapshot)
+            self.assertEqual(history.query(EventFilter(), limit=2), (2, 3))
+            self.assertEqual(history.latest(EventFilter()), 3)
+
+        class CustomFilter(EventFilter[int]):
+            def matches(self, event: int) -> bool:
+                return event % 2 == 1
+
+        self.assertEqual(history.query(CustomFilter()), (1, 3))
+        self.assertEqual(history.latest(CustomFilter()), 3)
 
     def test_memory_history_type_result_caches_are_bounded(self) -> None:
         history = MemoryEventHistory[object](capacity=4)

@@ -12,6 +12,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Treat an empty exact `EventFilter` as an unfiltered history query, reusing snapshot and latest fast paths while preserving subclass matching behavior.
 - Avoid copying the history snapshot when filtered latest finds an exact-type match at the tail, without invoking user matching code under the lock.
 - Preserve direct type matching for filtered history latest queries while evaluating user objects outside the history lock.
 - Remove unused native Subscriber lock exposure, Flag getter and module state; avoid allocating the fallback metrics dictionary in native mode.

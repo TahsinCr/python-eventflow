@@ -114,6 +114,12 @@ class MemoryEventHistory(EventHistory[T]):
                 self._limited_type_results.clear()
 
     def latest(self, event_filter: EventFilter[T] | None = None) -> T | None:
+        if (
+            type(event_filter) is EventFilter
+            and event_filter.event_type is None
+            and event_filter.predicate is None
+        ):
+            event_filter = None
         with self._lock:
             if event_filter is None:
                 return self._events[-1] if self._events else None
@@ -151,6 +157,12 @@ class MemoryEventHistory(EventHistory[T]):
         limit: int | None = None,
     ) -> tuple[T, ...]:
         _validate_query_limit(limit)
+        if (
+            type(event_filter) is EventFilter
+            and event_filter.event_type is None
+            and event_filter.predicate is None
+        ):
+            event_filter = None
         cache_type = (
             event_filter.event_type
             if type(event_filter) is EventFilter
