@@ -13,6 +13,10 @@ GIL-enabled and free-threaded CPython. It records why the production policy was
 kept, with source hashes, pyperf datasets, selected raw latency samples and a
 full per-case CSV.
 
+The [native C coverage review](v1.4.2/native-c-coverage.md) records current
+`_core.c` line, function and branch-arc coverage and maps the remaining gaps to
+their tested paths and reachability limits.
+
 ## Datasets
 
 - [`v1.3.2/`](v1.3.2/) contains the 2026-11-09 broad performance screen: 31
@@ -24,7 +28,8 @@ full per-case CSV.
   summary CSVs.
 - [`v1.4.2/`](v1.4.2/) contains the route-cache FIFO evaluation: 60 paired
   profiles, merged pyperf datasets for each runtime group, selected raw latency
-  samples, a source/patch manifest and the decision report.
+  samples, a source/patch manifest, the decision report and the native C
+  coverage review.
 - [`v1.3.2-v1.4.0-comparison.md`](v1.3.2-v1.4.0-comparison.md) explains the
   pure-Python release comparison, native backend evidence, and remaining
   measurement limits.
