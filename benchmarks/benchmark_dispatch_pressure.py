@@ -11,7 +11,9 @@ from ._support import ignore_event
 
 
 def main() -> None:
-    runner = create_runner(__doc__ or "Dispatch pressure", add_cmdline_args=forward_cli_arguments("suite"))
+    runner = create_runner(
+        __doc__ or "Dispatch pressure", add_cmdline_args=forward_cli_arguments("suite")
+    )
     runner.argparser.add_argument("--suite", choices=("routing", "matching"), default="routing")
     args = runner.parse_args()
     if args.suite == "matching":
@@ -20,9 +22,16 @@ def main() -> None:
                 accepted = count * percent // 100
                 with EventBus[int]() as bus:
                     for index in range(count):
-                        bus.subscribe(ignore_event, predicate=lambda event, index=index: index < accepted)
+                        bus.subscribe(
+                            ignore_event,
+                            predicate=lambda event, index=index, accepted=accepted: (
+                                index < accepted
+                            ),
+                        )
                     bench_sync(
-                        runner, f"matching/{count}/{percent}", lambda bus=bus: bus.publish(1),
+                        runner,
+                        f"matching/{count}/{percent}",
+                        lambda bus=bus: bus.publish(1),
                         metadata={"subscribers": count, "matched_subscribers": accepted},
                     )
         return
@@ -38,9 +47,14 @@ def main() -> None:
                         bus.publish(key)
                     keys = cycle(range(count) if profile == "uniform" else (count - 1,))
                     bench_sync(
-                        runner, f"routing/{count}/{wildcard}/{profile}",
+                        runner,
+                        f"routing/{count}/{wildcard}/{profile}",
                         lambda bus=bus, keys=keys: bus.publish(next(keys)),
-                        metadata={"routes": count, "wildcard_subscribers": wildcard, "access_profile": profile},
+                        metadata={
+                            "routes": count,
+                            "wildcard_subscribers": wildcard,
+                            "access_profile": profile,
+                        },
                     )
 
 

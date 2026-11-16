@@ -1426,7 +1426,9 @@ snapshot'ta birleştirilebilir. `max_operations` label cardinality'yi sınırlar
 limit dışındaki isimler `other` kovasında birikir. `reset()` sayaçları temizler.
 Metrikler yalnız sayaçları tutar; event payload, callback sonucu veya exception
 nesnesi saklamaz. Adları sabit tutun; telemetry gönderimini uygulama tarafındaki
-sınırlı kuyruğa bırakın.
+sınırlı kuyruğa bırakın. İşlem adları metinsel değerleriyle eşleşir; `str` alt
+sınıfları her iki metrik backend’inde kayıt öncesinde normal `str` değerine
+dönüştürülür.
 
 ~~~python
 from eventflow import KeyedConcurrencyLimiter, OperationStats

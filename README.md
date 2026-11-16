@@ -1408,7 +1408,9 @@ measurements in the same immutable snapshot. `max_operations` bounds label
 cardinality; names beyond the limit share an `other` bucket. `reset()` clears
 the aggregates. Metrics retain counters only, not event payloads, callback
 results or exception objects. Keep operation names stable, and send telemetry
-outside the hot path through an application-owned bounded queue.
+outside the hot path through an application-owned bounded queue. Operation names
+are matched by text value; string subclasses are normalized to plain strings
+before either metrics backend records them.
 
 ~~~python
 from eventflow import KeyedConcurrencyLimiter, OperationStats
