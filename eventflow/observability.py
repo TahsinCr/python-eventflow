@@ -284,6 +284,10 @@ class OperationStats:
         """Record one completed operation without retaining user payloads."""
         if type(name) is not str and isinstance(name, str):
             name = str.__str__(name)
+        if type(status) is not str:
+            if not isinstance(status, str):
+                raise ValueError("status must be success, error, or cancelled")
+            status = str.__str__(status)
         if self._core is not None:
             self._core.record(
                 name,

@@ -187,6 +187,40 @@ class NativeRuntimeTests(unittest.TestCase):
             self.assertEqual(tuple(result), ("worker",))
             self.assertEqual(result["worker"].calls, 2)
 
+    def test_metrics_statuses_use_text_value_in_both_backends(self):
+        class Status(str):
+            __hash__ = None
+
+            def __eq__(self, other):
+                raise AssertionError("custom equality must not run")
+
+            def __str__(self):
+                raise AssertionError("custom conversion must not run")
+
+        for backend in (_native.CORE, None):
+            for value in ("success", "error", "cancelled", "invalid", None, 1, [], object()):
+                for wrapped in (False, True) if isinstance(value, str) else (False,):
+                    status = Status(value) if wrapped else value
+                    with self.subTest(native=backend is not None, value=value, wrapped=wrapped):
+                        with patch("eventflow.observability.CORE", backend):
+                            stats = OperationStats()
+                        if value not in ("success", "error", "cancelled"):
+                            with self.assertRaises(ValueError):
+                                stats.record("worker", status=status)
+                            self.assertFalse(stats.snapshot().operations)
+                        else:
+                            stats.record("worker", status=status, dropped=2**100)
+                            result = stats.snapshot().operations["worker"]
+                            self.assertEqual(result.calls, 1)
+                            self.assertEqual(result.dropped, 2**100)
+                            self.assertEqual(
+                                (result.successful, result.failed, result.cancelled),
+                                tuple(
+                                    int(value == expected)
+                                    for expected in ("success", "error", "cancelled")
+                                ),
+                            )
+
     def test_subscriber_claim_restore_integer_boundaries(self):
         for limit in (1, 2, 256, 1000):
             with self.subTest(limit=limit), EventBus() as bus:
