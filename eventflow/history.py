@@ -117,6 +117,18 @@ class MemoryEventHistory(EventHistory[T]):
         with self._lock:
             if event_filter is None:
                 return self._events[-1] if self._events else None
+            if (
+                type(event_filter) is EventFilter
+                and event_filter.predicate is None
+                and self._events
+            ):
+                last = self._events[-1]
+                last_type = type(last)
+                target = event_filter.event_type
+                if last_type is target or (
+                    type(target) is tuple and any(last_type is candidate for candidate in target)
+                ):
+                    return last
             events = self._snapshot_locked()
         if (
             type(event_filter) is EventFilter

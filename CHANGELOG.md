@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+
 - Add pyperf route-cache pressure and sparse-match workloads, including cache
   boundary sizes, late hot routes and 0–100% subscriber match ratios.
 
@@ -13,6 +14,9 @@ All notable changes to this project are documented in this file.
   UBSan in CI.
 
 ### Changed
+
+- Avoid copying the history snapshot when filtered latest finds an exact-type
+  match at the tail, without invoking user matching code under the lock.
 
 - Preserve direct type matching for filtered history latest queries while
   evaluating user objects outside the history lock.

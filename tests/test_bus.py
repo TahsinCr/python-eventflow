@@ -84,6 +84,13 @@ class EventBusTests(unittest.TestCase):
                     else:
                         self.assertEqual(history.query(EventFilter(event_type=int)), expected)
 
+    def test_history_latest_exact_tail_match_needs_no_full_snapshot(self):
+        history = MemoryEventHistory()
+        history.append(42)
+        with patch.object(history, "_snapshot_locked", side_effect=AssertionError("full copy")):
+            self.assertEqual(history.latest(EventFilter(event_type=int)), 42)
+            self.assertEqual(history.latest(EventFilter(event_type=(str, int))), 42)
+
     def test_history_accepts_unhashable_tuple_type_filter(self):
         class Types(tuple):
             __hash__ = None
