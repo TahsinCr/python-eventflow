@@ -17,6 +17,8 @@
 
 The 69-test selection covered `test_runtime`, `test_package_layout`, `test_dispatch`, `test_concurrency_lifecycle`, and `test_lifecycle_subprocess`. The UDP test used loopback only. A direct `runtime.messages` probe published three `MavMessageEnvelope` values, queried the two matching heartbeat events from bounded history, replayed them to a new filtered subscription, and verified cancellation by confirming later publication was no longer delivered. No MAVLink hardware or external service was used.
 
+The `AsyncEventQueue` bridge was exercised against `MavRuntime.messages` from a worker thread in both resolver environments. EventFlow 1.3.2 passed the unfiltered bridge receive/close path; its constructor does not expose the newer `event_filter` option. The final 1.4.2 wheel also passed with a predicate filter: an `ATTITUDE` envelope was rejected before queue admission and a `HEARTBEAT` envelope was received without drops. Both runs used the async context manager for cleanup.
+
 ## Controlled `runtime.messages` profiles
 
 The profile harness and raw samples are preserved in [`mavflow-integration.csv`](mavflow-integration.csv). Each table entry is the median of three fresh processes per environment. The candidate/reference `flowevent` versions, native backend, GIL state, and runtime are recorded per row.
