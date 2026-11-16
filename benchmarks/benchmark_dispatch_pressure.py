@@ -180,19 +180,12 @@ def _collect_route_latencies(case: RouteCacheCase, sample_count: int) -> dict[st
     samples: list[int] = []
     cache_hits = 0
     cache_misses = 0
-    publish_cpu_ns = 0
-    churn_ns = 0
-    churn_operations = 0
     rss_before_sampling = _rss_bytes()
     try:
         while len(samples) < sample_count:
             if case.churn != "none":
-                started = perf_counter_ns()
                 state.churn()
-                churn_ns += perf_counter_ns() - started
-                churn_operations += 1
             batch = min(case.batch_size, sample_count - len(samples))
-            cpu_started = process_time_ns()
             for _ in range(batch):
                 key = next(state.publishers[0])
                 if key in state.bus._route_snapshots:
@@ -202,20 +195,13 @@ def _collect_route_latencies(case: RouteCacheCase, sample_count: int) -> dict[st
                 started = perf_counter_ns()
                 state.bus.publish(key)
                 samples.append(perf_counter_ns() - started)
-            publish_cpu_ns += process_time_ns() - cpu_started
         ordered = sorted(samples)
         rss_after_sampling = _rss_bytes()
-        return {
-            "case": case.name,
-            "measurement": "single-publisher; subscription mutations occur between publish batches",
-            "publishers_in_pyperf_case": case.publishers,
+        raw_latency = {
             "latency_p50_ns": statistics.median(ordered),
             "latency_p95_ns": ordered[math.ceil(0.95 * len(ordered)) - 1],
             "latency_p99_ns": ordered[math.ceil(0.99 * len(ordered)) - 1],
-            "publish_cpu_ns": publish_cpu_ns,
             "publish_wall_sample_sum_ns": sum(samples),
-            "churn_operations": churn_operations,
-            "churn_total_ns": churn_ns,
             "cache_hits": cache_hits,
             "cache_misses": cache_misses,
             "cache_hit_ratio": cache_hits / len(samples),
@@ -225,10 +211,49 @@ def _collect_route_latencies(case: RouteCacheCase, sample_count: int) -> dict[st
             "rss_after_cache_warmup_bytes": state.rss_after_warmup,
             "rss_before_sampling_bytes": rss_before_sampling,
             "rss_after_sampling_bytes": rss_after_sampling,
-            "raw_latency_samples_ns": samples,
         }
     finally:
         state.close()
+
+    cpu_state = _RouteCacheState(case)
+    publish_cpu_ns = 0
+    publish_batch_wall_ns = 0
+    churn_ns = 0
+    churn_operations = 0
+    rss_before_cpu_pass = _rss_bytes()
+    try:
+        collected = 0
+        while collected < sample_count:
+            if case.churn != "none":
+                churn_started = perf_counter_ns()
+                cpu_state.churn()
+                churn_ns += perf_counter_ns() - churn_started
+                churn_operations += 1
+            batch = min(case.batch_size, sample_count - collected)
+            cpu_started = process_time_ns()
+            wall_started = perf_counter_ns()
+            for _ in range(batch):
+                cpu_state.bus.publish(next(cpu_state.publishers[0]))
+            publish_cpu_ns += process_time_ns() - cpu_started
+            publish_batch_wall_ns += perf_counter_ns() - wall_started
+            collected += batch
+        rss_after_cpu_pass = _rss_bytes()
+        return {
+            "case": case.name,
+            "measurement": "single-publisher raw latency; cache probes run outside timed calls",
+            "publishers_in_pyperf_case": case.publishers,
+            **raw_latency,
+            "cpu_method": "separate single-publisher publish batches without per-call latency/cache probes",
+            "publish_cpu_ns": publish_cpu_ns,
+            "publish_batch_wall_ns": publish_batch_wall_ns,
+            "churn_operations": churn_operations,
+            "churn_total_ns": churn_ns,
+            "rss_before_cpu_pass_bytes": rss_before_cpu_pass,
+            "rss_after_cpu_pass_bytes": rss_after_cpu_pass,
+            "raw_latency_samples_ns": samples,
+        }
+    finally:
+        cpu_state.close()
 
 
 def _run_route_cache_suite(runner: Any, raw_cases: str) -> None:

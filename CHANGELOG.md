@@ -12,6 +12,10 @@ All notable changes to this project are documented in this file.
 - Record read-only Mavflow 2.0 compatibility checks and controlled `runtime.messages` profiles for the declared 1.3.2 and diagnostic 1.4.1 environments.
 - Extend dispatch-pressure benchmarks with Zipf, shifting-hot-key, churn, and concurrent-publisher route-cache cases plus a separate single-publisher latency and cache diagnostic collector.
 
+### Changed
+
+- Separate route-cache CPU timing from per-publish latency and cache probes so collector instrumentation does not inflate CPU measurements.
+
 ## [v1.4.1] - 2026-11-16
 
 ### Added
