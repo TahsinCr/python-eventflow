@@ -263,11 +263,10 @@ class OperationStats:
         if CORE is not None:
             self._core: Any = CORE.OperationStatsCore(max_operations)
             self._lock: Any = None
-            self._metrics: dict[str, _OperationTotals] = {}
         else:
             self._core = None
             self._lock = threading.Lock()
-            self._metrics = {}
+            self._metrics: dict[str, _OperationTotals] = {}
 
     def record(
         self,

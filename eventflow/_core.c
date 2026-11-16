@@ -12,9 +12,7 @@
 #if defined(_MSC_VER)
 #include <intrin.h>
 static inline uint8_t ef_atomic_load_u8(const uint8_t *ptr) {
-    uint8_t val = *(const volatile uint8_t *)ptr;
-    _ReadWriteBarrier();
-    return val;
+    return (uint8_t)_InterlockedCompareExchange8((volatile char *)ptr, 0, 0);
 }
 static inline void ef_atomic_store_u8(uint8_t *ptr, uint8_t val) {
     _InterlockedExchange8((volatile char *)ptr, (char)val);
@@ -69,8 +67,6 @@ typedef struct {
     PyObject *invalid_handler_error_type;
     PyObject *error_context_type;
     PyObject *exception_group_type;
-    PyObject *threading_lock_fn;
-    PyObject *rlock_type;
 
     PyObject *operation_metrics_type;
     PyObject *operation_stats_snapshot_type;
@@ -88,7 +84,6 @@ typedef struct {
     PyObject *k__subscriber_snapshot;
     PyObject *k__publish_python;
     PyObject *k_cancel;
-    PyObject *k_close;
     PyObject *k_notify_all;
     PyObject *k_matches;
     PyObject *k_acquire;
@@ -204,10 +199,6 @@ static int Flag_init(FlagObject *self, PyObject *args, PyObject *kwds) {
     return 0;
 }
 
-static PyObject *Flag_get(FlagObject *self, PyObject *Py_UNUSED(ignored)) {
-    return PyBool_FromLong(ef_atomic_load_u8(&self->value));
-}
-
 static PyObject *Flag_set(FlagObject *self, PyObject *arg) {
     int val = PyObject_IsTrue(arg);
     if (val < 0) {
@@ -218,7 +209,6 @@ static PyObject *Flag_set(FlagObject *self, PyObject *arg) {
 }
 
 static PyMethodDef Flag_methods[] = {
-    {"get", (PyCFunction)Flag_get, METH_NOARGS, NULL},
     {"set", (PyCFunction)Flag_set, METH_O, NULL},
     {NULL, NULL, 0, NULL},
 };
@@ -250,7 +240,6 @@ typedef struct {
     PyObject *filter_matches;
     PyObject *remaining_obj;
     PyObject *pending;
-    PyObject *py_lock;
     CoreState *state;
     PyThread_type_lock c_lock;
     Py_ssize_t remaining; /* -1 = unlimited (None), -2 = bigint > PY_SSIZE_T_MAX */
@@ -295,7 +284,6 @@ static int Subscriber_traverse(SubscriberObject *self, visitproc visit, void *ar
     Py_VISIT(self->filter_matches);
     Py_VISIT(self->remaining_obj);
     Py_VISIT(self->pending);
-    Py_VISIT(self->py_lock);
     return 0;
 }
 
@@ -309,7 +297,6 @@ static int Subscriber_clear(SubscriberObject *self) {
     Py_CLEAR(self->filter_matches);
     Py_CLEAR(self->remaining_obj);
     Py_CLEAR(self->pending);
-    Py_CLEAR(self->py_lock);
     return 0;
 }
 
@@ -652,17 +639,6 @@ static int Subscriber_set_replaying(SubscriberObject *self, PyObject *value, voi
     return 0;
 }
 
-static PyObject *Subscriber_get_lock(SubscriberObject *self, void *Py_UNUSED(closure)) {
-    if (self->py_lock == NULL) {
-        PyObject *lk = PyObject_CallNoArgs(self->state->threading_lock_fn);
-        if (lk == NULL) {
-            return NULL;
-        }
-        self->py_lock = lk;
-    }
-    return Py_NewRef(self->py_lock);
-}
-
 static PyObject *Subscriber_get_match_all(SubscriberObject *self, void *Py_UNUSED(closure)) {
     return PyBool_FromLong(self->match_all);
 }
@@ -678,7 +654,6 @@ static PyMemberDef Subscriber_members[] = {
 
 static PyGetSetDef Subscriber_getset[] = {
     {"replaying", (getter)Subscriber_get_replaying, (setter)Subscriber_set_replaying, NULL, NULL},
-    {"lock", (getter)Subscriber_get_lock, NULL, NULL, NULL},
     {"match_all", (getter)Subscriber_get_match_all, NULL, NULL, NULL},
     {NULL, NULL, NULL, NULL, NULL},
 };
@@ -2506,11 +2481,11 @@ static PyType_Spec OperationStatsCore_spec = {
 static PyObject *configure(PyObject *module, PyObject *args) {
     CoreState *st = get_core_state(module);
     PyObject *publish_result, *stats_cls, *filter_cls, *closed_err, *invalid_err;
-    PyObject *err_ctx, *exc_group, *lock_fn, *rlock_tp, *is_aw_fn, *close_aw_fn;
+    PyObject *err_ctx, *exc_group, *is_aw_fn, *close_aw_fn;
     if (!PyArg_ParseTuple(
-            args, "OOOOOOOOOOO:configure",
+            args, "OOOOOOOOO:configure",
             &publish_result, &stats_cls, &filter_cls, &closed_err, &invalid_err,
-            &err_ctx, &exc_group, &lock_fn, &rlock_tp, &is_aw_fn, &close_aw_fn)) {
+            &err_ctx, &exc_group, &is_aw_fn, &close_aw_fn)) {
         return NULL;
     }
 
@@ -2547,8 +2522,6 @@ static PyObject *configure(PyObject *module, PyObject *args) {
     Py_XSETREF(st->invalid_handler_error_type, Py_NewRef(invalid_err));
     Py_XSETREF(st->error_context_type, Py_NewRef(err_ctx));
     Py_XSETREF(st->exception_group_type, Py_NewRef(exc_group));
-    Py_XSETREF(st->threading_lock_fn, Py_NewRef(lock_fn));
-    Py_XSETREF(st->rlock_type, Py_NewRef(rlock_tp));
     Py_XSETREF(st->is_awaitable_fn, Py_NewRef(is_aw_fn));
     Py_XDECREF(st->close_awaitable_fn);
     st->close_awaitable_fn = Py_NewRef(close_aw_fn);
@@ -2593,8 +2566,6 @@ static int core_traverse(PyObject *m, visitproc visit, void *arg) {
     Py_VISIT(st->invalid_handler_error_type);
     Py_VISIT(st->error_context_type);
     Py_VISIT(st->exception_group_type);
-    Py_VISIT(st->threading_lock_fn);
-    Py_VISIT(st->rlock_type);
     Py_VISIT(st->operation_metrics_type);
     Py_VISIT(st->operation_stats_snapshot_type);
     Py_VISIT(st->mapping_proxy_type);
@@ -2607,7 +2578,6 @@ static int core_traverse(PyObject *m, visitproc visit, void *arg) {
     Py_VISIT(st->k__subscriber_snapshot);
     Py_VISIT(st->k__publish_python);
     Py_VISIT(st->k_cancel);
-    Py_VISIT(st->k_close);
     Py_VISIT(st->k_notify_all);
     Py_VISIT(st->k_matches);
     Py_VISIT(st->k_acquire);
@@ -2642,8 +2612,6 @@ static int core_clear(PyObject *m) {
     Py_CLEAR(st->invalid_handler_error_type);
     Py_CLEAR(st->error_context_type);
     Py_CLEAR(st->exception_group_type);
-    Py_CLEAR(st->threading_lock_fn);
-    Py_CLEAR(st->rlock_type);
     Py_CLEAR(st->operation_metrics_type);
     Py_CLEAR(st->operation_stats_snapshot_type);
     Py_CLEAR(st->mapping_proxy_type);
@@ -2656,7 +2624,6 @@ static int core_clear(PyObject *m) {
     Py_CLEAR(st->k__subscriber_snapshot);
     Py_CLEAR(st->k__publish_python);
     Py_CLEAR(st->k_cancel);
-    Py_CLEAR(st->k_close);
     Py_CLEAR(st->k_notify_all);
     Py_CLEAR(st->k_matches);
     Py_CLEAR(st->k_acquire);
@@ -2688,7 +2655,6 @@ static int core_exec(PyObject *m) {
     INIT_INTERN(k__subscriber_snapshot, "_subscriber_snapshot");
     INIT_INTERN(k__publish_python, "_publish_python");
     INIT_INTERN(k_cancel, "cancel");
-    INIT_INTERN(k_close, "close");
     INIT_INTERN(k_notify_all, "notify_all");
     INIT_INTERN(k_matches, "matches");
     INIT_INTERN(k_acquire, "acquire");

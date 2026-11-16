@@ -11,6 +11,9 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Remove unused native Subscriber lock exposure, Flag getter and module state;
+  avoid allocating the fallback metrics dictionary in native mode.
+
 - Share LoopPortal thread joining and timeout recovery across shutdown branches.
 
 - Skip zero-delta native metric updates to avoid arbitrary-precision
@@ -21,6 +24,8 @@ All notable changes to this project are documented in this file.
   and subscription paths while retaining validation for custom subclasses.
 
 ### Fixed
+
+- Use an Interlocked atomic byte read on MSVC instead of a compiler-only barrier.
 
 - Keep native metrics growth transactional after allocation failure; exercise
   allocator failures, concurrent resets and numeric backend equivalence.

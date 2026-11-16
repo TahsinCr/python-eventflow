@@ -52,8 +52,6 @@ if CORE is not None:
         InvalidEventHandlerError,
         EventErrorContext,
         ExceptionGroup,
-        threading.Lock,
-        threading.RLock,
         is_awaitable,
         close_awaitable,
     )
