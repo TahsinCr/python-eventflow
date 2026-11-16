@@ -485,6 +485,19 @@ class LoopPortal:
         with self._lock:
             self._closing = False
 
+    def _join_thread(
+        self,
+        thread: threading.Thread,
+        end: float | None,
+        *,
+        timeout_message: str,
+    ) -> None:
+        remaining = None if end is None else max(0.0, end - time.monotonic())
+        thread.join(remaining)
+        if thread.is_alive():
+            self._restore_close_state()
+            raise TimeoutError(timeout_message)
+
     def close(self, timeout: float | None = None) -> None:
         """Cancel portal tasks and stop only after they have actually finished."""
         if self._thread is threading.current_thread():
@@ -514,11 +527,11 @@ class LoopPortal:
                 stopping = self._stopping
 
             if loop is None:
-                remaining = None if end is None else max(0.0, end - time.monotonic())
-                thread.join(remaining)
-                if thread.is_alive():
-                    self._restore_close_state()
-                    raise TimeoutError("LoopPortal startup thread has not exited")
+                self._join_thread(
+                    thread,
+                    end,
+                    timeout_message="LoopPortal startup thread has not exited",
+                )
                 with self._lock:
                     self._closed = True
                     self._closing = False
@@ -530,11 +543,11 @@ class LoopPortal:
                 return
 
             if stopping or not loop.is_running():
-                remaining = None if end is None else max(0.0, end - time.monotonic())
-                thread.join(remaining)
-                if thread.is_alive():
-                    self._restore_close_state()
-                    raise TimeoutError("LoopPortal thread is stopping but has not exited")
+                self._join_thread(
+                    thread,
+                    end,
+                    timeout_message="LoopPortal thread is stopping but has not exited",
+                )
                 with self._lock:
                     self._closed = True
                     self._closing = False
@@ -573,11 +586,11 @@ class LoopPortal:
             with self._lock:
                 self._stopping = True
             loop.call_soon_threadsafe(loop.stop)
-            remaining = None if end is None else max(0.0, end - time.monotonic())
-            thread.join(remaining)
-            if thread.is_alive():
-                self._restore_close_state()
-                raise TimeoutError("LoopPortal thread did not stop before the timeout")
+            self._join_thread(
+                thread,
+                end,
+                timeout_message="LoopPortal thread did not stop before the timeout",
+            )
             with self._lock:
                 self._closed = True
                 self._closing = False

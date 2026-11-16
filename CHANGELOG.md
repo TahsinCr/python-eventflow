@@ -11,6 +11,8 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Share LoopPortal thread joining and timeout recovery across shutdown branches.
+
 - Skip zero-delta native metric updates to avoid arbitrary-precision
   allocations after a counter exceeds the int64 fast path.
 - Limit synchronous EventBus routing snapshots to 64 cached keys, bounding
