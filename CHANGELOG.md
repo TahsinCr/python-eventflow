@@ -6,71 +6,36 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Retain source-hashed dispatch pressure comparisons and raw latency/CPU/cache
-  diagnostics; document history snapshot costs and candidate limitations.
-
-
-- Add pyperf route-cache pressure and sparse-match workloads, including cache
-  boundary sizes, late hot routes and 0–100% subscriber match ratios.
-
-- Run GCC static analysis and native dispatch/metrics tests under ASan and
-  UBSan in CI.
+- Retain source-hashed dispatch pressure comparisons and raw latency/CPU/cache diagnostics; document history snapshot costs and candidate limitations.
+- Add pyperf route-cache pressure and sparse-match workloads, including cache boundary sizes, late hot routes and 0–100% subscriber match ratios.
+- Run GCC static analysis and native dispatch/metrics tests under ASan and UBSan in CI.
 
 ### Changed
 
-- Avoid copying the history snapshot when filtered latest finds an exact-type
-  match at the tail, without invoking user matching code under the lock.
-
-- Preserve direct type matching for filtered history latest queries while
-  evaluating user objects outside the history lock.
-
-- Remove unused native Subscriber lock exposure, Flag getter and module state;
-  avoid allocating the fallback metrics dictionary in native mode.
-
+- Avoid copying the history snapshot when filtered latest finds an exact-type match at the tail, without invoking user matching code under the lock.
+- Preserve direct type matching for filtered history latest queries while evaluating user objects outside the history lock.
+- Remove unused native Subscriber lock exposure, Flag getter and module state; avoid allocating the fallback metrics dictionary in native mode.
 - Share LoopPortal thread joining and timeout recovery across shutdown branches.
-
-- Skip zero-delta native metric updates to avoid arbitrary-precision
-  allocations after a counter exceeds the int64 fast path.
-- Limit synchronous EventBus routing snapshots to 64 cached keys, bounding
-  retained subscriber references for high-cardinality routing workloads.
-- Skip the native subscriber type pre-scan for the verified built-in snapshot
-  and subscription paths while retaining validation for custom subclasses.
+- Skip zero-delta native metric updates to avoid arbitrary-precision allocations after a counter exceeds the int64 fast path.
+- Limit synchronous EventBus routing snapshots to 64 cached keys, bounding retained subscriber references for high-cardinality routing workloads.
+- Skip the native subscriber type pre-scan for the verified built-in snapshot and subscription paths while retaining validation for custom subclasses.
 
 ### Fixed
 
-- Keep native subscriber allocation-failure tests above CPython 3.15's small
-  integer cache so claim/restore allocation failures are actually exercised.
-
-- Normalize operation-name string subclasses by text value before either
-  metrics backend runs, ignoring custom hashing, equality and conversion.
-
-- Keep finite native subscriber counters unchanged on allocation failure and
-  avoid placing failed allocations into metrics snapshot tuples.
-
-- Match history types outside the storage lock, including event `__class__`
-  properties; cache results only while their snapshot remains current.
+- Keep native subscriber allocation-failure tests above CPython 3.15's small integer cache so claim/restore allocation failures are actually exercised.
+- Normalize operation-name string subclasses by text value before either metrics backend runs, ignoring custom hashing, equality and conversion.
+- Keep finite native subscriber counters unchanged on allocation failure and avoid placing failed allocations into metrics snapshot tuples.
+- Match history types outside the storage lock, including event `__class__` properties; cache results only while their snapshot remains current.
 - Accept tuple subclass type filters without using them as cache keys.
-
 - Use an Interlocked atomic byte read on MSVC instead of a compiler-only barrier.
-
-- Keep native metrics growth transactional after allocation failure; exercise
-  allocator failures, concurrent resets and numeric backend equivalence.
-
+- Keep native metrics growth transactional after allocation failure; exercise allocator failures, concurrent resets and numeric backend equivalence.
 - Run custom history type matching outside the history lock.
-
-- Install the declared setuptools build backend in the native sanitizer job so
-  the forced extension rebuild works on clean Python runners.
-- Preserve arbitrary-size operation counters in the native metrics core,
-  matching the Python fallback without signed integer overflow.
-- Preserve arbitrary-size current and maximum queue depths in native metrics,
-  matching the Python fallback.
-- Bound both type-only history result caches to 64 entries so varied queries
-  cannot retain an unbounded set of event classes.
-- Validate native subscriber snapshots before recording history or publication
-  statistics, avoiding duplicate side effects when dispatch falls back.
-- Normalize `int` subclasses before updating operation metrics so native and
-  Python backends apply the same values without running subclass methods under
-  the metrics lock.
+- Install the declared setuptools build backend in the native sanitizer job so the forced extension rebuild works on clean Python runners.
+- Preserve arbitrary-size operation counters in the native metrics core, matching the Python fallback without signed integer overflow.
+- Preserve arbitrary-size current and maximum queue depths in native metrics, matching the Python fallback.
+- Bound both type-only history result caches to 64 entries so varied queries cannot retain an unbounded set of event classes.
+- Validate native subscriber snapshots before recording history or publication statistics, avoiding duplicate side effects when dispatch falls back.
+- Normalize `int` subclasses before updating operation metrics so native and Python backends apply the same values without running subclass methods under the metrics lock.
 
 ## [v1.4.0] - 2026-11-14
 
