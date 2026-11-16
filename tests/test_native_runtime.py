@@ -59,6 +59,61 @@ class NativeRuntimeTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
+    @unittest.skipUnless(_native.CORE is not None, "native core required")
+    @unittest.skipIf(sysconfig.get_config_var("Py_GIL_DISABLED"), "allocator hooks require GIL")
+    def test_subscriber_and_snapshot_recover_from_allocator_failure(self):
+        try:
+            import _testcapi
+        except ImportError:
+            self.skipTest("CPython allocator test hooks unavailable")
+        if not hasattr(_testcapi, "set_nomemory"):
+            self.skipTest("CPython allocator failure hook unavailable")
+        code = textwrap.dedent("""
+            import _testcapi
+            import gc
+            from eventflow import EventBus
+            from eventflow.observability import OperationStats
+            failures = {"claim": 0, "restore_claim": 0, "snapshot": 0}
+            for operation in failures:
+                for offset in range(40):
+                    bus = EventBus()
+                    handle = bus.subscribe(lambda event: None, times=1000)
+                    subscriber = next(iter(bus._subscribers.values()))
+                    subscriber.claim()  # initialize native lock before injection
+                    before = subscriber.remaining
+                    stats = OperationStats()
+                    for index in range(20):
+                        stats.record(str(index), elapsed=0.5, dropped=2**100)
+                    call = stats.snapshot if operation == "snapshot" else getattr(subscriber, operation)
+                    failed = False
+                    gc.collect()
+                    _testcapi.set_nomemory(offset, offset + 1)
+                    try:
+                        call()
+                    except MemoryError:
+                        failed = True
+                    finally:
+                        _testcapi.remove_mem_hooks()
+                    if failed:
+                        failures[operation] += 1
+                        assert subscriber.remaining == before
+                    if operation != "snapshot":
+                        expected = before if failed else before + (1 if operation == "restore_claim" else -1)
+                        assert subscriber.remaining == expected
+                        subscriber.claim()
+                        assert subscriber.remaining == expected - 1
+                    assert len(stats.snapshot().operations) == 20
+                    stats.reset()
+                    stats.record("recovered")
+                    assert stats.snapshot().operations["recovered"].calls == 1
+                    bus.close()
+            assert all(failures.values()), failures
+        """)
+        result = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, timeout=30
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
     def test_metrics_record_snapshot_reset_are_thread_safe_in_both_backends(self):
         for backend in (_native.CORE, None):
             with (

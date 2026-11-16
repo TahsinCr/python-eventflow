@@ -470,12 +470,14 @@ static int sub_claim_internal(SubscriberObject *self, int *claimed, int *is_fina
         *is_final = 0;
         return 0;
     }
-    self->remaining -= 1;
-    Py_ssize_t rem = self->remaining;
+    Py_ssize_t rem = self->remaining - 1;
     PyObject *new_obj = PyLong_FromSsize_t(rem);
-    if (new_obj != NULL) {
-        Py_SETREF(self->remaining_obj, new_obj);
+    if (new_obj == NULL) {
+        sub_lock_release(self);
+        return -1;
     }
+    self->remaining = rem;
+    Py_SETREF(self->remaining_obj, new_obj);
     sub_lock_release(self);
     *claimed = 1;
     *is_final = (rem == 0) ? 1 : 0;
@@ -483,12 +485,13 @@ static int sub_claim_internal(SubscriberObject *self, int *claimed, int *is_fina
 }
 
 static PyObject *Subscriber_claim(SubscriberObject *self, PyObject *Py_UNUSED(ignored)) {
-    int claimed = 0, is_final = 0;
-    if (sub_claim_internal(self, &claimed, &is_final) < 0) {
-        return NULL;
-    }
     PyObject *res = PyTuple_New(2);
     if (res == NULL) {
+        return NULL;
+    }
+    int claimed = 0, is_final = 0;
+    if (sub_claim_internal(self, &claimed, &is_final) < 0) {
+        Py_DECREF(res);
         return NULL;
     }
     PyTuple_SET_ITEM(res, 0, PyBool_FromLong(claimed));
@@ -519,11 +522,13 @@ static int sub_restore_claim_internal(SubscriberObject *self) {
         Py_SETREF(self->remaining_obj, next_rem);
         self->remaining = -2;
     } else {
-        self->remaining += 1;
-        PyObject *new_obj = PyLong_FromSsize_t(self->remaining);
-        if (new_obj != NULL) {
-            Py_SETREF(self->remaining_obj, new_obj);
+        PyObject *new_obj = PyLong_FromSsize_t(self->remaining + 1);
+        if (new_obj == NULL) {
+            sub_lock_release(self);
+            return -1;
         }
+        self->remaining += 1;
+        Py_SETREF(self->remaining_obj, new_obj);
     }
     sub_lock_release(self);
     return 0;
@@ -2358,8 +2363,9 @@ static PyObject *OperationStatsCore_snapshot(
         for (int k = 0; k < 13; ++k) {
             if (vals[k] == NULL) {
                 ok = 0;
+            } else {
+                PyTuple_SET_ITEM(args_tuple, k, vals[k]);
             }
-            PyTuple_SET_ITEM(args_tuple, k, vals[k]);
         }
         if (!ok) {
             Py_DECREF(args_tuple);

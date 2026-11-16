@@ -25,6 +25,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Keep finite native subscriber counters unchanged on allocation failure and
+  avoid placing failed allocations into metrics snapshot tuples.
+
 - Match history types outside the storage lock, including event `__class__`
   properties; cache results only while their snapshot remains current.
 - Accept tuple subclass type filters without using them as cache keys.
