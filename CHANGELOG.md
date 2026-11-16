@@ -4,6 +4,8 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [v1.4.1] - 2026-11-16
+
 ### Added
 
 - Retain source-hashed dispatch pressure comparisons and raw latency/CPU/cache diagnostics; document history snapshot costs and candidate limitations.
@@ -24,9 +26,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Resolve native publish condition cleanup before locking and propagate exit failures; preserve notification errors when cleanup succeeds.
-
 - Normalize operation status string subclasses before backend dispatch and consistently reject non-string statuses, preserving native and Python metrics equivalence.
-
 - Keep native subscriber allocation-failure tests above CPython 3.15's small integer cache so claim/restore allocation failures are actually exercised.
 - Normalize operation-name string subclasses by text value before either metrics backend runs, ignoring custom hashing, equality and conversion.
 - Keep finite native subscriber counters unchanged on allocation failure and avoid placing failed allocations into metrics snapshot tuples.
