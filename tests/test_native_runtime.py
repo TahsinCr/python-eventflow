@@ -167,6 +167,25 @@ class NativeRuntimeTests(unittest.TestCase):
                 with self.subTest(field=field, value=value):
                     self.assertEqual(outcomes[0], outcomes[1])
 
+    def test_metrics_names_use_text_value_in_both_backends(self):
+        class Name(str):
+            __hash__ = None
+
+            def __eq__(self, other):
+                raise AssertionError("custom equality must not run")
+
+            def __str__(self):
+                raise AssertionError("custom conversion must not run")
+
+        for backend in (_native.CORE, None):
+            with patch("eventflow.observability.CORE", backend):
+                stats = OperationStats()
+            stats.record(Name("worker"))
+            stats.record("worker")
+            result = stats.snapshot().operations
+            self.assertEqual(tuple(result), ("worker",))
+            self.assertEqual(result["worker"].calls, 2)
+
     def test_load_core_respects_no_extensions_env(self) -> None:
         with patch.dict(os.environ, {"EVENTFLOW_NO_EXTENSIONS": "1"}):
             self.assertIsNone(_native._load_core())

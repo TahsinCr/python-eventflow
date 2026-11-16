@@ -25,6 +25,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Normalize operation-name string subclasses by text value before either
+  metrics backend runs, ignoring custom hashing, equality and conversion.
+
 - Keep finite native subscriber counters unchanged on allocation failure and
   avoid placing failed allocations into metrics snapshot tuples.
 

@@ -282,6 +282,8 @@ class OperationStats:
         shutdown_seconds: float = 0.0,
     ) -> None:
         """Record one completed operation without retaining user payloads."""
+        if type(name) is not str and isinstance(name, str):
+            name = str.__str__(name)
         if self._core is not None:
             self._core.record(
                 name,
