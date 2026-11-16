@@ -221,6 +221,76 @@ class NativeRuntimeTests(unittest.TestCase):
                                 ),
                             )
 
+    @unittest.skipUnless(_native.CORE is not None, "native core required")
+    def test_native_condition_cleanup_errors_propagate_and_release_lock(self):
+        class Condition:
+            def __init__(self, lock, failure):
+                self.lock = lock
+                self.failure = failure
+                self.entered = False
+
+            def __getattribute__(self, name):
+                if name == "__exit__" and self.failure == "lookup":
+                    raise MemoryError("lookup")
+                return object.__getattribute__(self, name)
+
+            def __enter__(self):
+                self.lock.acquire()
+                self.entered = True
+
+            def notify_all(self):
+                if self.failure in ("notify", "both"):
+                    raise RuntimeError("notify")
+
+            def __exit__(self, *args):
+                self.lock.release()
+                if self.failure in ("exit", "both"):
+                    raise ValueError("exit")
+
+        for failure, error, message in (
+            ("lookup", MemoryError, "lookup"),
+            ("notify", RuntimeError, "notify"),
+            ("exit", ValueError, "exit"),
+            ("both", ValueError, "exit"),
+        ):
+            with self.subTest(failure=failure), EventBus() as bus:
+                bus.subscribe(lambda event: None)
+                condition = Condition(bus._lock, failure)
+                core = _native.CORE.BusCore(
+                    bus._lock,
+                    condition,
+                    bus._subscribers,
+                    bus._unkeyed_subscribers,
+                    bus._keyed_subscribers,
+                    bus._route_snapshots,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    None,
+                    False,
+                    True,
+                )
+                core.invalidate_snapshots(True, False)
+                core.inc_waiters()
+                with self.assertRaisesRegex(error, message):
+                    core.publish(bus, object())
+                self.assertEqual(condition.entered, failure != "lookup")
+                # A different thread must acquire it; RLock reentry would hide a leak.
+                with ThreadPoolExecutor(max_workers=1) as pool:
+
+                    def acquire_and_release():
+                        acquired = bus._lock.acquire(timeout=1)
+                        if acquired:
+                            bus._lock.release()
+                        return acquired
+
+                    self.assertTrue(pool.submit(acquire_and_release).result(timeout=3))
+                condition.failure = None
+                self.assertEqual(core.publish(bus, object()).delivered, 1)
+                core.dec_waiters()
+
     def test_subscriber_claim_restore_integer_boundaries(self):
         for limit in (1, 2, 256, 1000):
             with self.subTest(limit=limit), EventBus() as bus:

@@ -1572,8 +1572,16 @@ static PyObject *BusCore_publish(BusCoreObject *self, PyObject *const *args, Py_
             ef_atomic_add_i64(&self->delivered, delivered);
             ef_atomic_add_i64(&self->failed, failed_count);
         } else {
+            /* Resolve cleanup before acquiring the condition lock. */
+            PyObject *ex_m = PyObject_GetAttr(self->condition, st->k___exit__);
+            if (ex_m == NULL) {
+                Py_DECREF(result);
+                Py_XDECREF(errors);
+                return NULL;
+            }
             PyObject *ent = PyObject_CallMethodNoArgs(self->condition, st->k___enter__);
             if (ent == NULL) {
+                Py_DECREF(ex_m);
                 Py_DECREF(result);
                 Py_XDECREF(errors);
                 return NULL;
@@ -1581,35 +1589,30 @@ static PyObject *BusCore_publish(BusCoreObject *self, PyObject *const *args, Py_
             Py_DECREF(ent);
             ef_atomic_add_i64(&self->delivered, delivered);
             ef_atomic_add_i64(&self->failed, failed_count);
-            PyObject *exc_res = NULL;
+            PyObject *exc_type = NULL, *exc_value = NULL, *exc_tb = NULL;
             if (ef_atomic_load_i64(&self->waiter_count) > 0) {
                 PyObject *notified = PyObject_CallMethodNoArgs(self->condition, st->k_notify_all);
                 if (notified == NULL) {
-#if PY_VERSION_HEX >= 0x030C0000
-                    exc_res = PyErr_GetRaisedException();
-#else
-                    PyObject *pt, *ptb;
-                    PyErr_Fetch(&pt, &exc_res, &ptb);
-                    Py_XDECREF(pt);
-                    Py_XDECREF(ptb);
-#endif
+                    PyErr_Fetch(&exc_type, &exc_value, &exc_tb);
                 } else {
                     Py_DECREF(notified);
                 }
             }
             PyObject *ex_args[3] = {Py_None, Py_None, Py_None};
-            PyObject *ex_m = PyObject_GetAttr(self->condition, st->k___exit__);
-            if (ex_m != NULL) {
-                PyObject *ex = PyObject_Vectorcall(ex_m, ex_args, 3, NULL);
-                Py_DECREF(ex_m);
-                Py_XDECREF(ex);
+            PyObject *ex = PyObject_Vectorcall(ex_m, ex_args, 3, NULL);
+            Py_DECREF(ex_m);
+            if (ex == NULL) {
+                /* Cleanup failure takes precedence over notification failure. */
+                Py_XDECREF(exc_type);
+                Py_XDECREF(exc_value);
+                Py_XDECREF(exc_tb);
+                Py_DECREF(result);
+                Py_XDECREF(errors);
+                return NULL;
             }
-            if (exc_res != NULL) {
-#if PY_VERSION_HEX >= 0x030C0000
-                PyErr_SetRaisedException(exc_res);
-#else
-                PyErr_Restore((PyObject *)Py_TYPE(exc_res), exc_res, NULL);
-#endif
+            Py_DECREF(ex);
+            if (exc_type != NULL) {
+                PyErr_Restore(exc_type, exc_value, exc_tb);
                 Py_DECREF(result);
                 Py_XDECREF(errors);
                 return NULL;

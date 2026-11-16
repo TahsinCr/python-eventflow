@@ -22,6 +22,8 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Resolve native publish condition cleanup before locking and propagate exit failures; preserve notification errors when cleanup succeeds.
+
 - Normalize operation status string subclasses before backend dispatch and consistently reject non-string statuses, preserving native and Python metrics equivalence.
 
 - Keep native subscriber allocation-failure tests above CPython 3.15's small integer cache so claim/restore allocation failures are actually exercised.
