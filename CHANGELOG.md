@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Add pyperf route-cache pressure and sparse-match workloads, including cache
+  boundary sizes, late hot routes and 0–100% subscriber match ratios.
+
 - Run GCC static analysis and native dispatch/metrics tests under ASan and
   UBSan in CI.
 
