@@ -1,0 +1,53 @@
+diff --git a/eventflow/_core.c b/eventflow/_core.c
+index 4c38fc0..d7ee1c5 100644
+--- a/eventflow/_core.c
++++ b/eventflow/_core.c
+@@ -1219,8 +1219,19 @@ static PyObject *BusCore_publish(BusCoreObject *self, PyObject *const *args, Py_
+                     snapshot = merge_subscriber_dicts_c(self->unkeyed_dict, keyed);
+                 }
+                 if (snapshot != NULL) {
++                    if (PyDict_Size(self->route_snapshots) >= EVENTFLOW_ROUTE_SNAPSHOT_CACHE_LIMIT) {
++                        Py_ssize_t pos = 0;
++                        PyObject *old_key;
++                        PyObject *old_value;
++                        if (
++                            PyDict_Next(self->route_snapshots, &pos, &old_key, &old_value)
++                            && PyDict_DelItem(self->route_snapshots, old_key) < 0
++                        ) {
++                            Py_CLEAR(snapshot);
++                        }
++                    }
+                     if (
+-                        PyDict_Size(self->route_snapshots) < EVENTFLOW_ROUTE_SNAPSHOT_CACHE_LIMIT
++                        snapshot != NULL
+                         && PyDict_SetItem(self->route_snapshots, event_key, snapshot) < 0
+                     ) {
+                         Py_CLEAR(snapshot);
+diff --git a/eventflow/event_bus.py b/eventflow/event_bus.py
+index 980147d..648cc00 100644
+--- a/eventflow/event_bus.py
++++ b/eventflow/event_bus.py
+@@ -556,8 +556,9 @@ class EventBus(BaseEventBus[T]):
+         unkeyed = self._unkeyed_subscribers
+         if not unkeyed:
+             snapshot = tuple(keyed.values())
+-            if len(self._route_snapshots) < _MAX_ROUTE_SNAPSHOTS:
+-                self._route_snapshots[event_key] = snapshot
++            if len(self._route_snapshots) >= _MAX_ROUTE_SNAPSHOTS:
++                self._route_snapshots.pop(next(iter(self._route_snapshots)))
++            self._route_snapshots[event_key] = snapshot
+             return snapshot
+
+         unkeyed_items = iter(unkeyed.items())
+@@ -580,8 +581,9 @@ class EventBus(BaseEventBus[T]):
+             merged.append(keyed_item[1])
+             merged.extend(subscriber for _identifier, subscriber in keyed_items)
+         snapshot = tuple(merged)
+-        if len(self._route_snapshots) < _MAX_ROUTE_SNAPSHOTS:
+-            self._route_snapshots[event_key] = snapshot
++        if len(self._route_snapshots) >= _MAX_ROUTE_SNAPSHOTS:
++            self._route_snapshots.pop(next(iter(self._route_snapshots)))
++        self._route_snapshots[event_key] = snapshot
+         return snapshot
+
+     def _event_routing_key(self, event: T) -> Hashable | None:

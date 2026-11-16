@@ -1,0 +1,120 @@
+{
+  "baseline": {
+    "backend": "c",
+    "dirty": "false",
+    "gil": "enabled",
+    "implementation": "python",
+    "python": "3.14.10 (64-bit)",
+    "routing_policy": "64-key admission-only; existing production behavior",
+    "source_sha256": "0fdca4fa85a3d3414905f182fc0259adf01095c3171d08f942dcdb7d4666a721"
+  },
+  "benchmark_source_hashes": {
+    "benchmarks/_runner.py": "a0f93b269c9f5bd6722b44012b01da6dffcfd2d54438cbee8309ff63458ca51e",
+    "benchmarks/_support.py": "1c2d6f62dc7c7574d206e2c6a33cebfe871101674a2db3eb869334c70838110b",
+    "benchmarks/benchmark_dispatch_pressure.py": "1d4d061e34bf06c28d8fef8646111d5fc137325d6fb41e605541e943bc602b3c",
+    "eventflow/_core.c": "8b4da0702a342a184dce0945e2d10daed0e88e799a29badc990f9f5902099b1a",
+    "eventflow/event_bus.py": "354b281aecd48b3bf30ae0fe8179269ee5ec54f34f800e6d46fcebc4a839f7d2",
+    "pyproject.toml": "2cda3031939164d1dbeeee94b81b683fdeff41ee84e3143cc8cb8984faf99f49"
+  },
+  "candidate": {
+    "changed_files": [
+      "eventflow/event_bus.py",
+      "eventflow/_core.c"
+    ],
+    "dirty": "true",
+    "patch_file": "route-cache-fifo-candidate.patch",
+    "patch_sha256": "cadf8343638dbcb79aa47f78b19bb6ba55879fcaf151bf74cdecb784ddac8f7d",
+    "routing_policy": "same 64-key cache with FIFO eviction on a full-cache miss",
+    "source_sha256": "adaf679c6b78ac3a1cd9df7309feadac6bb22c43b79ccdfd57032def8f3d8ec0"
+  },
+  "date": "2026-11-17",
+  "environment": {
+    "compiler": "GCC 16.2.1 20260810",
+    "cpu_affinity_single_publisher": "4",
+    "cpu_configuration": "4=driver:intel_pstate, intel_pstate:turbo, governor:powersave; idle:intel_idle",
+    "cpu_model": "12th Gen Intel(R) Core(TM) i7-12700H",
+    "governor_observed": "powersave",
+    "logical_cpus": 20,
+    "platform": "Linux-7.2.15-arch1-1-x86_64-with-glibc2.44",
+    "pyperf": "2.11.0"
+  },
+  "free_threaded": {
+    "backend": "c",
+    "gil": "disabled",
+    "python": "3.15.2 (64-bit)",
+    "source_sha256_baseline": "0fdca4fa85a3d3414905f182fc0259adf01095c3171d08f942dcdb7d4666a721",
+    "source_sha256_candidate": "adaf679c6b78ac3a1cd9df7309feadac6bb22c43b79ccdfd57032def8f3d8ec0"
+  },
+  "purpose": "A/B evaluation of bounded FIFO eviction against the existing 64-key admission-only route cache; no production change was accepted.",
+  "retained_artifacts": [
+    "route-cache-summary.csv",
+    "route-cache-selected-latency.json.gz",
+    "route-cache-gil-on-single-base.json",
+    "route-cache-gil-on-single-fifo.json",
+    "route-cache-gil-on-threaded-base.json",
+    "route-cache-gil-on-threaded-fifo.json",
+    "route-cache-gil-off-315t-base.json",
+    "route-cache-gil-off-315t-fifo.json"
+  ],
+  "revision": "535be6a114060b9799edd0bf6aa3e2c106b9cb55",
+  "schema": 1,
+  "unretained_full_intermediate_digest_sha256": "2435b2a240adeed350c1e20673acdf2aa8e74dfd19d1c3b54a52e1b5afa18218",
+  "unretained_full_intermediate_location": "/tmp/eventflow-p3-final-v2",
+  "workload": {
+    "access_profiles": [
+      "uniform",
+      "late-hot",
+      "hot-shift",
+      "zipf-0.8",
+      "zipf-1.2"
+    ],
+    "candidate_order_by_round": [
+      "baseline then FIFO",
+      "FIFO then baseline",
+      "baseline then FIFO"
+    ],
+    "cases": 60,
+    "churn": [
+      "none",
+      "low",
+      "high"
+    ],
+    "churn_timing": "subscription changes are performed before each publish batch and excluded from timed publish-only measurements",
+    "cpu_pass": "separate from latency/cache instrumentation; uses the publisher count in the case",
+    "gil_off_315t": 6,
+    "gil_on_multi_publisher": 12,
+    "gil_on_single_publisher": 42,
+    "publisher_counts": [
+      1,
+      2,
+      4,
+      8
+    ],
+    "pyperf": {
+      "merged_values_per_case_and_candidate": 27,
+      "min_time_seconds": 0.03,
+      "processes": 3,
+      "rounds": 3,
+      "values_per_process": 3,
+      "warmups": 1
+    },
+    "raw_latency": {
+      "publishers": 1,
+      "rounds": 3,
+      "samples_per_case_per_round": 10000
+    },
+    "route_cardinality": [
+      16,
+      64,
+      65,
+      80,
+      256,
+      1000
+    ],
+    "wildcard_subscribers": [
+      0,
+      100,
+      1024
+    ]
+  }
+}

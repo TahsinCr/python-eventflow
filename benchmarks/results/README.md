@@ -7,6 +7,12 @@ The [16 November dispatch/history audit](v1.4.0/audit_2026-11-16.md) retains
 source-hashed cache-policy and matched-buffer screening data, raw latency
 diagnostics and their limitations. Production policies remain unchanged.
 
+The [17 November route-cache FIFO experiment](v1.4.2/route-cache-fifo.md)
+compares the existing admission-only policy with a bounded FIFO candidate on
+GIL-enabled and free-threaded CPython. It records why the production policy was
+kept, with source hashes, pyperf datasets, selected raw latency samples and a
+full per-case CSV.
+
 ## Datasets
 
 - [`v1.3.2/`](v1.3.2/) contains the 2026-11-09 broad performance screen: 31
@@ -16,6 +22,9 @@ diagnostics and their limitations. Production policies remain unchanged.
   13 benchmark-module JSON files with 183 cases (180 paired with 1.3.2), four
   focused history-query JSON files, one history summary CSV, and two routing
   summary CSVs.
+- [`v1.4.2/`](v1.4.2/) contains the route-cache FIFO evaluation: 60 paired
+  profiles, merged pyperf datasets for each runtime group, selected raw latency
+  samples, a source/patch manifest and the decision report.
 - [`v1.3.2-v1.4.0-comparison.md`](v1.3.2-v1.4.0-comparison.md) explains the
   pure-Python release comparison, native backend evidence, and remaining
   measurement limits.
