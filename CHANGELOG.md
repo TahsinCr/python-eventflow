@@ -38,6 +38,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Keep native subscriber allocation-failure tests above CPython 3.15's small
+  integer cache so claim/restore allocation failures are actually exercised.
+
 - Normalize operation-name string subclasses by text value before either
   metrics backend runs, ignoring custom hashing, equality and conversion.
 

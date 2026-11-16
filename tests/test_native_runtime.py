@@ -77,7 +77,8 @@ class NativeRuntimeTests(unittest.TestCase):
             for operation in failures:
                 for offset in range(40):
                     bus = EventBus()
-                    handle = bus.subscribe(lambda event: None, times=1000)
+                    # Stay above CPython 3.15's small-integer cache (through 1024).
+                    bus.subscribe(lambda event: None, times=10_000)
                     subscriber = next(iter(bus._subscribers.values()))
                     subscriber.claim()  # initialize native lock before injection
                     before = subscriber.remaining
