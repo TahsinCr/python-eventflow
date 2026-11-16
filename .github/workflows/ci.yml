@@ -446,6 +446,12 @@ jobs:
           LDFLAGS: -fsanitize=address,undefined
         run: python setup.py build_ext --inplace --force
 
+      - name: Verify sanitized core keeps the GIL disabled
+        env:
+          PYTHON_GIL: "0"
+        run: |
+          LD_PRELOAD="$(gcc -print-file-name=libasan.so)" python -c 'import sys, sysconfig; import eventflow._native as native; assert sysconfig.get_config_var("Py_GIL_DISABLED") == 1; assert not sys._is_gil_enabled(); assert native.CORE is not None'
+
       - name: Run native concurrency tests with the GIL disabled
         env:
           ASAN_OPTIONS: detect_leaks=0:halt_on_error=1

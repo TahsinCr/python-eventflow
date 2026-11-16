@@ -11,7 +11,7 @@ All notable changes to this project are documented in this file.
 - Add an opt-in async stress runner that repeats lifecycle, cancellation, queue, limiter, breaker, and stream regressions with asyncio diagnostics enabled.
 - Record read-only Mavflow 2.0 compatibility checks and controlled `runtime.messages` profiles for the declared 1.3.2 and diagnostic 1.4.1 environments.
 - Extend dispatch-pressure benchmarks with Zipf, shifting-hot-key, churn, and concurrent-publisher route-cache cases plus a separate single-publisher latency and cache diagnostic collector.
-- Add a manual-only GitHub Actions job that builds the native extension with ASan and UBSan on free-threaded CPython 3.15 and exercises focused concurrency tests.
+- Add a manual-only GitHub Actions job that builds the native extension with ASan and UBSan on free-threaded CPython 3.15, verifies the instrumented core keeps the GIL disabled, and exercises focused concurrency tests.
 - Record a source-pinned 60-profile FIFO route-cache comparison across GIL-enabled and free-threaded CPython, retaining the evidence for keeping the admission-only production policy.
 - Document current native C line, function, and branch coverage with a test map for critical paths and the remaining reachability limits.
 
