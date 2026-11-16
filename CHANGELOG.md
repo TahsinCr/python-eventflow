@@ -22,6 +22,9 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Keep native metrics growth transactional after allocation failure; exercise
+  allocator failures, concurrent resets and numeric backend equivalence.
+
 - Run custom history type matching outside the history lock.
 
 - Install the declared setuptools build backend in the native sanitizer job so

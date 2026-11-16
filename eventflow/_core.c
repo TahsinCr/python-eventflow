@@ -1981,6 +1981,10 @@ static int op_stats_grow(OperationStatsCoreObject *self) {
     if (new_cap <= self->capacity) {
         return 0;
     }
+    if (new_cap > PY_SSIZE_T_MAX / 2 || (size_t)new_cap > SIZE_MAX / sizeof(OpEntry)) {
+        PyErr_NoMemory();
+        return -1;
+    }
     Py_ssize_t bucket_cap = 16;
     while (bucket_cap < new_cap * 2) {
         if (bucket_cap > (PY_SSIZE_T_MAX / 2)) {
@@ -1989,19 +1993,20 @@ static int op_stats_grow(OperationStatsCoreObject *self) {
         }
         bucket_cap *= 2;
     }
+    Py_ssize_t *new_buckets = (Py_ssize_t *)PyMem_Calloc((size_t)bucket_cap, sizeof(Py_ssize_t));
+    if (new_buckets == NULL) {
+        PyErr_NoMemory();
+        return -1;
+    }
     OpEntry *new_entries = (OpEntry *)PyMem_Realloc(self->entries, (size_t)new_cap * sizeof(OpEntry));
     if (new_entries == NULL) {
+        PyMem_Free(new_buckets);
         PyErr_NoMemory();
         return -1;
     }
     self->entries = new_entries;
     self->capacity = new_cap;
 
-    Py_ssize_t *new_buckets = (Py_ssize_t *)PyMem_Calloc((size_t)bucket_cap, sizeof(Py_ssize_t));
-    if (new_buckets == NULL) {
-        PyErr_NoMemory();
-        return -1;
-    }
     Py_ssize_t new_mask = bucket_cap - 1;
     for (Py_ssize_t i = 0; i < self->count; ++i) {
         Py_ssize_t slot = (Py_ssize_t)((size_t)self->entries[i].hash & (size_t)new_mask);

@@ -3,8 +3,13 @@
 from __future__ import annotations
 
 import os
+import subprocess
+import sys
+import sysconfig
+import textwrap
 import unittest
 from collections.abc import Hashable
+from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
@@ -14,6 +19,99 @@ from eventflow.observability import OperationStats
 
 
 class NativeRuntimeTests(unittest.TestCase):
+    @unittest.skipUnless(_native.CORE is not None, "native core required")
+    @unittest.skipIf(sysconfig.get_config_var("Py_GIL_DISABLED"), "allocator hooks require GIL")
+    def test_metrics_growth_recovers_from_allocator_failure(self):
+        try:
+            import _testcapi
+        except ImportError:
+            self.skipTest("CPython allocator test hooks unavailable")
+        if not hasattr(_testcapi, "set_nomemory"):
+            self.skipTest("CPython allocator failure hook unavailable")
+        code = textwrap.dedent("""
+            import _testcapi
+            from eventflow import _native
+            import eventflow.observability
+            failures = 0
+            for offset in range(4):
+                stats = _native.CORE.OperationStatsCore(64)
+                args = ("growth", "success", 0.0, None, 0, 0, 0, 0, 0.0)
+                for index in range(8):
+                    stats.record(str(index), *args[1:])
+                record = stats.record
+                _testcapi.set_nomemory(offset, offset + 1)
+                try:
+                    record(*args)
+                except MemoryError:
+                    failures += 1
+                finally:
+                    _testcapi.remove_mem_hooks()
+                for index in range(40):
+                    stats.record(str(index), *args[1:])
+                stats.snapshot()
+                stats.reset()
+                record(*args)
+                assert stats.snapshot().operations["growth"].calls == 1
+            assert failures >= 2, failures
+        """)
+        result = subprocess.run(
+            [sys.executable, "-c", code], capture_output=True, text=True, timeout=30
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+
+    def test_metrics_record_snapshot_reset_are_thread_safe_in_both_backends(self):
+        for backend in (_native.CORE, None):
+            with (
+                self.subTest(native=backend is not None),
+                patch("eventflow.observability.CORE", backend),
+            ):
+                stats = OperationStats(max_operations=32)
+
+                def exercise(worker):
+                    for index in range(200):
+                        stats.record(str(worker), dropped=2**100)
+                        if index % 7 == 0:
+                            stats.snapshot()
+                        if index % 31 == 0:
+                            stats.reset()
+
+                with ThreadPoolExecutor(max_workers=4) as pool:
+                    list(pool.map(exercise, range(4)))
+                stats.reset()
+                stats.record("final", dropped=2**100)
+                self.assertEqual(stats.snapshot().operations["final"].dropped, 2**100)
+
+    def test_metrics_numeric_validation_matches_backends(self):
+        class Counter(int):
+            pass
+
+        values = (
+            0,
+            -1,
+            True,
+            Counter(3),
+            2**63 - 1,
+            2**63,
+            2**100,
+            float("nan"),
+            float("inf"),
+            object(),
+        )
+        for field in ("queue_depth", "dropped", "retries", "rejected", "timeouts"):
+            for value in values:
+                outcomes = []
+                for backend in (_native.CORE, None):
+                    with patch("eventflow.observability.CORE", backend):
+                        stats = OperationStats()
+                    try:
+                        stats.record("sample", **{field: value})
+                    except (TypeError, ValueError) as error:
+                        outcomes.append(type(error))
+                    else:
+                        outcomes.append(getattr(stats.snapshot().operations["sample"], field))
+                with self.subTest(field=field, value=value):
+                    self.assertEqual(outcomes[0], outcomes[1])
+
     def test_load_core_respects_no_extensions_env(self) -> None:
         with patch.dict(os.environ, {"EVENTFLOW_NO_EXTENSIONS": "1"}):
             self.assertIsNone(_native._load_core())
