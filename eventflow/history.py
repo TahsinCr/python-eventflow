@@ -118,6 +118,15 @@ class MemoryEventHistory(EventHistory[T]):
             if event_filter is None:
                 return self._events[-1] if self._events else None
             events = self._snapshot_locked()
+        if (
+            type(event_filter) is EventFilter
+            and event_filter.predicate is None
+            and event_filter.event_type is not None
+        ):
+            event_type = event_filter.event_type
+            return next(
+                (event for event in reversed(events) if isinstance(event, event_type)), None
+            )
         return next(
             (event for event in reversed(events) if event_filter.matches(event)),
             None,
