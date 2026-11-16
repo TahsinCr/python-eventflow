@@ -10,6 +10,7 @@ All notable changes to this project are documented in this file.
 - Cover the native subscriber replay-buffer methods and replaying property directly.
 - Add an opt-in async stress runner that repeats lifecycle, cancellation, queue, limiter, breaker, and stream regressions with asyncio diagnostics enabled.
 - Record read-only Mavflow 2.0 compatibility checks and controlled `runtime.messages` profiles for the declared 1.3.2 and diagnostic 1.4.1 environments.
+- Extend dispatch-pressure benchmarks with Zipf, shifting-hot-key, churn, and concurrent-publisher route-cache cases plus a separate single-publisher latency and cache diagnostic collector.
 
 ## [v1.4.1] - 2026-11-16
 
