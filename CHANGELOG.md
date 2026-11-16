@@ -6,6 +6,9 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Retain source-hashed dispatch pressure comparisons and raw latency/CPU/cache
+  diagnostics; document history snapshot costs and candidate limitations.
+
 
 - Add pyperf route-cache pressure and sparse-match workloads, including cache
   boundary sizes, late hot routes and 0–100% subscriber match ratios.

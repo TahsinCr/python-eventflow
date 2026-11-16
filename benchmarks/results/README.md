@@ -3,6 +3,10 @@
 This directory keeps the latest useful benchmark evidence for EventFlow 1.3.2
 and 1.4.0, plus a comparison of what the data can and cannot establish.
 
+The [16 November dispatch/history audit](v1.4.0/audit_2026-11-16.md) retains
+source-hashed cache-policy and matched-buffer screening data, raw latency
+diagnostics and their limitations. Production policies remain unchanged.
+
 ## Datasets
 
 - [`v1.3.2/`](v1.3.2/) contains the 2026-11-09 broad performance screen: 31
