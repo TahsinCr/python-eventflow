@@ -8,6 +8,7 @@ All notable changes to this project are documented in this file.
 
 - Measure native C line, function, and branch coverage in an isolated GCC build and publish the reports as a CI artifact.
 - Cover the native subscriber replay-buffer methods and replaying property directly.
+- Add an opt-in async stress runner that repeats lifecycle, cancellation, queue, limiter, breaker, and stream regressions with asyncio diagnostics enabled.
 
 ## [v1.4.1] - 2026-11-16
 
