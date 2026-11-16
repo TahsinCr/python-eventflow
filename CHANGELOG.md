@@ -25,6 +25,10 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Match history types outside the storage lock, including event `__class__`
+  properties; cache results only while their snapshot remains current.
+- Accept tuple subclass type filters without using them as cache keys.
+
 - Use an Interlocked atomic byte read on MSVC instead of a compiler-only barrier.
 
 - Keep native metrics growth transactional after allocation failure; exercise

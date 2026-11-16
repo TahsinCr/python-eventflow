@@ -39,6 +39,62 @@ from eventflow._compatibility import ExceptionGroup
 
 
 class EventBusTests(unittest.TestCase):
+    def test_history_class_property_runs_outside_lock_and_keeps_snapshot(self):
+        for method in ("query", "latest"):
+            for mutation in ("append", "clear", "replace"):
+                with self.subTest(method=method, mutation=mutation):
+                    history = MemoryEventHistory()
+                    done = threading.Event()
+                    workers = []
+
+                    def mutate():
+                        if mutation == "append":
+                            history.append(99)
+                        elif mutation == "clear":
+                            history.clear()
+                        else:
+                            with history._lock:
+                                history._events = deque([99], maxlen=8)
+                        done.set()
+
+                    class Event:
+                        @property
+                        def __class__(self):
+                            worker = threading.Thread(target=mutate)
+                            workers.append(worker)
+                            worker.start()
+                            if not done.wait(2):
+                                raise RuntimeError("history writer blocked")
+                            return int
+
+                    event = Event()
+                    history.append(event)
+                    try:
+                        result = getattr(history, method)(EventFilter(event_type=int))
+                        if method == "query":
+                            self.assertIs(result[0], event)
+                        else:
+                            self.assertIs(result, event)
+                    finally:
+                        for worker in workers:
+                            worker.join(2)
+                    expected = () if mutation == "clear" else (99,)
+                    if mutation == "append":
+                        self.assertEqual(len(history.query()), 2)
+                    else:
+                        self.assertEqual(history.query(EventFilter(event_type=int)), expected)
+
+    def test_history_accepts_unhashable_tuple_type_filter(self):
+        class Types(tuple):
+            __hash__ = None
+
+        history = MemoryEventHistory()
+        history.append(42)
+        event_filter = EventFilter(event_type=Types((int,)))
+        self.assertEqual(history.query(event_filter), (42,))
+        self.assertEqual(history.query(event_filter, limit=1), (42,))
+        self.assertEqual(history.latest(event_filter), 42)
+
     def test_history_custom_instancecheck_does_not_hold_history_lock(self):
         history = MemoryEventHistory()
         history.append(1)

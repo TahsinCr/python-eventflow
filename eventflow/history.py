@@ -15,7 +15,7 @@ _TYPE_RESULT_CACHE_LIMIT = 64
 
 
 def _are_plain_types(event_type: EventType) -> bool:
-    if isinstance(event_type, tuple):
+    if type(event_type) is tuple:
         return all(type(candidate) is type for candidate in event_type)
     return type(event_type) is type
 
@@ -117,17 +117,6 @@ class MemoryEventHistory(EventHistory[T]):
         with self._lock:
             if event_filter is None:
                 return self._events[-1] if self._events else None
-            if (
-                type(event_filter) is EventFilter
-                and event_filter.predicate is None
-                and event_filter.event_type is not None
-                and _are_plain_types(event_filter.event_type)
-            ):
-                event_type = event_filter.event_type
-                for event in reversed(self._events):
-                    if isinstance(event, event_type):
-                        return event
-                return None
             events = self._snapshot_locked()
         return next(
             (event for event in reversed(events) if event_filter.matches(event)),
@@ -141,6 +130,14 @@ class MemoryEventHistory(EventHistory[T]):
         limit: int | None = None,
     ) -> tuple[T, ...]:
         _validate_query_limit(limit)
+        cache_type = (
+            event_filter.event_type
+            if type(event_filter) is EventFilter
+            and event_filter.predicate is None
+            and event_filter.event_type is not None
+            and _are_plain_types(event_filter.event_type)
+            else None
+        )
         with self._lock:
             if event_filter is None:
                 if limit is None:
@@ -148,51 +145,27 @@ class MemoryEventHistory(EventHistory[T]):
                 recent = list(islice(reversed(self._events), limit))
                 recent.reverse()
                 return tuple(recent)
-            if (
-                type(event_filter) is EventFilter
-                and event_filter.predicate is None
-                and event_filter.event_type is not None
-                and _are_plain_types(event_filter.event_type)
-            ):
-                event_type = event_filter.event_type
-                if self._snapshot_source is not self._events:
-                    self._snapshot_cache = None
-                    self._snapshot_source = self._events
-                    if self._type_results:
-                        self._type_results.clear()
-                    if self._limited_type_results:
-                        self._limited_type_results.clear()
-                plain_types = _are_plain_types(event_type)
-                if plain_types:
-                    cached_all = self._type_results.get(event_type)
-                    if cached_all is not None:
-                        return cached_all if limit is None else cached_all[-limit:]
-                    if limit is not None:
-                        cached_limited = self._limited_type_results.get((event_type, limit))
-                        if cached_limited is not None:
-                            return cached_limited
-                if limit is not None and plain_types:
-                    matched_limited: list[T] = []
-                    for event in reversed(self._events):
-                        if isinstance(event, event_type):
-                            matched_limited.append(event)
-                            if len(matched_limited) == limit:
-                                break
-                    matched_limited.reverse()
-                    result = tuple(matched_limited)
-                    if len(self._limited_type_results) < _TYPE_RESULT_CACHE_LIMIT:
-                        self._limited_type_results[(event_type, limit)] = result
-                    return result
-                events = self._snapshot_locked()
-                result = _query_by_type(events, event_type, limit)
-                if (
-                    limit is None
-                    and plain_types
-                    and len(self._type_results) < _TYPE_RESULT_CACHE_LIMIT
-                ):
-                    self._type_results[event_type] = result
-                return result
+            if self._snapshot_source is not self._events:
+                self._snapshot_locked()
+            if cache_type is not None:
+                cached = self._type_results.get(cache_type)
+                if cached is not None:
+                    return cached if limit is None else cached[-limit:]
+                if limit is not None:
+                    cached = self._limited_type_results.get((cache_type, limit))
+                    if cached is not None:
+                        return cached
             events = self._snapshot_locked()
+        if cache_type is not None:
+            result = _query_by_type(events, cache_type, limit)
+            with self._lock:
+                if self._snapshot_source is self._events and self._snapshot_cache is events:
+                    if limit is None:
+                        if len(self._type_results) < _TYPE_RESULT_CACHE_LIMIT:
+                            self._type_results[cache_type] = result
+                    elif len(self._limited_type_results) < _TYPE_RESULT_CACHE_LIMIT:
+                        self._limited_type_results[(cache_type, limit)] = result
+            return result
         if limit is None:
             return tuple(event for event in events if event_filter.matches(event))
         matched: list[T] = []
