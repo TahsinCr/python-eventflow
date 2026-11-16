@@ -15,6 +15,7 @@ All notable changes to this project are documented in this file.
 ### Changed
 
 - Separate route-cache CPU timing from per-publish latency and cache probes so collector instrumentation does not inflate CPU measurements.
+- Measure route-cache CPU use with the same publisher count as the pyperf case, using a separate unprobed pass.
 
 ## [v1.4.1] - 2026-11-16
 

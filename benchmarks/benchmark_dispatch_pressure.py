@@ -219,35 +219,74 @@ def _collect_route_latencies(case: RouteCacheCase, sample_count: int) -> dict[st
     publish_cpu_ns = 0
     publish_batch_wall_ns = 0
     churn_ns = 0
+    churn_cpu_ns = 0
     churn_operations = 0
     rss_before_cpu_pass = _rss_bytes()
     try:
         collected = 0
-        while collected < sample_count:
-            if case.churn != "none":
-                churn_started = perf_counter_ns()
-                cpu_state.churn()
-                churn_ns += perf_counter_ns() - churn_started
-                churn_operations += 1
-            batch = min(case.batch_size, sample_count - collected)
-            cpu_started = process_time_ns()
-            wall_started = perf_counter_ns()
-            for _ in range(batch):
-                cpu_state.bus.publish(next(cpu_state.publishers[0]))
-            publish_cpu_ns += process_time_ns() - cpu_started
-            publish_batch_wall_ns += perf_counter_ns() - wall_started
-            collected += batch
+        if case.publishers == 1:
+            while collected < sample_count:
+                if case.churn != "none":
+                    churn_cpu_started = process_time_ns()
+                    churn_started = perf_counter_ns()
+                    cpu_state.churn()
+                    churn_ns += perf_counter_ns() - churn_started
+                    churn_cpu_ns += process_time_ns() - churn_cpu_started
+                    churn_operations += 1
+                batch = min(case.batch_size, sample_count - collected)
+                cpu_started = process_time_ns()
+                wall_started = perf_counter_ns()
+                for _ in range(batch):
+                    cpu_state.bus.publish(next(cpu_state.publishers[0]))
+                publish_cpu_ns += process_time_ns() - cpu_started
+                publish_batch_wall_ns += perf_counter_ns() - wall_started
+                collected += batch
+        else:
+            with ThreadPoolExecutor(max_workers=case.publishers) as pool:
+                while collected < sample_count:
+                    if case.churn != "none":
+                        churn_cpu_started = process_time_ns()
+                        churn_started = perf_counter_ns()
+                        cpu_state.churn()
+                        churn_ns += perf_counter_ns() - churn_started
+                        churn_cpu_ns += process_time_ns() - churn_cpu_started
+                        churn_operations += 1
+                    per_publisher_batch = min(
+                        case.batch_size,
+                        math.ceil((sample_count - collected) / case.publishers),
+                    )
+                    release = Event()
+                    workers = [
+                        pool.submit(
+                            _publish_batch,
+                            cpu_state.bus,
+                            keys,
+                            per_publisher_batch,
+                            release,
+                        )
+                        for keys in cpu_state.publishers
+                    ]
+                    cpu_started = process_time_ns()
+                    wall_started = perf_counter_ns()
+                    release.set()
+                    for worker in workers:
+                        worker.result()
+                    publish_cpu_ns += process_time_ns() - cpu_started
+                    publish_batch_wall_ns += perf_counter_ns() - wall_started
+                    collected += per_publisher_batch * case.publishers
         rss_after_cpu_pass = _rss_bytes()
         return {
             "case": case.name,
             "measurement": "single-publisher raw latency; cache probes run outside timed calls",
             "publishers_in_pyperf_case": case.publishers,
             **raw_latency,
-            "cpu_method": "separate single-publisher publish batches without per-call latency/cache probes",
+            "cpu_method": "separate unprobed publish batches using the case publisher count; concurrent pass includes thread handoff",
             "publish_cpu_ns": publish_cpu_ns,
             "publish_batch_wall_ns": publish_batch_wall_ns,
+            "cpu_pass_publish_count": collected,
             "churn_operations": churn_operations,
             "churn_total_ns": churn_ns,
+            "churn_cpu_ns": churn_cpu_ns,
             "rss_before_cpu_pass_bytes": rss_before_cpu_pass,
             "rss_after_cpu_pass_bytes": rss_after_cpu_pass,
             "raw_latency_samples_ns": samples,
