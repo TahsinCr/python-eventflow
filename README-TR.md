@@ -410,7 +410,10 @@ replay gecikmesi önemliyse saklanan geçmişi sınırlı tutun ve predicate'ler
 çalıştırın.
 
 Sonradan katılan bir abonenin canlı teslimattan önce yakın geçmişi alması için
-`replay=N` kullanın:
+`replay=N` kullanın. Replay, abonelik filtresine ve varsa yönlendirme anahtarına
+uyan en yeni N olayı seçer. Pencere dolana kadar olayları yeniden eskiye doğru
+inceler ve seçilenleri yayın sırasıyla teslim eder. Eşleştirme, bus yayın
+kilidini bıraktıktan sonra yapılır:
 
 ~~~python
 from eventflow import EventBus

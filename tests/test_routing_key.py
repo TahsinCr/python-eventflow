@@ -142,19 +142,47 @@ class EventBusRoutingTests(unittest.TestCase):
             self.assertEqual(callbacks, expected)
 
     def test_routed_replay_returns_latest_matching_events_and_applies_filter(self) -> None:
-        seen: list[tuple[str, int]] = []
-        with EventBus[tuple[str, int]](history=8, routing_key=lambda event: event[0]) as bus:
-            for event in (("b", 1), ("a", 1), ("a", 2), ("b", 2), ("a", 3)):
+        with EventBus[int | str](
+            history=8, routing_key=lambda event: event % 2 if isinstance(event, int) else 0
+        ) as bus:
+            for event in (2, 4, 6, 7, "newest"):
                 bus.publish(event)
+            for event_filter in (
+                EventFilter[int | str](event_type=int),
+                EventFilter[int | str](predicate=lambda event: isinstance(event, int)),
+            ):
+                for limit, expected in ((1, [6]), (2, [4, 6]), (8, [2, 4, 6])):
+                    with self.subTest(event_filter=event_filter, limit=limit):
+                        seen: list[int | str] = []
+                        with bus.subscribe(
+                            seen.append, routing_key=0, event_filter=event_filter, replay=limit
+                        ):
+                            self.assertEqual(seen, expected)
 
-            bus.subscribe(
-                seen.append,
-                routing_key="a",
-                event_filter=EventFilter(predicate=lambda event: event[1] >= 2),
-                replay=2,
-            )
+    def test_routed_replay_matches_outside_lock_and_buffers_live_delivery(self) -> None:
+        selecting = threading.Event()
+        resume = threading.Event()
+        seen: list[int] = []
 
-        self.assertEqual(seen, [("a", 2), ("a", 3)])
+        def route(event: int) -> str:
+            if event == 1:
+                selecting.set()
+                if not resume.wait(5):
+                    raise TimeoutError("replay selection was not released")
+            return "route"
+
+        with EventBus[int](history=1, routing_key=route) as bus, ThreadPoolExecutor(2) as pool:
+            bus.publish(1)
+            replay = pool.submit(bus.subscribe, seen.append, replay=1, routing_key="route")
+            try:
+                self.assertTrue(selecting.wait(5))
+                live = pool.submit(bus.publish, 2).result(timeout=3)
+                self.assertEqual(live.delivered, 0)
+                self.assertEqual(seen, [])
+            finally:
+                resume.set()
+            replay.result(timeout=5)
+            self.assertEqual(seen, [1, 2])
 
     def test_once_wait_for_and_engine_forward_routing_key(self) -> None:
         seen: list[tuple[str, int]] = []

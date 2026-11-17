@@ -22,8 +22,8 @@ from .base import (
 )
 from .contracts import DeliveryMode, ErrorPolicy, EventBusStats, PublishResult
 from .errors import EventBusError, InvalidEventHandlerError
-from .filtering import EventFilter, EventType, coerce_event_filter
-from .history import EventHistory
+from .filtering import EventFilter, EventType, _matches_all, coerce_event_filter
+from .history import EventHistory, _recent_matches
 from .subscription import AsyncSubscription
 
 T = TypeVar("T")
@@ -196,7 +196,7 @@ class AsyncEventBus(BaseEventBus[T]):
             replay_snapshot = self._query_replay(
                 history,
                 replay,
-                any(option is not None for option in (event_filter, event_type, predicate)),
+                not _matches_all(normalized_filter),
             )
             subscription, subscriber = self._subscribe_locked(
                 callback,
@@ -206,12 +206,11 @@ class AsyncEventBus(BaseEventBus[T]):
             )
 
         try:
-            replay_events = tuple(
-                event for event in replay_snapshot if normalized_filter.matches(event)
-            )[-replay:]
-
             if subscriber.replaying:
-                pending: tuple[T, ...] | None = replay_events
+                pending: tuple[T, ...] | None = replay_snapshot
+                if not subscriber.match_all:
+                    pending = _recent_matches(replay_snapshot, replay, normalized_filter.matches)
+                del replay_snapshot
                 while pending is not None:
                     for event in pending:
                         claimed, final = subscriber.claim()
@@ -262,7 +261,7 @@ class AsyncEventBus(BaseEventBus[T]):
             delivery_limit,
             subscription,
             replaying=replaying,
-            match_all=event_filter.event_type is None and event_filter.predicate is None,
+            match_all=_matches_all(event_filter),
             pending=deque(maxlen=self._replay_buffer_limit) if replaying else None,
         )
         self._subscribers[subscription_id] = subscriber

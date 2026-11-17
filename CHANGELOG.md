@@ -23,6 +23,10 @@ All notable changes to this project are documented in this file.
 - Separate route-cache CPU timing from per-publish latency and cache probes so collector instrumentation does not inflate CPU measurements.
 - Measure route-cache CPU use with the same publisher count as the pyperf case, using a separate unprobed pass.
 
+### Fixed
+
+- Select the newest replay events after applying both routing and subscription filters, stop once the window is full, and evaluate replay matches outside the publication lock.
+
 ## [v1.4.1] - 2026-11-16
 
 ### Added

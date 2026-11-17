@@ -397,7 +397,10 @@ matters.
 
 A new subscriber can receive recent events before it starts handling live
 ones. Pass `replay=N` to deliver up to the N newest retained events that match
-the subscription filter:
+both the subscription filter and, when supplied, its routing key. Replay checks
+events from newest to oldest until the window is full, then delivers the
+selected events in publication order. Matching runs after the bus releases
+its publication lock:
 
 ~~~python
 from eventflow import EventBus

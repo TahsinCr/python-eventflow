@@ -36,8 +36,8 @@ from .errors import (
     EventShutdownTimeoutError,
     InvalidEventHandlerError,
 )
-from .filtering import EventFilter, EventType, coerce_event_filter
-from .history import EventHistory
+from .filtering import EventFilter, EventType, _matches_all, coerce_event_filter
+from .history import EventHistory, _recent_matches
 from .subscription import Subscription
 
 T = TypeVar("T")
@@ -291,25 +291,14 @@ class EventBus(BaseEventBus[T]):
                 hash(routing_key)
             except TypeError as exc:
                 raise TypeError("routing_key values must be hashable") from exc
+        match_all = _matches_all(normalized_filter)
+        needs_filter = not match_all or routing_key is not None
         with self._lock:
             self._ensure_open()
             history = self._history
             subscription_id = self._next_id
             self._next_id += 1
-            has_filter = any(option is not None for option in (event_filter, event_type, predicate))
-            if replay and routing_key is not None and history is not None:
-                replay_snapshot = history.query(
-                    EventFilter(
-                        predicate=lambda event: self._event_routing_key(event) == routing_key
-                    ),
-                    limit=replay,
-                )
-            else:
-                replay_snapshot = self._query_replay(
-                    history,
-                    replay,
-                    has_filter or routing_key is not None,
-                )
+            replay_snapshot = self._query_replay(history, replay, needs_filter)
 
             def cancel() -> None:
                 with self._lock:
@@ -325,11 +314,6 @@ class EventBus(BaseEventBus[T]):
                     self._invalidate_snapshots_locked()
 
             is_replaying = bool(replay and history is not None)
-            match_all = (
-                type(normalized_filter) is EventFilter
-                and normalized_filter.event_type is None
-                and normalized_filter.predicate is None
-            )
             subscription = Subscription(subscription_id, cancel)
             if self._core is not None and CORE is not None:
                 subscription._active_flag = CORE.Flag(True)
@@ -353,12 +337,19 @@ class EventBus(BaseEventBus[T]):
             self._invalidate_snapshots_locked()
 
         try:
-            replay_events = tuple(
-                event for event in replay_snapshot if normalized_filter.matches(event)
-            )[-replay:]
-
             if subscriber.replaying:
-                pending: tuple[T, ...] | None = replay_events
+                pending: tuple[T, ...] | None = replay_snapshot
+                if routing_key is not None:
+
+                    def matches_route(event: T) -> bool:
+                        return self._event_routing_key(event) == routing_key and (
+                            match_all or normalized_filter.matches(event)
+                        )
+
+                    pending = _recent_matches(replay_snapshot, replay, matches_route)
+                elif not match_all:
+                    pending = _recent_matches(replay_snapshot, replay, normalized_filter.matches)
+                del replay_snapshot
                 while pending is not None:
                     for event in pending:
                         claimed, final = subscriber.claim()

@@ -45,6 +45,14 @@ class EventFilter(Generic[T]):
         raise TypeError("Event filter predicates must return bool")
 
 
+def _matches_all(event_filter: EventFilter[T]) -> bool:
+    return (
+        type(event_filter) is EventFilter
+        and event_filter.event_type is None
+        and event_filter.predicate is None
+    )
+
+
 def coerce_event_filter(
     event_filter: EventFilter[T] | None = None,
     *,

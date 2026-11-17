@@ -5,6 +5,7 @@ from __future__ import annotations
 import threading
 from abc import ABC, abstractmethod
 from collections import deque
+from collections.abc import Callable
 from itertools import islice
 from typing import Any, Generic, TypeVar
 
@@ -12,6 +13,19 @@ from .filtering import EventFilter, EventType
 
 T = TypeVar("T")
 _TYPE_RESULT_CACHE_LIMIT = 64
+
+
+def _recent_matches(
+    events: tuple[T, ...], limit: int, matches: Callable[[T], bool]
+) -> tuple[T, ...]:
+    matched: list[T] = []
+    for event in reversed(events):
+        if matches(event):
+            matched.append(event)
+            if len(matched) == limit:
+                break
+    matched.reverse()
+    return tuple(matched)
 
 
 def _are_plain_types(event_type: EventType) -> bool:
@@ -201,14 +215,7 @@ class MemoryEventHistory(EventHistory[T]):
             return result
         if limit is None:
             return tuple(event for event in events if event_filter.matches(event))
-        matched: list[T] = []
-        for event in reversed(events):
-            if event_filter.matches(event):
-                matched.append(event)
-                if len(matched) == limit:
-                    break
-        matched.reverse()
-        return tuple(matched)
+        return _recent_matches(events, limit, event_filter.matches)
 
     def clear(self) -> None:
         with self._lock:

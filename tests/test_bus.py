@@ -382,7 +382,11 @@ class EventBusTests(unittest.TestCase):
         self.assertEqual(replayed, [3, 4])
         self.assertEqual(history.limits, [2])
 
-        bus.subscribe(replayed.append, predicate=lambda value: value % 2 == 0, replay=1)
+        def match_newest(value: int) -> bool:
+            self.assertEqual(value, 4)
+            return True
+
+        bus.subscribe(replayed.append, predicate=match_newest, replay=1)
         self.assertEqual(replayed[-1:], [4])
         self.assertEqual(history.limits, [2, None])
         bus.close()

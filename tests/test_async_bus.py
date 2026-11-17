@@ -329,9 +329,13 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(replayed, [3, 4])
         self.assertEqual(history.limits, [2])
 
+        def match_newest(value: int) -> bool:
+            self.assertEqual(value, 4)
+            return True
+
         await bus.subscribe(
             receive,
-            predicate=lambda value: value % 2 == 0,
+            predicate=match_newest,
             replay=1,
         )
         self.assertEqual(replayed[-1:], [4])
