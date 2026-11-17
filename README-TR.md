@@ -182,7 +182,7 @@ dönmeden önce kayıtlı handler'ı çağırır. İçteki context manager bitti
 abonelik iptal edilir; dıştaki tamamlandığında bus kapanır. Böylece iki
 kaynağın da ne zaman başlayıp biteceği kullanım noktasında görülür.
 
-Aynı örneğin bağımsız çalışan sürümü
+README'dekiyle aynı `EventBus` kullanım yaklaşımını gösteren bağımsız bir örnek
 [`examples/quickstart.py`](examples/quickstart.py) dosyasındadır. Depo kökünden
 `python examples/quickstart.py` komutuyla çalıştırabilirsiniz. Beklenen çıktısı
 [`tests/test_documentation_examples.py`](tests/test_documentation_examples.py)

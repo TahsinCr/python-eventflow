@@ -177,7 +177,7 @@ calls the subscribed handler before `publish()` returns. The inner context
 manager cancels the subscription when it ends; the outer one closes the bus.
 This makes the lifetime of both resources visible at the point of use.
 
-The same example is available as a standalone program at
+A standalone program showing the same `EventBus` usage pattern is available at
 [`examples/quickstart.py`](examples/quickstart.py). Run it from the repository
 root with `python examples/quickstart.py`; its output is checked by
 [`tests/test_documentation_examples.py`](tests/test_documentation_examples.py).
