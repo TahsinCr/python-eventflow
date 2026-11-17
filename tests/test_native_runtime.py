@@ -23,6 +23,28 @@ from eventflow.observability import OperationStats
 
 class NativeRuntimeTests(unittest.TestCase):
     @unittest.skipUnless(_native.CORE is not None, "native core required")
+    @unittest.skipIf(sysconfig.get_config_var("Py_GIL_DISABLED"), "heap type refcounts require GIL")
+    def test_native_instances_release_owned_heap_type_references(self) -> None:
+        core = _native.CORE
+        types = (core.Subscriber, core.BusCore, core.OperationStatsCore)
+
+        def exercise() -> None:
+            with EventBus[int]() as bus:
+                bus.subscribe(lambda _: None)
+                self.assertEqual(bus.publish(1).delivered, 1)
+            OperationStats().record("test")
+
+        def references() -> tuple[int, ...]:
+            gc.collect()
+            return tuple(sys.getrefcount(native_type) for native_type in types)
+
+        exercise()
+        before = references()
+        for _ in range(64):
+            exercise()
+        self.assertEqual(references(), before)
+
+    @unittest.skipUnless(_native.CORE is not None, "native core required")
     def test_native_bus_and_routed_subscriber_cycles_release_payloads(self) -> None:
         class Event:
             pass

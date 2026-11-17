@@ -32,6 +32,7 @@ All notable changes to this project are documented in this file.
 - Select the newest replay events after applying both routing and subscription filters, stop once the window is full, and evaluate replay matches outside the publication lock.
 - Reevaluate history type matches on each read so changes to event class membership are reflected without retaining filtered result tuples.
 - Count synchronous and asynchronous cooldown waiters together, wake only waiters for the changed key, and handle async wait timeouts on Python 3.10.
+- Release the owned heap type references when native subscribers, bus cores and operation metrics cores are deallocated.
 
 ## [v1.4.1] - 2026-11-16
 

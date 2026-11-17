@@ -301,13 +301,15 @@ static int Subscriber_clear(SubscriberObject *self) {
 }
 
 static void Subscriber_dealloc(SubscriberObject *self) {
+    PyTypeObject *type = Py_TYPE(self);
     PyObject_GC_UnTrack(self);
     if (self->c_lock != NULL) {
         PyThread_free_lock(self->c_lock);
         self->c_lock = NULL;
     }
     Subscriber_clear(self);
-    Py_TYPE(self)->tp_free((PyObject *)self);
+    type->tp_free((PyObject *)self);
+    Py_DECREF(type);
 }
 
 static int Subscriber_init(SubscriberObject *self, PyObject *args, PyObject *kwds) {
@@ -764,9 +766,11 @@ static int BusCore_clear(BusCoreObject *self) {
 }
 
 static void BusCore_dealloc(BusCoreObject *self) {
+    PyTypeObject *type = Py_TYPE(self);
     PyObject_GC_UnTrack(self);
     BusCore_clear(self);
-    Py_TYPE(self)->tp_free((PyObject *)self);
+    type->tp_free((PyObject *)self);
+    Py_DECREF(type);
 }
 
 static int BusCore_init(BusCoreObject *self, PyObject *args, PyObject *kwds) {
@@ -2062,6 +2066,7 @@ static int OperationStatsCore_clear(OperationStatsCoreObject *self) {
 }
 
 static void OperationStatsCore_dealloc(OperationStatsCoreObject *self) {
+    PyTypeObject *type = Py_TYPE(self);
     PyObject_GC_UnTrack(self);
     if (self->lock != NULL) {
         PyThread_free_lock(self->lock);
@@ -2076,7 +2081,8 @@ static void OperationStatsCore_dealloc(OperationStatsCoreObject *self) {
         PyMem_Free(self->buckets);
         self->buckets = NULL;
     }
-    Py_TYPE(self)->tp_free((PyObject *)self);
+    type->tp_free((PyObject *)self);
+    Py_DECREF(type);
 }
 
 static int OperationStatsCore_init(OperationStatsCoreObject *self, PyObject *args, PyObject *kwds) {
