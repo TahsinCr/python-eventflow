@@ -141,8 +141,7 @@ class MemoryEventHistory(EventHistory[T]):
         _validate_query_limit(limit)
         event_type = (
             event_filter.event_type
-            if type(event_filter) is EventFilter
-            and event_filter.predicate is None
+            if type(event_filter) is EventFilter and event_filter.predicate is None
             else None
         )
         with self._lock:

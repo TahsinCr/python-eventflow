@@ -1156,7 +1156,10 @@ class EventBusTests(unittest.TestCase):
                 history.append(event)
                 original = EventFilter[object](event_type=Original)
                 updated = EventFilter[object](event_type=Updated)
-                for bus in (EventBus[object](history=history), AsyncEventBus[object](history=history)):
+                for bus in (
+                    EventBus[object](history=history),
+                    AsyncEventBus[object](history=history),
+                ):
                     self.assertEqual(bus.query(event_filter=original), (event,))
                     self.assertEqual(bus.query(event_filter=original, limit=1), (event,))
                     self.assertEqual(bus.query(event_filter=updated), ())
@@ -1164,7 +1167,10 @@ class EventBusTests(unittest.TestCase):
                     event.target = Updated
                 else:
                     event.__class__ = Updated
-                for bus in (EventBus[object](history=history), AsyncEventBus[object](history=history)):
+                for bus in (
+                    EventBus[object](history=history),
+                    AsyncEventBus[object](history=history),
+                ):
                     self.assertEqual(bus.query(event_filter=original), ())
                     self.assertEqual(bus.query(event_filter=original, limit=1), ())
                     self.assertIsNone(bus.latest(event_filter=original))
