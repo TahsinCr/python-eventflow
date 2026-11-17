@@ -199,7 +199,7 @@ class PyperfRunnerTests(unittest.TestCase):
         self.assertEqual(len(names), 21)
         self.assertIn("async/20/middleware", names)
 
-    def test_expanded_component_resilience_lifecycle_and_engine_benchmarks_launch(self) -> None:
+    def test_component_replay_and_publication_benchmarks_launch(self) -> None:
         cases = {
             "benchmark_components": {
                 "cache/hit",
@@ -218,13 +218,19 @@ class PyperfRunnerTests(unittest.TestCase):
                 "bounded-work-pool/submit-result",
                 "single-flight/same-key-eight-waiters",
             },
-            "benchmark_publish": {"sync-engine/0", "async-engine/0"},
+            "benchmark_publish": {"sync-engine/0", "async-engine/0", "async/type-miss/64"},
+            "benchmark_replay": {
+                "history/query-type/32/last",
+                "sync-bus/replay-filter/all-match/32/replay-1",
+                "async-bus/replay-filter/no-match/32/replay-1",
+            },
         }
         with tempfile.TemporaryDirectory() as temporary_directory:
             root = Path(temporary_directory)
             for module, expected in cases.items():
                 with self.subTest(module=module):
                     output = root / f"{module}.json"
+                    extra_args = ["--events", "32"] if module == "benchmark_replay" else []
                     result = subprocess.run(
                         [
                             sys.executable,
@@ -235,6 +241,7 @@ class PyperfRunnerTests(unittest.TestCase):
                             "--values=1",
                             "--warmups=0",
                             "--loops=1",
+                            *extra_args,
                             "--output",
                             str(output),
                         ],
