@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Add a replay contention diagnostic for snapshot time, lock acquisition probes, concurrent publish latency and full history type queries.
 - Exercise repeated isolated interpreter shutdown, concurrent native subscription cycle cleanup on free-threaded Python, and cooldown waiter reclamation after timeouts and concurrent updates.
 - Check finite routed replay, cancellation, callback failures and recovery against a shrinkable reference model, with explicit async replay quota regressions.
 - Measure native C line, function, and branch coverage in an isolated GCC build and publish the reports as a CI artifact.
