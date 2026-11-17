@@ -390,6 +390,8 @@ An unfiltered query with `limit` reads only the requested recent window. A
 filtered query evaluates the predicate outside the history lock on a stable
 snapshot. It searches newest to oldest when limited, but a rare match near the
 oldest entry can still require scanning the full snapshot.
+Type matches are checked on each read so changes to an event's class membership
+take effect without another publication.
 On `AsyncEventBus`, this filtered lookup runs synchronously on the owning event
 loop. A rare match in a large history can therefore delay unrelated tasks;
 bound the retained history and keep predicates inexpensive when replay latency
@@ -424,9 +426,10 @@ To provide a custom history store, implement `EventHistory`:
 `append()`, `latest()`, `query()`, `clear()`, and `__len__()`. Implementations
 must synchronize all five operations and return `latest()`/`query()` results
 from a consistent snapshot. A history shared by multiple buses must synchronize
-across those buses too. The bus publication lock serializes `append()` only for
-that bus; history queries run outside it. Keep `append()` fast and non-blocking,
-and do not publish recursively through the same bus from it.
+across those buses too. Calls to the bus's public `query()` and `latest()` run
+outside its publication lock. Publication records events and subscribe captures
+the replay snapshot under that lock. Keep `append()` and replay snapshot reads
+fast and avoid publishing recursively from either operation.
 
 Bus `clear()` removes active subscriptions and wakes pending waiters; it does
 not erase history or stop periodic schedules. Call the returned schedule's

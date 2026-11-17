@@ -20,6 +20,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Document when history queries reevaluate type membership and when the bus holds its publication lock during replay setup.
 - Clarify that `examples/quickstart.py` demonstrates the README's `EventBus` usage pattern with a different event and output.
 - Distinguish cross-thread `AsyncEventBus.publish_threadsafe()` from `AsyncEventQueue` and `LoopPortal` handoff use cases.
 - Consolidate the component guides, public API reference, performance notes and troubleshooting guidance in the English and Turkish READMEs; remove the standalone documentation directory.

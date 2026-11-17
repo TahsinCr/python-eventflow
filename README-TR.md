@@ -404,6 +404,8 @@ Filtresiz `limit` sorgusu yalnız istenen yakın geçmiş penceresini okur. Filt
 sorgu predicate'i kilit dışında ve sabit bir snapshot üzerinde çalıştırır.
 Limitli aramada en yeniden eskiye ilerler; eşleşme çok seyrek olup en eski kayda
 yakınsa yine de snapshot'ın tamamını taraması gerekebilir.
+Tip eşleşmesi her okumada yeniden değerlendirilir. Böylece event'in sınıfı
+değiştiğinde sonuç yeni bir yayın beklemeden güncellenir.
 `AsyncEventBus` bu filtreli sorguyu sahibi olan event loop üzerinde senkron
 çalıştırır. Büyük bir geçmişte seyrek eşleşme, diğer task'ları geciktirebilir;
 replay gecikmesi önemliyse saklanan geçmişi sınırlı tutun ve predicate'leri hızlı
@@ -438,9 +440,10 @@ abonelik kaldırılır ve hata çağırana iletilir.
 işlemin eşzamanlı çağrılarını kendi içinde senkronize etmeli; sorguları tutarlı
 bir snapshot üzerinden yanıtlamalıdır. Aynı geçmiş birden fazla bus tarafından
 paylaşılıyorsa senkronizasyon bus'lar arasında da geçerli olmalıdır. Bus'ın
-yayın kilidi yalnızca o bus üzerinden yapılan `append()` çağrısını sıralar;
-history sorguları bu kilidin dışında çalışır. `append()` hızlı ve bloklamayan
-olmalı, aynı bus üzerinden yeniden yayın yapmamalıdır.
+`query()` ve `latest()` çağrıları yayın kilidinin dışında çalışır. Bus, yayını
+geçmişe yazarken ve abonelik için replay snapshot'ını alırken bu kilidi tutar.
+`append()` ve replay snapshot okuması hızlı olmalı ve aynı bus'ta yeniden
+yayın başlatmamalıdır.
 
 Bus üzerindeki `clear()` aktif abonelikleri kaldırır, bekleyen wait işlemlerini
 uyandırır; history'yi silmez ve periyodik schedule'ları durdurmaz. Bir schedule'ı
