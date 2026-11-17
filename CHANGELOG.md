@@ -17,6 +17,7 @@ All notable changes to this project are documented in this file.
 - Check routed dispatch, replay, cancellation and history against a seeded reference model, and verify that native bus subscription cycles release their payloads.
 - Add pyperf cases for filtered sync and async replay and async publication with no type matches.
 - Exercise filtered replay, history type queries and async type misses in the benchmark worker smoke checks.
+- Record the 100,000-event replay comparison, the full type query cost and retained memory tradeoff, and the reduction in cooldown CPU time in a controlled 24-key workload.
 
 ### Changed
 

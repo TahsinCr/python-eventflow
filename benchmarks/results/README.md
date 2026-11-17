@@ -17,6 +17,10 @@ The [native C coverage review](unreleased/native-c-coverage.md) records current
 `_core.c` line, function and branch-arc coverage and maps the remaining gaps to
 their tested paths and reachability limits.
 
+The [replay and history audit](unreleased/replay-history-audit.md) retains
+before/after pyperf samples, cold replay and history memory diagnostics,
+cooldown thread wakeups, and an async type-miss profile.
+
 ## Datasets
 
 - [`v1.3.2/`](v1.3.2/) contains the 2026-11-09 broad performance screen: 31
