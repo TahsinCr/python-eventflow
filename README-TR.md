@@ -1305,6 +1305,7 @@ senkron kodu veya cancellation'ı bastıran coroutine'i zorla durduramaz.
 `CooldownRegistry`, sınırlı sayıda anahtara ait monotonic bitiş zamanını tutar.
 `block()` cooldown koyar veya uzatır; `remaining()` kalan zamanı verir;
 `wait()` ve `wait_async()` süre dolana ya da kayıt temizlenene kadar bekleyebilir.
+`stats().waiters`, bekleyen thread ve async task sayılarının toplamını verir.
 `CircuitBreaker` senkron `call()` veya async `call_async()` çağrılarını `closed`, `open`, `half_open`
 durumlarından geçirir. Yarı açık deneme sayısını sınırlar ve task cancellation'ı
 başarısızlık saymaz. Bu araçlar tek süreçte çalışır; worker veya makineler

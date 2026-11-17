@@ -24,6 +24,7 @@ def _time_async_publish(
     subscribers: int,
     failure_ratio: float | None,
     yield_once: bool = False,
+    type_miss: bool = False,
 ) -> float:
     failed_callbacks = round(10 * failure_ratio) if failure_ratio is not None else 0
 
@@ -36,7 +37,7 @@ def _time_async_publish(
                     if index < failed_callbacks
                     else (yield_once_async if yield_once else ignore_event_async)
                 )
-                await bus.subscribe(callback)
+                await bus.subscribe(callback, event_type=str if type_miss else None)
 
             started = perf_counter()
             for _ in range(loops):
@@ -139,6 +140,19 @@ def main() -> None:
             _time_sync_engine_publish,
             subscribers,
             metadata={"subscribers": subscribers, "dispatch": "named-channel"},
+        )
+
+    for subscribers in (64, 512, 2_048):
+        bench_time_func(
+            runner,
+            f"async/type-miss/{subscribers}",
+            _time_async_publish,
+            DeliveryMode.SEQUENTIAL,
+            subscribers,
+            None,
+            False,
+            True,
+            metadata={"subscribers": subscribers, "matched_subscribers": 0},
         )
 
     for mode in DeliveryMode:

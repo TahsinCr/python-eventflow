@@ -1282,7 +1282,8 @@ cancellation.
 
 `CooldownRegistry` stores bounded per-key monotonic expiry times. `block()`
 sets or extends a cooldown, `remaining()` reports its duration, and `wait()` /
-`wait_async()` can wait until it expires or is cleared. `CircuitBreaker` wraps
+`wait_async()` can wait until it expires or is cleared. `stats().waiters`
+counts waiting threads and async tasks together. `CircuitBreaker` wraps
 synchronous `call()` or asynchronous `call_async()` operations and moves through
 `closed`, `open` and `half_open` states.
 It limits concurrent half-open probes and ignores cancellation as a counted

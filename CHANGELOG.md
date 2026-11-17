@@ -15,6 +15,7 @@ All notable changes to this project are documented in this file.
 - Record a source-pinned 60-profile FIFO route-cache comparison across GIL-enabled and free-threaded CPython, retaining the evidence for keeping the admission-only production policy.
 - Document current native C line, function, and branch coverage with a test map for critical paths and the remaining reachability limits.
 - Check routed dispatch, replay, cancellation and history against a seeded reference model, and verify that native bus subscription cycles release their payloads.
+- Add pyperf cases for filtered sync and async replay and async publication with no type matches.
 
 ### Changed
 

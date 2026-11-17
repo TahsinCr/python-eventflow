@@ -15,12 +15,15 @@ def _time_async_replay(
     loops: int,
     history: MemoryEventHistory[int],
     replay: int,
+    event_filter: EventFilter[int] | None = None,
 ) -> float:
     async def measure() -> float:
         async with AsyncEventBus[int](history=history) as bus:
             started = perf_counter()
             for _ in range(loops):
-                subscription = await bus.subscribe(ignore_event_async, replay=replay)
+                subscription = await bus.subscribe(
+                    ignore_event_async, event_filter=event_filter, replay=replay
+                )
                 await subscription.cancel()
             return perf_counter() - started
 
@@ -48,6 +51,7 @@ def main() -> None:
         sync_bus = EventBus[int](history=history)
         async_bus = AsyncEventBus[int](history=history)
         filters = (
+            ("all-match", EventFilter[int](predicate=lambda event: event >= 0)),
             ("oldest-match", EventFilter[int](predicate=lambda event: event == 0)),
             (
                 "newest-match",
@@ -107,6 +111,23 @@ def main() -> None:
                 subscribe_sync,
                 metadata={"history_events": event_count, "replay_window": args.replay},
             )
+            for filter_name, event_filter in filters:
+
+                def subscribe_filtered(
+                    selected: EventFilter[int] = event_filter, bus: EventBus[int] = sync_bus
+                ) -> None:
+                    bus.subscribe(ignore_event, event_filter=selected, replay=args.replay).cancel()
+
+                bench_sync(
+                    runner,
+                    f"sync-bus/replay-filter/{filter_name}/{event_count}/replay-{args.replay}",
+                    subscribe_filtered,
+                    metadata={
+                        "history_events": event_count,
+                        "filter_case": filter_name,
+                        "replay_window": args.replay,
+                    },
+                )
 
         bench_time_func(
             runner,
@@ -116,6 +137,20 @@ def main() -> None:
             args.replay,
             metadata={"history_events": event_count, "replay_window": args.replay},
         )
+        for filter_name, event_filter in filters:
+            bench_time_func(
+                runner,
+                f"async-bus/replay-filter/{filter_name}/{event_count}/replay-{args.replay}",
+                _time_async_replay,
+                history,
+                args.replay,
+                event_filter,
+                metadata={
+                    "history_events": event_count,
+                    "filter_case": filter_name,
+                    "replay_window": args.replay,
+                },
+            )
 
 
 if __name__ == "__main__":
