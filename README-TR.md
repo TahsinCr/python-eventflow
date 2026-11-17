@@ -64,7 +64,19 @@ ihtiyaç yoktur.
   - [Bus metotları](#bus-api)
   - [Engine metotları](#engine-api)
   - [Public tipler ve hatalar](#public-types)
+- [Mimari ve test haritası](#mimari-test-haritasi)
+- [Sorun giderme](#sorun-giderme)
 - [Geliştirme ve lisans](#development)
+- [Belgeler](#belgeler)
+
+## Belgeler
+
+Bu dosya EventFlow'un kapsamlı Türkçe rehberi ve API başvuru kaynağıdır.
+İngilizce içerik [`README.md`](README.md) içinde aynı kapsamla sunulur. Her iki
+README'de kurulum adımları, kullanım örnekleri, yaşam döngüsü ve eşzamanlılık
+garantileri, sorun giderme notları ve ilgili kaynak kodu ile regresyon testlerine
+bağlantılar bulunur. Belirli bir bileşene geçmek için yukarıdaki içindekiler
+bölümünü kullanabilirsiniz.
 
 <a id="getting-started"></a>
 ## Başlangıç
@@ -79,7 +91,7 @@ ortamına kurun:
 python -m pip install .
 ~~~
 
-PyPI yayını tamamlandığında EventFlow'u şu komutla kurabilirsiniz:
+PyPI'da yayımlanmış EventFlow sürümünü kurmak için şu komutu çalıştırın:
 
 ~~~bash
 python -m pip install flowevent
@@ -170,6 +182,12 @@ dönmeden önce kayıtlı handler'ı çağırır. İçteki context manager bitti
 abonelik iptal edilir; dıştaki tamamlandığında bus kapanır. Böylece iki
 kaynağın da ne zaman başlayıp biteceği kullanım noktasında görülür.
 
+Aynı örneğin bağımsız çalışan sürümü
+[`examples/quickstart.py`](examples/quickstart.py) dosyasındadır. Depo kökünden
+`python examples/quickstart.py` komutuyla çalıştırabilirsiniz. Beklenen çıktısı
+[`tests/test_documentation_examples.py`](tests/test_documentation_examples.py)
+tarafından doğrulanır.
+
 `EventBus[OrderPlaced]` generic anotasyonu type checker ve IDE'lere yardımcı
 olur; çalışma anında event tipini doğrulamaz. Çalışma zamanı tipi kontrolü
 gerekiyorsa filtre kullanın.
@@ -221,7 +239,9 @@ taşıyın.
 `AsyncSubscription` döndürür. Handler'a ihtiyaç duyduğunuz sürece bu handle'ı
 saklayın. İşiniz bittiğinde `cancel()` çağırın veya ilk örnekteki gibi handle'ı
 context manager ile yönetin. İptali tekrarlamak güvenlidir. Handle üzerinde
-`id` ve `active` özellikleri bulunur.
+`id` ve `active` özellikleri bulunur. Aynı callable birden çok kez kaydedilse
+bile her `subscribe()` çağrısı ayrı bir abonelik oluşturur; bir handle'ı iptal
+etmek diğer kaydı etkilemez.
 
 <a id="filtering"></a>
 ### Filtreler ve teslimat limitleri
@@ -267,7 +287,8 @@ Bus metodunda `EventFilter` ile doğrudan `event_type`/`predicate` argümanları
 alternatif kullanımlardır; ikisini birlikte vermeyin. İlk eşleşmeden sonra
 bitecek bir abonelik için `once=True` veya `once(callback, ...)` kullanın.
 Belirli sayıda eşleşen teslimat için `times=N` verin. Limitler bus'a gelen
-bütün event'leri değil, filtreyle eşleşenleri sayar.
+bütün event'leri değil, filtreyle eşleşenleri sayar. Kapasite, yayıncılar
+eşzamanlı çalışsa bile atomik olarak ayrılır.
 
 Yoğun akışlarda `EventBus` abonelikleri hash alabilen bir routing key ile
 indeksleyebilir. Key çıkarıcı yalnızca key ile abone varken çalışır; yayın,
@@ -406,7 +427,8 @@ Abonelik oluşturulurken handler önce `started` ve `ready` değerlerini alır.
 Replay sırasında gelen canlı event'ler o abone için tamponlanır.
 Varsayılan 1000 olan `replay_buffer_limit` bu geçici kuyruğu sınırlar.
 Kuyruk taşarsa ilgili abonelik iptal edilir ve taşma bus'ın hata politikasıyla
-raporlanır.
+raporlanır. Replay kurulumu veya filtre değerlendirmesi hata verirse kısmi
+abonelik kaldırılır ve hata çağırana iletilir.
 
 Özel geçmiş deposu için `EventHistory` arayüzünün `append()`, `latest()`,
 `query()`, `clear()` ve `__len__()` metotlarını uygulayın. Uygulama bu beş
@@ -527,6 +549,11 @@ handler'lara teslimatı durdurur. Concurrent kipte bağımsız olarak iptal edil
 handler task'ı başarısız teslimat olarak `PublishResult`'a eklenir. `publish()`
 çağıran task iptal edilirse her iki kipte de iptal çağırana yayılır. İptal,
 handler'ın iptalden önce oluşturduğu yan etkileri geri alamaz.
+
+Async bus kendi abonelik, history ve yaşam döngüsü yönetimine sahiptir; senkron
+`EventBus`'ı sarmalamaz veya onun üzerinden iş zamanlamaz. Bileşeni tek bir
+event loop'ta oluşturun, kullanın ve kapatın. Senkron bir thread'den aktarım
+için `publish_threadsafe()` veya `AsyncEventQueue` kullanın.
 
 Concurrent teslimat varsayılan olarak sınırsızdır ve mevcut davranışı korur.
 `DeliveryMode.CONCURRENT` ile verilen `max_concurrency=N`, her bir publish
@@ -1196,6 +1223,12 @@ atlamaması için `False` döndürür. Başarılı çağrıda slot'u
 `await limiter.release(key)` ile bırakın. `stats()` toplam sayıları,
 `key_stats(key)` ise tek bir anahtarın aktif izin ve bekleyici sayılarını verir.
 
+Birbirinden bağımsız işlerin tek bir genel limitin arkasında beklememesi için
+uygunsa anahtar başına sınırlar kullanın. Tanımlanan observer callback'leri
+çağrı yolunda senkron çalışır; kısa tutulmaları gerekir. Çok sayıda farklı
+anahtarla çalışan uygulamalar anahtar sayısını sınırlamalı, boş kayıtları
+temizlemeli veya bileşeni kapatmalıdır.
+
 `KeyedRateLimiter(rate, period, burst=...)` her anahtar için token bucket
 uygular. `await acquire(key)` token'ı iptal edilebilir biçimde bekler;
 `try_acquire(key)` hemen sonuç döndürür. Aynı anahtar için `acquire()` beklerken
@@ -1609,6 +1642,41 @@ alır. Yerleşik `MemoryEventHistory(capacity=1000)` sınırlı ve thread-safe't
 `EventHistory` özel geçmiş depolarının arayüzüdür. Çoğu uygulama yalnızca
 `EventBus` veya `AsyncEventBus` kullanabilir.
 
+Uygulama kodunda desteklenen API adlarını `eventflow` paketinden içe aktarın.
+Dışa aktarılan adlar `__all__` ile belirlenir; bazıları gerektiğinde
+yüklenmesine rağmen `dir(eventflow)` listesinde görünür. Dağıtım, tip
+denetleyicilerin kullanması için `eventflow/py.typed` işaretçisini ve
+`eventflow/_core.pyi` tip bildirimi dosyasını içerir. `_core`, uygulamanın iç
+parçasıdır; ayrı bir public API değildir. Kullanımdan kaldırılan adlar için
+geriye dönük uyumluluk alias'ı bulunmaz. Bu belgede gösterilen adları, imzaları
+ve hata türlerini kullanın. Dışa aktarma sözleşmesi
+[`tests/test_public_contracts.py`](tests/test_public_contracts.py) ile denetlenir.
+
+<a id="mimari-test-haritasi"></a>
+## Mimari ve test haritası
+
+Belgelenen davranışın uygulamadaki karşılığını ve onu koruyan odaklı regresyon
+testlerini bu tablodan bulabilirsiniz. Çalıştırılabilir örnekler de test
+paketinde yürütülür.
+
+- **Dışa açık API ve paketleme.** Kaynak: [`eventflow/__init__.py`](eventflow/__init__.py), [`eventflow/_core.pyi`](eventflow/_core.pyi), [`pyproject.toml`](pyproject.toml). Test: [`tests/test_public_contracts.py`](tests/test_public_contracts.py).
+- **Senkron bus ve yönlendirme.** Kaynak: [`eventflow/event_bus.py`](eventflow/event_bus.py), [`eventflow/base.py`](eventflow/base.py). Testler: [`tests/test_bus.py`](tests/test_bus.py), [`tests/test_routing_key.py`](tests/test_routing_key.py).
+- **Async bus.** Kaynak: [`eventflow/async_event_bus.py`](eventflow/async_event_bus.py). Testler: [`tests/test_async_bus.py`](tests/test_async_bus.py), [`tests/test_integration.py`](tests/test_integration.py).
+- **Pipeline ve stream.** Kaynak: [`eventflow/pipeline/`](eventflow/pipeline/), [`eventflow/stream.py`](eventflow/stream.py). Testler: [`tests/test_pipeline.py`](tests/test_pipeline.py), [`tests/test_stream.py`](tests/test_stream.py).
+- **Yaşam döngüsü, task ve köprüler.** Kaynak: [`eventflow/scopes.py`](eventflow/scopes.py), [`eventflow/tasks.py`](eventflow/tasks.py), [`eventflow/bridges.py`](eventflow/bridges.py). Testler: [`tests/test_scopes.py`](tests/test_scopes.py), [`tests/test_lifecycle.py`](tests/test_lifecycle.py), [`tests/test_bridges.py`](tests/test_bridges.py).
+- **Eşzamanlılık, dayanıklılık ve durum.** Kaynak: [`eventflow/concurrency.py`](eventflow/concurrency.py), [`eventflow/resilience.py`](eventflow/resilience.py), [`eventflow/timing.py`](eventflow/timing.py), [`eventflow/cache.py`](eventflow/cache.py), [`eventflow/state.py`](eventflow/state.py), [`eventflow/policy.py`](eventflow/policy.py). Testler: [`tests/test_async_primitives.py`](tests/test_async_primitives.py), [`tests/test_concurrency_edges.py`](tests/test_concurrency_edges.py), [`tests/test_resilience_edges.py`](tests/test_resilience_edges.py), [`tests/test_state_cache_edges.py`](tests/test_state_cache_edges.py), [`tests/test_registry_policy_edges.py`](tests/test_registry_policy_edges.py).
+- **C uzantısı ve performans araçları.** Kaynak: [`eventflow/_core.c`](eventflow/_core.c), [`eventflow/_native.py`](eventflow/_native.py), [`tools/native_coverage.py`](tools/native_coverage.py), [`benchmarks/`](benchmarks/). Test: [`tests/test_benchmarks.py`](tests/test_benchmarks.py).
+- **Çalıştırılabilir örnekler.** [`examples/quickstart.py`](examples/quickstart.py), [`examples/integrated.py`](examples/integrated.py), [`examples/bus_stream.py`](examples/bus_stream.py), [`examples/coordination.py`](examples/coordination.py). Testler: [`tests/test_documentation_examples.py`](tests/test_documentation_examples.py), [`tests/test_integration.py`](tests/test_integration.py).
+
+<a id="sorun-giderme"></a>
+## Sorun giderme
+
+- **C uzantısı yüklenmiyor.** C uzantısı isteğe bağlıdır; derleyici bulunmuyor veya saf Python uygulaması seçilmiş olabilir. Saf Python yolunu açıkça seçmek için `EVENTFLOW_NO_EXTENSIONS=1` ayarlayın. İki uygulama yolunu aynı testlerle ve eşleşen benchmark koşullarıyla karşılaştırın. C kod kapsamı ölçümü `gcov` ve `gcovr` kullanan Linux/GCC tabanlı bir doğruluk kontrolüdür; hız ölçümü değildir.
+- **Async bileşen farklı bir event loop bildiriyor.** `AsyncEventBus`, `AsyncStream` ve diğer async bileşenler tek bir event loop'a bağlıdır. Bileşeni sahibi olan loop'ta oluşturun, kullanın ve kapatın. Senkron bir thread'den aktarım için async metotları başka loop'ta çağırmak yerine `AsyncEventQueue` veya `LoopPortal` kullanın.
+- **Timeout süresi doldu ancak işlem sürüyor.** Timeout çağıranın beklemesini sona erdirebilir; bloklanan senkron callback'i veya iptali bastıran coroutine'i zorla durduramaz. İşin sahipliğini koruyun ve işbirliğine dayalı bir iptal yolu sağlayın. `LoopPortal.call()` timeout'u da yalnızca beklemeyi sonlandırır; gönderilen işlemi durdurmaz.
+- **Callback hata verdi ya da kuyruk olayı reddetti.** `PublishResult` değerini, `ErrorPolicy` ayarını ve varsa `QueueOverflowError` hatasını inceleyin. `drop_oldest`, `drop_newest` veya `error` seçeneklerinden uygulamanın veri kaybı politikasına uygun olanı belirleyin. Kuyruk kapasitesi byte değil öğe sayısını sınırlar.
+- **`VersionedCache.get()` `None` döndürdü.** Anahtar bulunmuyor, süresi dolmuş ya da güncelliğini yitirmiş olabilir; saklanan değer de `None` olabilir. Cache miss ile saklanmış `None` değerini ayırmanız gerekiyorsa benzersiz bir sentinel kullanın.
+
 <a id="development"></a>
 ## Geliştirme ve lisans
 
@@ -1643,6 +1711,16 @@ komutuyla karşılaştırın. Sağlıklı karşılaştırma için Python derleme
 durumunu ve iş yükü seçeneklerini aynı tutun. Yerel ölçümler yalnızca kaydedilen
 makine ve iş yükünü anlatır; dağıtım performansı garantisi değildir. Yerel
 karşılaştırma notları için [benchmark notlarına](benchmarks/results/README.md) bakın.
+
+Route snapshot cache'i en fazla 64 anahtar tutar. Cache'e kayıt kabulü her iş
+yükünde hız kazancı sağlamaz; gerçek uygulamaya benzeyen routing dağılımı ve
+abonelik değişim sıklığıyla ölçüm yapın.
+
+C uzantısının kod kapsamını ölçen CI işi bir hız benchmark'ı değil, doğruluk
+tanılamasıdır. İzole ve `-O0` ile derlenmiş bir uzantı kullanır; raporu makineye
+özgü dosyaları repoya eklemek yerine CI çıktısı olarak yayımlar ve bu derlemeden
+paket wheel'i üretmez. Çalıştırmak için Linux, GCC, `gcov` ve `gcovr` gerekir.
+Bu ölçümün sürelerini normal optimize derlemelerle karşılaştırmayın.
 
 Yayıncı köprüsü benchmark'ı, teslim edilen event başına duvar saati ve süreç
 CPU süresini ayrı ölçer. Zamanlayıcı; queue, consumer ve yayıncı thread'leri

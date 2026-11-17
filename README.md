@@ -64,7 +64,18 @@ to install or use this package.
   - [Bus methods](#bus-api)
   - [Engine methods](#engine-api)
   - [Public types and errors](#public-types)
+- [Architecture and test map](#architecture-and-test-map)
+- [Troubleshooting](#troubleshooting)
 - [Development and license](#development)
+- [Documentation](#documentation)
+
+## Documentation
+
+This is the complete English guide and API reference for EventFlow. The
+[`README-TR.md`](README-TR.md) provides the same topics in Turkish. Both files
+include setup instructions, usage examples, lifecycle and concurrency
+guarantees, troubleshooting, and links to the implementation and regression
+tests. Use the contents list above to go directly to a component.
 
 ## Getting started
 
@@ -77,7 +88,7 @@ active environment:
 python -m pip install .
 ~~~
 
-After the PyPI release is published, install EventFlow with:
+To install a published EventFlow release from PyPI, run:
 
 ~~~bash
 python -m pip install flowevent
@@ -166,6 +177,11 @@ calls the subscribed handler before `publish()` returns. The inner context
 manager cancels the subscription when it ends; the outer one closes the bus.
 This makes the lifetime of both resources visible at the point of use.
 
+The same example is available as a standalone program at
+[`examples/quickstart.py`](examples/quickstart.py). Run it from the repository
+root with `python examples/quickstart.py`; its output is checked by
+[`tests/test_documentation_examples.py`](tests/test_documentation_examples.py).
+
 The generic annotation in `EventBus[OrderPlaced]` helps type checkers and IDEs.
 It does not validate event types at runtime. Use a filter when a runtime type
 check is needed.
@@ -213,7 +229,9 @@ needs.
 `AsyncSubscription` for `AsyncEventBus`. Keep the returned handle while the
 handler is needed. Call `cancel()` when it is no longer needed, or manage the
 handle with a context manager as in the first example. Cancellation is safe to
-repeat. The handle exposes `id` and `active`.
+repeat. The handle exposes `id` and `active`. Every call creates a distinct
+subscription, even when the same callable is registered more than once;
+cancelling one handle leaves the other registration intact.
 
 <a id="filtering"></a>
 ### Filtering and delivery limits
@@ -259,7 +277,8 @@ Use either an `EventFilter` or the direct `event_type`/`predicate` arguments
 on a bus method; do not combine the two forms. For a handler that should stop
 after its first match, use `once=True` or `once(callback, ...)`. For a fixed
 number of matching deliveries, use `times=N`. These limits count matching
-events, not every event published to the bus.
+events, not every event published to the bus. Capacity is reserved atomically,
+including when publishers run concurrently.
 
 For high-volume streams, an `EventBus` can index subscriptions by one hashable
 routing key. The key extractor runs only while keyed subscriptions exist; a
@@ -395,7 +414,8 @@ The handler prints `started` and `ready` as the subscription is created. Live
 events that arrive during replay are buffered per subscriber.
 `replay_buffer_limit` (default 1000) bounds this temporary queue. If the queue
 overflows, that subscription is cancelled and the overflow is reported using
-the bus's error policy.
+the bus's error policy. If replay setup or filter evaluation fails, EventFlow
+removes the partial subscription before propagating the failure.
 
 To provide a custom history store, implement `EventHistory`:
 `append()`, `latest()`, `query()`, `clear()`, and `__len__()`. Implementations
@@ -513,6 +533,11 @@ mode, an independently cancelled handler task is recorded as a failed delivery
 in `PublishResult`. Cancelling the task that called `publish()` propagates in
 either mode and cancels in-flight handler work. Cancellation cannot undo side
 effects a handler produced before it was cancelled.
+
+The async bus owns its subscriptions, history and lifecycle; it does not wrap
+or schedule through `EventBus`. Create, use and close it on one event loop. Use
+`publish_threadsafe()` or an `AsyncEventQueue` for deliberate handoff from a
+synchronous thread.
 
 ~~~python
 import asyncio
@@ -1176,6 +1201,11 @@ is a concurrency cap; it does not limit requests per second. If
 `stats()` reports aggregate counts; `key_stats(key)` reports active permits and
 waiters for one key.
 
+Prefer independent per-key limits when unrelated work should make progress
+without waiting behind one global limit. Where observer callbacks are supplied,
+they run inline with the calling operation and should stay fast. Applications
+using many distinct keys should set key bounds and prune or close idle state.
+
 `KeyedRateLimiter(rate, period, burst=...)` is a per-key token bucket.
 `await acquire(key)` waits cancellably for a token; `try_acquire(key)` returns
 immediately. While an `acquire(key)` is waiting, `try_acquire(key)` for that key
@@ -1588,6 +1618,37 @@ Engines expose `running` and `channel_names`. Subscription handles expose
 `EventHistory` is the interface for custom history stores. Most applications
 can work entirely with `EventBus` or `AsyncEventBus`.
 
+Import supported public names from `eventflow`. The package's `__all__` defines
+that surface; selected exports load lazily and remain visible through
+`dir(eventflow)`. The distribution includes `eventflow/py.typed` and the
+`eventflow/_core.pyi` typing stub. `_core` is an implementation module, not a
+separate public API. Retired names have no compatibility aliases; use the
+names, signatures and errors documented here. The public import contract is
+covered by [`tests/test_public_contracts.py`](tests/test_public_contracts.py).
+
+## Architecture and test map
+
+Use this map to trace a documented behavior to its implementation and focused
+regression coverage. The runnable examples are also exercised by the test
+suite.
+
+- **Public API and packaging.** Implementation: [`eventflow/__init__.py`](eventflow/__init__.py), [`eventflow/_core.pyi`](eventflow/_core.pyi), [`pyproject.toml`](pyproject.toml). Tests: [`tests/test_public_contracts.py`](tests/test_public_contracts.py).
+- **Synchronous bus and routing.** Implementation: [`eventflow/event_bus.py`](eventflow/event_bus.py), [`eventflow/base.py`](eventflow/base.py). Tests: [`tests/test_bus.py`](tests/test_bus.py), [`tests/test_routing_key.py`](tests/test_routing_key.py).
+- **Async bus.** Implementation: [`eventflow/async_event_bus.py`](eventflow/async_event_bus.py). Tests: [`tests/test_async_bus.py`](tests/test_async_bus.py), [`tests/test_integration.py`](tests/test_integration.py).
+- **Pipelines and streams.** Implementation: [`eventflow/pipeline/`](eventflow/pipeline/), [`eventflow/stream.py`](eventflow/stream.py). Tests: [`tests/test_pipeline.py`](tests/test_pipeline.py), [`tests/test_stream.py`](tests/test_stream.py).
+- **Lifecycle, tasks and bridges.** Implementation: [`eventflow/scopes.py`](eventflow/scopes.py), [`eventflow/tasks.py`](eventflow/tasks.py), [`eventflow/bridges.py`](eventflow/bridges.py). Tests: [`tests/test_scopes.py`](tests/test_scopes.py), [`tests/test_lifecycle.py`](tests/test_lifecycle.py), [`tests/test_bridges.py`](tests/test_bridges.py).
+- **Concurrency, resilience and state.** Implementation: [`eventflow/concurrency.py`](eventflow/concurrency.py), [`eventflow/resilience.py`](eventflow/resilience.py), [`eventflow/timing.py`](eventflow/timing.py), [`eventflow/cache.py`](eventflow/cache.py), [`eventflow/state.py`](eventflow/state.py), [`eventflow/policy.py`](eventflow/policy.py). Tests: [`tests/test_async_primitives.py`](tests/test_async_primitives.py), [`tests/test_concurrency_edges.py`](tests/test_concurrency_edges.py), [`tests/test_resilience_edges.py`](tests/test_resilience_edges.py), [`tests/test_state_cache_edges.py`](tests/test_state_cache_edges.py), [`tests/test_registry_policy_edges.py`](tests/test_registry_policy_edges.py).
+- **Native core and performance tools.** Implementation: [`eventflow/_core.c`](eventflow/_core.c), [`eventflow/_native.py`](eventflow/_native.py), [`tools/native_coverage.py`](tools/native_coverage.py), [`benchmarks/`](benchmarks/). Tests: [`tests/test_benchmarks.py`](tests/test_benchmarks.py).
+- **Runnable examples.** [`examples/quickstart.py`](examples/quickstart.py), [`examples/integrated.py`](examples/integrated.py), [`examples/bus_stream.py`](examples/bus_stream.py), [`examples/coordination.py`](examples/coordination.py). Tests: [`tests/test_documentation_examples.py`](tests/test_documentation_examples.py), [`tests/test_integration.py`](tests/test_integration.py).
+
+## Troubleshooting
+
+- **The native extension is unavailable.** The C extension is optional; a compiler may be unavailable or the pure-Python backend may have been selected. Set `EVENTFLOW_NO_EXTENSIONS=1` to select the fallback explicitly. Compare both backends with the same tests and matching benchmark conditions. Native coverage is a Linux/GCC correctness diagnostic that uses `gcov` and `gcovr`, not a timing result.
+- **An async component reports a different event loop.** `AsyncEventBus`, `AsyncStream` and other async components belong to one event loop. Create, use and close the component on its owning loop. For a synchronous thread, hand work off with `AsyncEventQueue` or `LoopPortal`; do not call async methods directly from another loop.
+- **A timeout returned but the work continues.** A timeout can stop the caller waiting, but cannot forcibly stop a blocked synchronous callback or a coroutine that suppresses cancellation. Keep the operation owned and provide a cooperative cancellation path. A `LoopPortal.call()` timeout has the same wait-versus-work distinction.
+- **A callback failed or a queue rejected an event.** Inspect `PublishResult`, the configured `ErrorPolicy` and any `QueueOverflowError`. Choose `drop_oldest`, `drop_newest` or `error` according to the application's data-loss policy; queue capacity counts items, not bytes.
+- **`VersionedCache.get()` returned `None`.** The key may be absent, expired or stale, or the stored value itself may be `None`. Store a unique sentinel when the application must distinguish a cache miss from a cached `None`.
+
 <a id="development"></a>
 ## Development and license
 
@@ -1623,6 +1684,16 @@ Keep the interpreter build, GIL mode and workload settings the same for a useful
 comparison. Local measurements describe their recorded machine and workload;
 they are not deployment guarantees. See
 [benchmark notes](benchmarks/results/README.md) for local comparison guidance.
+
+The route-snapshot cache is bounded to 64 keys. Cache admission is workload
+dependent and is not a general performance guarantee; compare the route
+distribution and subscriber churn that resemble the intended application.
+
+The native C coverage workflow is a correctness diagnostic, not a performance
+benchmark. It uses an isolated instrumented `-O0` build, publishes coverage as
+a CI artifact rather than committing machine-specific reports, and does not
+produce package wheels from that build. Running it requires Linux, GCC, `gcov`
+and `gcovr`; do not compare its timings with normal optimized builds.
 
 The bridge-publisher benchmark reports wall time and process CPU time per
 delivered event. It starts timing after the queue, consumer and publisher threads
