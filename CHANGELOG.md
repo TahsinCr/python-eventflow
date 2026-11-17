@@ -18,6 +18,7 @@ All notable changes to this project are documented in this file.
 ### Changed
 
 - Clarify that `examples/quickstart.py` demonstrates the README's `EventBus` usage pattern with a different event and output.
+- Distinguish cross-thread `AsyncEventBus.publish_threadsafe()` from `AsyncEventQueue` and `LoopPortal` handoff use cases.
 - Consolidate the component guides, public API reference, performance notes and troubleshooting guidance in the English and Turkish READMEs; remove the standalone documentation directory.
 - Separate route-cache CPU timing from per-publish latency and cache probes so collector instrumentation does not inflate CPU measurements.
 - Measure route-cache CPU use with the same publisher count as the pyperf case, using a separate unprobed pass.

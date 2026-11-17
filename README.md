@@ -535,9 +535,10 @@ either mode and cancels in-flight handler work. Cancellation cannot undo side
 effects a handler produced before it was cancelled.
 
 The async bus owns its subscriptions, history and lifecycle; it does not wrap
-or schedule through `EventBus`. Create, use and close it on one event loop. Use
-`publish_threadsafe()` or an `AsyncEventQueue` for deliberate handoff from a
-synchronous thread.
+or schedule through `EventBus`. Create, use and close it on one event loop. To
+publish to this bus from another thread, use `publish_threadsafe(event)`. To
+consume events published on a synchronous `EventBus` asynchronously, use an
+`AsyncEventQueue`.
 
 ~~~python
 import asyncio
@@ -1034,7 +1035,8 @@ streams without changing event delivery or stage ordering.
 
 | Component | Module | Purpose |
 | --- | --- | --- |
-| `AsyncEventQueue`, `LoopPortal` | `eventflow.bridges` | Bridge synchronous bus delivery and external threads to an owned async loop. |
+| `AsyncEventQueue` | `eventflow.bridges` | Deliver events from a synchronous `EventBus` to an async consumer. |
+| `LoopPortal` | `eventflow.bridges` | Submit coroutine work from synchronous code to a portal-owned event loop. |
 | `AsyncTaskScope` | `eventflow.tasks` | Own background asyncio tasks. |
 | `ResourceScope`, `AsyncResourceScope` | `eventflow.scopes` | Run reverse-order, retryable resource cleanup. |
 | `KeyedConcurrencyLimiter`, `KeyedRateLimiter`, `SingleFlight` | `eventflow.concurrency` | Bound keyed work, apply a token bucket, or share an in-flight operation. |
@@ -1644,7 +1646,10 @@ suite.
 ## Troubleshooting
 
 - **The native extension is unavailable.** The C extension is optional; a compiler may be unavailable or the pure-Python backend may have been selected. Set `EVENTFLOW_NO_EXTENSIONS=1` to select the fallback explicitly. Compare both backends with the same tests and matching benchmark conditions. Native coverage is a Linux/GCC correctness diagnostic that uses `gcov` and `gcovr`, not a timing result.
-- **An async component reports a different event loop.** `AsyncEventBus`, `AsyncStream` and other async components belong to one event loop. Create, use and close the component on its owning loop. For a synchronous thread, hand work off with `AsyncEventQueue` or `LoopPortal`; do not call async methods directly from another loop.
+- **An async component reports a different event loop.** Keep `AsyncEventBus`, `AsyncStream` and other async components on their owning loop. Do not call their async methods directly from a different loop. Choose the handoff by source:
+  - Publish from another thread to an `AsyncEventBus` with a running owner loop using `publish_threadsafe(event)`.
+  - Move events from a synchronous `EventBus` to an async consumer with `AsyncEventQueue`; it accepts a synchronous bus.
+  - Submit a coroutine from synchronous code to a `LoopPortal` loop with `submit()` (returns a future) or `call()` (waits for the result).
 - **A timeout returned but the work continues.** A timeout can stop the caller waiting, but cannot forcibly stop a blocked synchronous callback or a coroutine that suppresses cancellation. Keep the operation owned and provide a cooperative cancellation path. A `LoopPortal.call()` timeout has the same wait-versus-work distinction.
 - **A callback failed or a queue rejected an event.** Inspect `PublishResult`, the configured `ErrorPolicy` and any `QueueOverflowError`. Choose `drop_oldest`, `drop_newest` or `error` according to the application's data-loss policy; queue capacity counts items, not bytes.
 - **`VersionedCache.get()` returned `None`.** The key may be absent, expired or stale, or the stored value itself may be `None`. Store a unique sentinel when the application must distinguish a cache miss from a cached `None`.

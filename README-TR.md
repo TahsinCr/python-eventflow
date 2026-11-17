@@ -552,8 +552,9 @@ handler'ın iptalden önce oluşturduğu yan etkileri geri alamaz.
 
 Async bus kendi abonelik, history ve yaşam döngüsü yönetimine sahiptir; senkron
 `EventBus`'ı sarmalamaz veya onun üzerinden iş zamanlamaz. Bileşeni tek bir
-event loop'ta oluşturun, kullanın ve kapatın. Senkron bir thread'den aktarım
-için `publish_threadsafe()` veya `AsyncEventQueue` kullanın.
+event loop'ta oluşturun, kullanın ve kapatın. Başka bir thread'den bu bus'a
+event yayımlamak için `publish_threadsafe(event)` kullanın. Senkron bir
+`EventBus`'ta yayımlanan event'leri async tüketmek için `AsyncEventQueue` seçin.
 
 Concurrent teslimat varsayılan olarak sınırsızdır ve mevcut davranışı korur.
 `DeliveryMode.CONCURRENT` ile verilen `max_concurrency=N`, her bir publish
@@ -1059,7 +1060,8 @@ pipeline sıralaması değişmeden bus, pipeline ve stream'lerle birleştirilebi
 
 | Bileşen | Modül | Kullanım amacı |
 | --- | --- | --- |
-| `AsyncEventQueue`, `LoopPortal` | `eventflow.bridges` | Senkron bus olaylarını ve thread çağrılarını sahip olunan async loop'a taşımak. |
+| `AsyncEventQueue` | `eventflow.bridges` | Senkron `EventBus` event'lerini async tüketiciye aktarmak. |
+| `LoopPortal` | `eventflow.bridges` | Senkron koddan coroutine'leri portalın sahip olduğu event loop'ta çalıştırmak. |
 | `AsyncTaskScope` | `eventflow.tasks` | Arka plan asyncio task'larını sahiplenmek. |
 | `ResourceScope`, `AsyncResourceScope` | `eventflow.scopes` | Ters sırada, tekrar denenebilir kaynak temizliği yapmak. |
 | `KeyedConcurrencyLimiter`, `KeyedRateLimiter`, `SingleFlight` | `eventflow.concurrency` | Anahtarlı iş yükünü sınırlamak, token bucket uygulamak veya devam eden işi paylaşmak. |
@@ -1672,7 +1674,10 @@ paketinde yürütülür.
 ## Sorun giderme
 
 - **C uzantısı yüklenmiyor.** C uzantısı isteğe bağlıdır; derleyici bulunmuyor veya saf Python uygulaması seçilmiş olabilir. Saf Python yolunu açıkça seçmek için `EVENTFLOW_NO_EXTENSIONS=1` ayarlayın. İki uygulama yolunu aynı testlerle ve eşleşen benchmark koşullarıyla karşılaştırın. C kod kapsamı ölçümü `gcov` ve `gcovr` kullanan Linux/GCC tabanlı bir doğruluk kontrolüdür; hız ölçümü değildir.
-- **Async bileşen farklı bir event loop bildiriyor.** `AsyncEventBus`, `AsyncStream` ve diğer async bileşenler tek bir event loop'a bağlıdır. Bileşeni sahibi olan loop'ta oluşturun, kullanın ve kapatın. Senkron bir thread'den aktarım için async metotları başka loop'ta çağırmak yerine `AsyncEventQueue` veya `LoopPortal` kullanın.
+- **Async bileşen farklı bir event loop bildiriyor.** `AsyncEventBus`, `AsyncStream` ve diğer async bileşenleri sahibi olan loop'ta tutun; metotlarını farklı bir loop'tan doğrudan çağırmayın. Aktarım yöntemini kaynağa göre seçin:
+  - Sahip olduğu loop çalışır durumdaysa, başka bir thread'den event yayımlamak için `AsyncEventBus.publish_threadsafe(event)` kullanın.
+  - Senkron `EventBus` event'lerini async tüketiciye aktarmak için `AsyncEventQueue` kullanın; bu kuyruk senkron bus kabul eder.
+  - Senkron koddan `LoopPortal`'ın loop'unda coroutine çalıştırmak için `submit()` ile future alın veya sonucu beklemek üzere `call()` kullanın.
 - **Timeout süresi doldu ancak işlem sürüyor.** Timeout çağıranın beklemesini sona erdirebilir; bloklanan senkron callback'i veya iptali bastıran coroutine'i zorla durduramaz. İşin sahipliğini koruyun ve işbirliğine dayalı bir iptal yolu sağlayın. `LoopPortal.call()` timeout'u da yalnızca beklemeyi sonlandırır; gönderilen işlemi durdurmaz.
 - **Callback hata verdi ya da kuyruk olayı reddetti.** `PublishResult` değerini, `ErrorPolicy` ayarını ve varsa `QueueOverflowError` hatasını inceleyin. `drop_oldest`, `drop_newest` veya `error` seçeneklerinden uygulamanın veri kaybı politikasına uygun olanı belirleyin. Kuyruk kapasitesi byte değil öğe sayısını sınırlar.
 - **`VersionedCache.get()` `None` döndürdü.** Anahtar bulunmuyor, süresi dolmuş ya da güncelliğini yitirmiş olabilir; saklanan değer de `None` olabilir. Cache miss ile saklanmış `None` değerini ayırmanız gerekiyorsa benzersiz bir sentinel kullanın.
