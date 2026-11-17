@@ -185,6 +185,58 @@ class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(results, [True] * len(waiters))
         self.assertEqual(cooldowns.stats().waiters, 0)
 
+    async def test_cooldown_counts_both_wait_modes_and_notifies_only_changed_key(self):
+        cooldowns = CooldownRegistry()
+        real_condition = threading.Condition
+        entered = [threading.Event(), threading.Event()]
+        notifications = []
+
+        class TrackedCondition(real_condition):
+            def __init__(self, lock):
+                super().__init__(lock)
+                self.index = len(notifications)
+                notifications.append(0)
+
+            def wait(self, timeout=None):
+                entered[self.index].set()
+                return super().wait(timeout)
+
+            def notify_all(self):
+                notifications[self.index] += 1
+                return super().notify_all()
+
+        cooldowns.block("first", 30)
+        cooldowns.block("second", 30)
+        with ThreadPoolExecutor(2) as pool:
+            with patch("eventflow.resilience.Condition", TrackedCondition):
+                first = pool.submit(cooldowns.wait, "first", 5)
+                self.assertTrue(entered[0].wait(2))
+                second = pool.submit(cooldowns.wait, "second", 5)
+                self.assertTrue(entered[1].wait(2))
+
+            waiter = asyncio.create_task(cooldowns.wait_async("first"))
+            try:
+                await asyncio.sleep(0)
+                self.assertEqual(cooldowns.stats().waiters, 3)
+                cooldowns.clear("first")
+                self.assertTrue(await asyncio.wait_for(waiter, 2))
+                self.assertTrue(first.result(timeout=2))
+                self.assertEqual(notifications, [1, 0])
+                self.assertEqual(cooldowns.stats().waiters, 1)
+            finally:
+                cooldowns.clear("first")
+                cooldowns.clear("second")
+                if not waiter.done():
+                    await waiter
+            self.assertTrue(second.result(timeout=2))
+        self.assertEqual(cooldowns.stats().waiters, 0)
+
+    async def test_cooldown_async_wait_rechecks_after_timer_expires(self):
+        cooldowns = CooldownRegistry()
+        cooldowns.block("key", 30)
+        self.assertFalse(await cooldowns.wait_async("key", timeout=0.01))
+        self.assertEqual(cooldowns.stats().waiters, 0)
+
     async def test_retry_policy_async_deadline_and_invalid_operation(self):
         policy = RetryPolicy(max_attempts=3, initial_delay=0, backoff="fixed")
         attempts = []

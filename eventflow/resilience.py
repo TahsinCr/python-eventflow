@@ -10,6 +10,7 @@ import threading
 import time
 from collections.abc import Awaitable, Callable, Hashable
 from dataclasses import dataclass
+from threading import Condition
 from typing import Generic, Literal, TypeVar
 
 from ._callbacks import _NON_AWAITABLE_TYPES, close_awaitable, is_awaitable, synchronous_result
@@ -234,6 +235,12 @@ class CooldownStats:
     waiters: int
 
 
+@dataclass(slots=True)
+class _CooldownWaitGroup:
+    condition: Condition
+    count: int = 0
+
+
 class CooldownRegistry(Generic[K]):
     """Thread-safe per-key monotonic cooldowns with sync and cancellable async waits."""
 
@@ -247,9 +254,9 @@ class CooldownRegistry(Generic[K]):
         if not callable(clock):
             raise TypeError("clock must be callable")
         self._clock = clock
-        self._condition = threading.Condition()
+        self._lock = threading.RLock()
         self._deadlines: dict[K, float] = {}
-        self._sync_waiters = 0
+        self._sync_waiters: dict[K, _CooldownWaitGroup] = {}
         self._async_waiters: dict[
             K, set[tuple[asyncio.AbstractEventLoop, asyncio.Future[None]]]
         ] = {}
@@ -260,7 +267,10 @@ class CooldownRegistry(Generic[K]):
             self._deadlines.pop(key, None)
         return len(expired)
 
-    def _notify_async(self, key: K) -> None:
+    def _notify_waiters_locked(self, key: K) -> None:
+        group = self._sync_waiters.get(key)
+        if group is not None:
+            group.condition.notify_all()
         waiters = tuple(self._async_waiters.get(key, ()))
         for loop, future in waiters:
             if not loop.is_closed():
@@ -280,7 +290,7 @@ class CooldownRegistry(Generic[K]):
         if not isinstance(extend, bool):
             raise TypeError("extend must be a bool")
         now = self._clock()
-        with self._condition:
+        with self._lock:
             current = self._deadlines.get(key)
             if current is not None and current <= now:
                 self._deadlines.pop(key)
@@ -296,14 +306,12 @@ class CooldownRegistry(Generic[K]):
                 self._deadlines.pop(key, None)
             else:
                 self._deadlines[key] = deadline
-            if self._sync_waiters:
-                self._condition.notify_all()
-            if self._async_waiters:
-                self._notify_async(key)
+            if self._sync_waiters or self._async_waiters:
+                self._notify_waiters_locked(key)
             return max(0.0, deadline - now)
 
     def remaining(self, key: K) -> float:
-        with self._condition:
+        with self._lock:
             deadline = self._deadlines.get(key)
             if deadline is None:
                 return 0.0
@@ -317,16 +325,14 @@ class CooldownRegistry(Generic[K]):
         return self.remaining(key) > 0.0
 
     def clear(self, key: K) -> bool:
-        with self._condition:
+        with self._lock:
             removed = self._deadlines.pop(key, None) is not None
-            if self._sync_waiters:
-                self._condition.notify_all()
-            if self._async_waiters:
-                self._notify_async(key)
+            if self._sync_waiters or self._async_waiters:
+                self._notify_waiters_locked(key)
             return removed
 
     def prune(self) -> int:
-        with self._condition:
+        with self._lock:
             if not self._deadlines:
                 return 0
             return self._prune_locked(self._clock())
@@ -335,24 +341,33 @@ class CooldownRegistry(Generic[K]):
         """Block the calling thread until cooldown ends; return False on timeout."""
         timeout = validate_nonnegative_timeout(timeout, name="cooldown wait timeout")
         end = None if timeout is None else self._clock() + timeout
-        with self._condition:
-            while True:
-                now = self._clock()
-                deadline = self._deadlines.get(key)
-                if deadline is None or deadline <= now:
-                    self._deadlines.pop(key, None)
-                    return True
-                remaining = deadline - now
-                if end is not None:
-                    remaining_timeout = end - now
-                    if remaining_timeout <= 0:
-                        return False
-                    remaining = min(remaining, remaining_timeout)
-                self._sync_waiters += 1
-                try:
-                    self._condition.wait(remaining)
-                finally:
-                    self._sync_waiters -= 1
+        group: _CooldownWaitGroup | None = None
+        with self._lock:
+            try:
+                while True:
+                    now = self._clock()
+                    deadline = self._deadlines.get(key)
+                    if deadline is None or deadline <= now:
+                        self._deadlines.pop(key, None)
+                        return True
+                    remaining = deadline - now
+                    if end is not None:
+                        remaining_timeout = end - now
+                        if remaining_timeout <= 0:
+                            return False
+                        remaining = min(remaining, remaining_timeout)
+                    if group is None:
+                        group = self._sync_waiters.get(key)
+                        if group is None:
+                            group = _CooldownWaitGroup(Condition(self._lock))
+                            self._sync_waiters[key] = group
+                        group.count += 1
+                    group.condition.wait(remaining)
+            finally:
+                if group is not None:
+                    group.count -= 1
+                    if group.count == 0:
+                        del self._sync_waiters[key]
 
     async def wait_async(self, key: K, timeout: float | None = None) -> bool:
         """Wait without blocking the loop; cancellation unregisters the waiter."""
@@ -361,7 +376,7 @@ class CooldownRegistry(Generic[K]):
         end = None if timeout is None else loop.time() + timeout
         while True:
             future: asyncio.Future[None] = loop.create_future()
-            with self._condition:
+            with self._lock:
                 now = self._clock()
                 deadline = self._deadlines.get(key)
                 if deadline is None or deadline <= now:
@@ -376,10 +391,10 @@ class CooldownRegistry(Generic[K]):
                 self._async_waiters.setdefault(key, set()).add((loop, future))
             try:
                 await asyncio.wait_for(future, timeout=delay)
-            except TimeoutError:
+            except asyncio.TimeoutError:
                 pass
             finally:
-                with self._condition:
+                with self._lock:
                     waiters = self._async_waiters.get(key)
                     if waiters is not None:
                         waiters.discard((loop, future))
@@ -387,13 +402,15 @@ class CooldownRegistry(Generic[K]):
                             self._async_waiters.pop(key, None)
 
     def stats(self) -> CooldownStats:
-        with self._condition:
+        """Return active cooldowns and the combined sync and async waiter count."""
+        with self._lock:
             now = self._clock()
             self._prune_locked(now)
             return CooldownStats(
                 len(self._deadlines),
                 sum(deadline > now for deadline in self._deadlines.values()),
-                sum(len(waiters) for waiters in self._async_waiters.values()),
+                sum(group.count for group in self._sync_waiters.values())
+                + sum(len(waiters) for waiters in self._async_waiters.values()),
             )
 
 
