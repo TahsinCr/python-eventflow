@@ -13,6 +13,7 @@ from collections.abc import Callable
 from concurrent.futures import ProcessPoolExecutor, ThreadPoolExecutor
 from typing import cast
 from unittest.mock import patch
+from weakref import ref
 
 from _support import _FailingAppendHistory, _FailingQueryHistory, _RecordingQueryHistory
 
@@ -41,7 +42,7 @@ from eventflow._compatibility import ExceptionGroup
 class EventBusTests(unittest.TestCase):
     def test_history_class_property_runs_outside_lock_and_keeps_snapshot(self):
         for method in ("query", "latest"):
-            for mutation in ("append", "clear", "replace"):
+            for mutation in ("append", "clear"):
                 with self.subTest(method=method, mutation=mutation):
                     history = MemoryEventHistory()
                     done = threading.Event()
@@ -50,11 +51,8 @@ class EventBusTests(unittest.TestCase):
                     def mutate():
                         if mutation == "append":
                             history.append(99)
-                        elif mutation == "clear":
-                            history.clear()
                         else:
-                            with history._lock:
-                                history._events = deque([99], maxlen=8)
+                            history.clear()
                         done.set()
 
                     class Event:
@@ -89,7 +87,8 @@ class EventBusTests(unittest.TestCase):
         history.append(42)
         with patch.object(history, "_snapshot_locked", side_effect=AssertionError("full copy")):
             self.assertEqual(history.latest(EventFilter(event_type=int)), 42)
-            self.assertEqual(history.latest(EventFilter(event_type=(str, int))), 42)
+            self.assertEqual(history.latest(EventFilter(event_type=(int, str))), 42)
+            self.assertEqual(history.query(EventFilter(event_type=int), limit=1), (42,))
 
     def test_history_accepts_unhashable_tuple_type_filter(self):
         class Types(tuple):
@@ -1136,45 +1135,57 @@ class EventBusTests(unittest.TestCase):
         finally:
             bus.close()
 
-    def test_memory_history_type_filter_cache_and_invalidation(self) -> None:
-        from collections import deque
-        from collections.abc import Sequence
+    def test_history_queries_observe_changed_class_membership(self) -> None:
+        class Original:
+            pass
 
-        history = MemoryEventHistory[object](capacity=8)
-        history.append("a")
+        class Updated:
+            pass
+
+        class Proxy:
+            target = Original
+
+            @property
+            def __class__(self):
+                return self.target
+
+        for proxy in (False, True):
+            with self.subTest(proxy=proxy):
+                history = MemoryEventHistory[object](capacity=2)
+                event = Proxy() if proxy else Original()
+                history.append(event)
+                original = EventFilter[object](event_type=Original)
+                updated = EventFilter[object](event_type=Updated)
+                for bus in (EventBus[object](history=history), AsyncEventBus[object](history=history)):
+                    self.assertEqual(bus.query(event_filter=original), (event,))
+                    self.assertEqual(bus.query(event_filter=original, limit=1), (event,))
+                    self.assertEqual(bus.query(event_filter=updated), ())
+                if isinstance(event, Proxy):
+                    event.target = Updated
+                else:
+                    event.__class__ = Updated
+                for bus in (EventBus[object](history=history), AsyncEventBus[object](history=history)):
+                    self.assertEqual(bus.query(event_filter=original), ())
+                    self.assertEqual(bus.query(event_filter=original, limit=1), ())
+                    self.assertIsNone(bus.latest(event_filter=original))
+                    self.assertEqual(bus.query(event_filter=updated), (event,))
+                    self.assertIs(bus.latest(event_filter=updated), event)
+
+    def test_history_tail_checks_type_tuple_in_order(self) -> None:
+        class BrokenCheck(type):
+            def __instancecheck__(cls, instance):
+                raise RuntimeError("instance check failed")
+
+        class First(metaclass=BrokenCheck):
+            pass
+
+        history = MemoryEventHistory[object]()
         history.append(1)
-        history.append("b")
-        history.append(2)
-
-        int_filter = EventFilter[object](event_type=int)
-        pair_filter = EventFilter[object](event_type=(int, str))
-        abc_filter = EventFilter[object](event_type=Sequence)
-
-        self.assertEqual(history.latest(int_filter), 2)
-        self.assertEqual(history.latest(EventFilter[object](event_type=bytes)), None)
-        limited_first = history.query(int_filter, limit=1)
-        limited_second = history.query(int_filter, limit=1)
-        self.assertEqual(limited_first, (2,))
-        self.assertIs(limited_second, limited_first)
-
-        all_first = history.query(pair_filter)
-        all_second = history.query(pair_filter)
-        self.assertEqual(all_first, ("a", 1, "b", 2))
-        self.assertIs(all_second, all_first)
-        self.assertEqual(history.query(pair_filter, limit=2), ("b", 2))
-        self.assertEqual(history.query(abc_filter, limit=1), ("b",))
-
-        history.append(3)
-        self.assertEqual(history.query(int_filter, limit=1), (3,))
-        self.assertEqual(history.query(pair_filter), ("a", 1, "b", 2, 3))
-
-        history._events = deque(["z", 9], maxlen=8)
-        self.assertEqual(history.query(int_filter, limit=1), (9,))
-        self.assertEqual(history.query(pair_filter), ("z", 9))
-
-        history.clear()
-        self.assertEqual(history.query(int_filter, limit=1), ())
-        self.assertEqual(history.query(pair_filter), ())
+        event_filter = EventFilter[object](event_type=(First, int))
+        with self.assertRaisesRegex(RuntimeError, "instance check failed"):
+            history.latest(event_filter)
+        with self.assertRaisesRegex(RuntimeError, "instance check failed"):
+            history.query(event_filter, limit=1)
 
     def test_memory_history_empty_filter_uses_unfiltered_path(self) -> None:
         history = MemoryEventHistory[int](capacity=4)
@@ -1194,21 +1205,21 @@ class EventBusTests(unittest.TestCase):
         self.assertEqual(history.query(CustomFilter()), (1, 3))
         self.assertEqual(history.latest(CustomFilter()), 3)
 
-    def test_memory_history_type_result_caches_are_bounded(self) -> None:
-        history = MemoryEventHistory[object](capacity=4)
-        history.append("event")
-        filters = tuple(
-            EventFilter[object](event_type=type(f"EventType{index}", (), {})) for index in range(80)
-        )
+    def test_history_does_not_retain_evicted_or_cleared_events(self) -> None:
+        class Event:
+            pass
 
-        for event_filter in filters:
-            history.query(event_filter)
-            history.query(event_filter, limit=1)
-
-        self.assertLessEqual(len(history._type_results), 64)
-        self.assertLessEqual(len(history._limited_type_results), 64)
-        self.assertEqual(history.query(filters[-1]), ())
-
-        history.append("next")
-        self.assertEqual(history._type_results, {})
-        self.assertEqual(history._limited_type_results, {})
+        history = MemoryEventHistory[Event](capacity=1)
+        event = Event()
+        evicted = ref(event)
+        history.append(event)
+        self.assertEqual(history.query(EventFilter(event_type=Event)), (event,))
+        del event
+        event = Event()
+        cleared = ref(event)
+        history.append(event)
+        self.assertEqual(history.query(), (event,))
+        del event
+        self.assertIsNone(evicted())
+        history.clear()
+        self.assertIsNone(cleared())

@@ -26,6 +26,7 @@ All notable changes to this project are documented in this file.
 ### Fixed
 
 - Select the newest replay events after applying both routing and subscription filters, stop once the window is full, and evaluate replay matches outside the publication lock.
+- Reevaluate history type matches on each read so changes to event class membership are reflected without retaining filtered result tuples.
 
 ## [v1.4.1] - 2026-11-16
 
