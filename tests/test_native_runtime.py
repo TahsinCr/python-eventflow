@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import gc
 import os
 import subprocess
 import sys
@@ -14,12 +15,35 @@ from concurrent.futures import ThreadPoolExecutor
 from types import SimpleNamespace
 from typing import Any
 from unittest.mock import patch
+from weakref import ref
 
 from eventflow import EventBus, EventFilter, MemoryEventHistory, _native
 from eventflow.observability import OperationStats
 
 
 class NativeRuntimeTests(unittest.TestCase):
+    @unittest.skipUnless(_native.CORE is not None, "native core required")
+    def test_native_bus_and_routed_subscriber_cycles_release_payloads(self) -> None:
+        class Event:
+            pass
+
+        def make_cycle():
+            bus = EventBus[Event](history=1, routing_key=lambda _: "key")
+            event = Event()
+
+            def callback(value: Event) -> None:
+                self.assertIs(value, event)
+                self.assertEqual(bus.subscriber_count, 1)
+
+            bus.subscribe(callback, routing_key="key")
+            self.assertEqual(bus.publish(event).delivered, 1)
+            return ref(bus), ref(event)
+
+        bus_ref, event_ref = make_cycle()
+        gc.collect()
+        self.assertIsNone(bus_ref())
+        self.assertIsNone(event_ref())
+
     @unittest.skipUnless(_native.CORE is not None, "native core required")
     def test_native_subscriber_replay_methods_and_replaying_property(self) -> None:
         class InvalidTruthValue:
