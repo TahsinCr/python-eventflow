@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Check finite routed replay, cancellation, callback failures and recovery against a shrinkable reference model, with explicit async replay quota regressions.
 - Measure native C line, function, and branch coverage in an isolated GCC build and publish the reports as a CI artifact.
 - Cover the native subscriber replay-buffer methods and replaying property directly.
 - Add an opt-in async stress runner that repeats lifecycle, cancellation, queue, limiter, breaker, and stream regressions with asyncio diagnostics enabled.
@@ -20,6 +21,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Clarify replay predicate requirements and the cost of full history type queries, and document both Ruff checks used by CI.
 - Document when history queries reevaluate type membership and when the bus holds its publication lock during replay setup.
 - Clarify that `examples/quickstart.py` demonstrates the README's `EventBus` usage pattern with a different event and output.
 - Distinguish cross-thread `AsyncEventBus.publish_threadsafe()` from `AsyncEventQueue` and `LoopPortal` handoff use cases.

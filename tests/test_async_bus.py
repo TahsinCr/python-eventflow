@@ -33,6 +33,34 @@ from eventflow._compatibility import ExceptionGroup
 
 
 class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
+    async def test_filtered_replay_and_live_events_share_delivery_quota(self) -> None:
+        for replay, quota, once, expected in (
+            (1, None, True, [4]),
+            (3, None, True, [0]),
+            (3, 2, False, [0, 2]),
+            (1, 2, False, [4, 6]),
+        ):
+            with self.subTest(replay=replay, quota=quota, once=once):
+                received = []
+
+                async def receive(event: int) -> None:
+                    received.append(event)
+
+                async with AsyncEventBus[int](history=6) as bus:
+                    for event in range(6):
+                        await bus.publish(event)
+                    handle = await bus.subscribe(
+                        receive,
+                        predicate=lambda event: event % 2 == 0,
+                        replay=replay,
+                        once=once,
+                        times=quota,
+                    )
+                    await bus.publish(6)
+                    self.assertEqual(received, expected)
+                    self.assertFalse(handle.active)
+                    self.assertEqual(bus.subscriber_count, 0)
+
     async def test_falsey_event_filter_is_preserved(self) -> None:
         class FalseyFilter(EventFilter[int]):
             def __bool__(self) -> bool:

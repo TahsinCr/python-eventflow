@@ -124,10 +124,11 @@ proje kök dizininden çalıştırın:
 python -m pip install -e ".[dev]"
 python run_tests.py
 ruff check .
+ruff format --check .
 pyright
 ~~~
 
-`dev` ek paketi Ruff, Pyright ve pyperf'i sağlar. `run_tests.py`, Python'ın
+`dev` ek paketi Hypothesis, Ruff, Pyright ve pyperf'i sağlar. `run_tests.py`, Python'ın
 standart `unittest` testlerinin tamamını çalıştırır ve her testin sonucunu
 (`ok` dahil) gösterir; test başarısız olursa hata koduyla çıkar.
 
@@ -406,6 +407,8 @@ Limitli aramada en yeniden eskiye ilerler; eşleşme çok seyrek olup en eski ka
 yakınsa yine de snapshot'ın tamamını taraması gerekebilir.
 Tip eşleşmesi her okumada yeniden değerlendirilir. Böylece event'in sınıfı
 değiştiğinde sonuç yeni bir yayın beklemeden güncellenir.
+Tam tip sorguları her okumada saklanan geçmişi tarar. Filtrelenmiş sonuçlar
+artık önbelleğe alınmadığı için sorgu maliyeti geçmiş büyüdükçe artar.
 `AsyncEventBus` bu filtreli sorguyu sahibi olan event loop üzerinde senkron
 çalıştırır. Büyük bir geçmişte seyrek eşleşme, diğer task'ları geciktirebilir;
 replay gecikmesi önemliyse saklanan geçmişi sınırlı tutun ve predicate'leri hızlı
@@ -414,8 +417,10 @@ replay gecikmesi önemliyse saklanan geçmişi sınırlı tutun ve predicate'ler
 Sonradan katılan bir abonenin canlı teslimattan önce yakın geçmişi alması için
 `replay=N` kullanın. Replay, abonelik filtresine ve varsa yönlendirme anahtarına
 uyan en yeni N olayı seçer. Pencere dolana kadar olayları yeniden eskiye doğru
-inceler ve seçilenleri yayın sırasıyla teslim eder. Eşleştirme, bus yayın
-kilidini bıraktıktan sonra yapılır:
+inceler ve seçilenleri yayın sırasıyla teslim eder. Predicate'ler yalnızca
+olaya bağlı ve yan etkisiz olmalıdır. Predicate'in kaç kez çağrıldığına veya
+bu çağrıların callback teslimatına göre sırasına güvenmeyin. Eşleştirme, bus
+yayın kilidini bıraktıktan sonra yapılır:
 
 ~~~python
 from eventflow import EventBus

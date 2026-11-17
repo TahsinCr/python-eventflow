@@ -120,10 +120,11 @@ checks from the project root:
 python -m pip install -e ".[dev]"
 python run_tests.py
 ruff check .
+ruff format --check .
 pyright
 ~~~
 
-The `dev` extra provides Ruff, Pyright and pyperf. `run_tests.py` runs the full
+The `dev` extra provides Hypothesis, Ruff, Pyright and pyperf. `run_tests.py` runs the full
 standard-library `unittest` suite and prints each test's result, including `ok`
 for passing tests. It returns a failure status if any test fails.
 
@@ -392,6 +393,8 @@ snapshot. It searches newest to oldest when limited, but a rare match near the
 oldest entry can still require scanning the full snapshot.
 Type matches are checked on each read so changes to an event's class membership
 take effect without another publication.
+Full type queries scan the retained snapshot on each read. Their cost grows
+with history size, since filtered results are no longer cached.
 On `AsyncEventBus`, this filtered lookup runs synchronously on the owning event
 loop. A rare match in a large history can therefore delay unrelated tasks;
 bound the retained history and keep predicates inexpensive when replay latency
@@ -401,8 +404,10 @@ A new subscriber can receive recent events before it starts handling live
 ones. Pass `replay=N` to deliver up to the N newest retained events that match
 both the subscription filter and, when supplied, its routing key. Replay checks
 events from newest to oldest until the window is full, then delivers the
-selected events in publication order. Matching runs after the bus releases
-its publication lock:
+selected events in publication order. Use pure predicates that depend only on
+the event. Do not rely on the number of predicate calls or on their order
+relative to callback delivery. Matching runs after the bus releases its
+publication lock:
 
 ~~~python
 from eventflow import EventBus

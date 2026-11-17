@@ -247,7 +247,7 @@ jobs:
                   source_archive.extractall(temporary_directory)
                   source_root = Path(temporary_directory) / root_name
                   subprocess.run(
-                      [sys.executable, "-m", "pip", "install", str(source_root)],
+                      [sys.executable, "-m", "pip", "install", f"{source_root}[dev]"],
                       check=True,
                   )
                   environment = os.environ.copy()
