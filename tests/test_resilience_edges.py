@@ -16,6 +16,56 @@ from eventflow.resilience import CircuitBreaker, CooldownRegistry, RetryPolicy
 from eventflow.timing import Deadline
 
 
+class CooldownThreadTests(unittest.TestCase):
+    def test_wait_groups_are_reclaimed_after_timeout_and_concurrent_clears(self):
+        clock = ManualClock()
+        registry = CooldownRegistry(clock=clock)
+        registered = threading.Event()
+
+        class TrackedCondition(threading.Condition):
+            def wait(self, timeout=None):
+                registered.set()
+                return super().wait(timeout)
+
+        with (
+            ThreadPoolExecutor(8) as pool,
+            patch("eventflow.resilience.Condition", TrackedCondition),
+        ):
+            for key in range(16):
+                registered.clear()
+                registry.block(key, 60)
+                waiter = pool.submit(registry.wait, key, 1)
+                self.assertTrue(registered.wait(2))
+                with registry._lock:
+                    clock.advance(2)
+                    registry.block(key, 60)
+                self.assertFalse(waiter.result(timeout=2))
+                self.assertFalse(registry._sync_waiters)
+                registry.clear(key)
+
+            registry.block("shared", 60)
+            ready = threading.Barrier(8)
+
+            def wait_for_clear():
+                ready.wait(timeout=2)
+                return registry.wait("shared")
+
+            waiters = [pool.submit(wait_for_clear) for _ in range(7)]
+            try:
+                ready.wait(timeout=2)
+                deadline = Deadline.after(2)
+                while registry.stats().waiters != 7 and not deadline.expired:
+                    threading.Event().wait(0.001)
+                self.assertEqual(registry.stats().waiters, 7)
+                blocker = pool.submit(registry.block, "shared", 60)
+                registry.clear("shared")
+                blocker.result(timeout=2)
+            finally:
+                registry.clear("shared")
+            self.assertTrue(all(waiter.result(timeout=2) for waiter in waiters))
+        self.assertFalse(registry._sync_waiters)
+
+
 class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
     def test_circuit_breaker_reset_ignores_in_flight_results(self):
         for outcome in ("success", "failure"):

@@ -61,10 +61,50 @@ class NativeRuntimeTests(unittest.TestCase):
             self.assertEqual(bus.publish(event).delivered, 1)
             return ref(bus), ref(event)
 
-        bus_ref, event_ref = make_cycle()
+        if sysconfig.get_config_var("Py_GIL_DISABLED"):
+            with ThreadPoolExecutor(4) as pool:
+                references = list(pool.map(lambda _: make_cycle(), range(64)))
+        else:
+            references = [make_cycle()]
         gc.collect()
-        self.assertIsNone(bus_ref())
-        self.assertIsNone(event_ref())
+        for bus_ref, event_ref in references:
+            self.assertIsNone(bus_ref())
+            self.assertIsNone(event_ref())
+
+    @unittest.skipUnless(sys.version_info >= (3, 14), "requires concurrent.interpreters")
+    def test_repeated_isolated_interpreter_shutdown(self) -> None:
+        workload = textwrap.dedent("""
+            from eventflow import EventBus
+            from eventflow.observability import OperationStats
+
+            def setup():
+                bus = EventBus(history=2, routing_key=lambda event: event % 2)
+                stats = OperationStats()
+                def receive(event):
+                    stats.record(str(bus.subscriber_count))
+                bus.subscribe(receive, routing_key=1)
+                assert bus.publish(1).delivered == 1
+                assert stats.snapshot().operations['1'].calls == 1
+                return bus
+
+            cycle = setup()
+        """)
+        code = textwrap.dedent("""
+            import sys
+            from concurrent import interpreters
+
+            for _ in range(5):
+                interpreter = interpreters.create()
+                try:
+                    interpreter.exec(sys.argv[1])
+                finally:
+                    interpreter.close()
+            assert len(interpreters.list_all()) == 1
+        """)
+        result = subprocess.run(
+            [sys.executable, "-c", code, workload], capture_output=True, text=True, timeout=60
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
 
     @unittest.skipUnless(_native.CORE is not None, "native core required")
     def test_native_subscriber_replay_methods_and_replaying_property(self) -> None:
