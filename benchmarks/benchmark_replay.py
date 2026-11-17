@@ -84,6 +84,16 @@ def main() -> None:
                 operation,
                 metadata={"history_events": event_count, "replay_window": args.replay},
             )
+        type_filter = EventFilter[int](event_type=int)
+        for limit in (None, 1):
+            bench_sync(
+                runner,
+                f"history/query-type/{event_count}/{'all' if limit is None else 'last'}",
+                lambda limit=limit, history=history, type_filter=type_filter: history.query(
+                    type_filter, limit=limit
+                ),
+                metadata={"history_events": event_count},
+            )
 
         for filter_name, event_filter in filters:
             bench_sync(
