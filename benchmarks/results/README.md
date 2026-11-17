@@ -21,6 +21,11 @@ The [replay and history audit](unreleased/replay-history-audit.md) retains
 before/after pyperf samples, cold replay and history memory diagnostics,
 cooldown thread wakeups, and an async type-miss profile.
 
+The [replay contention report](unreleased/replay-contention.md) measures
+history up to one million events with two publishers, including snapshot
+rebuilds, lock probes, publication tails and full type queries on CPython
+with and without the GIL.
+
 ## Datasets
 
 - [`v1.3.2/`](v1.3.2/) contains the 2026-11-09 broad performance screen: 31
