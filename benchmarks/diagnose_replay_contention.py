@@ -22,6 +22,11 @@ from ._support import ignore_event, positive_int
 class MeasuredHistory(MemoryEventHistory[int]):
     query_ns = 0
     snapshot_bytes = 0
+    snapshot_rebuilt = False
+
+    def _snapshot_locked(self) -> tuple[int, ...]:
+        self.snapshot_rebuilt = self._snapshot_cache is None
+        return super()._snapshot_locked()
 
     def query(
         self, event_filter: EventFilter[int] | None = None, *, limit: int | None = None
@@ -66,6 +71,7 @@ def collect(capacity: int, rounds: int, publishers: int) -> Iterator[dict[str, i
                 subscription = bus.subscribe(ignore_event, replay=replay, predicate=matches)
                 replay_ns = perf_counter_ns() - start
                 query_ns, snapshot_bytes = history.query_ns, history.snapshot_bytes
+                rebuilt = int(history.snapshot_rebuilt)
                 subscription.cancel()
                 for publisher, task in enumerate(tasks):
                     lock_wait_ns, publish_ns = task.result(timeout=10)
@@ -79,6 +85,7 @@ def collect(capacity: int, rounds: int, publishers: int) -> Iterator[dict[str, i
                         "replay_ns": replay_ns,
                         "snapshot_ns": query_ns,
                         "snapshot_bytes": snapshot_bytes,
+                        "snapshot_rebuilt": rebuilt,
                         "probe_wait_ns": lock_wait_ns,
                         "publish_ns": publish_ns,
                     }
