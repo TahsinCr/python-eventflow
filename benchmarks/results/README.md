@@ -34,6 +34,10 @@ The [history and async dispatch comparison](unreleased/history-dispatch-optimiza
 records the append cost of block storage, replay tail latency, full type query
 timings and async dispatch with sparse matches and subscription churn.
 
+The [async churn and replay comparison](unreleased/async-churn-replay.md)
+measures subscription changes, sequential fan-out, cooperative replay and
+partitioned histories on named channels.
+
 ## Datasets
 
 - [`v1.3.2/`](v1.3.2/) contains the 2026-11-09 broad performance screen: 31

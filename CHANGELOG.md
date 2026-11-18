@@ -6,6 +6,8 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Document the upcoming performance improvements in both READMEs and retain paired async churn, replay responsiveness, channel partitioning and fan-out measurements.
+
 - Add an opt-in async replay scan batch size so long filtered replays can yield to the owning event loop while preserving buffered delivery order.
 
 - Record block history and async dispatch measurements on GIL-enabled and free-threaded CPython, including replay tails, append cost and subscriber churn.

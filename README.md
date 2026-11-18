@@ -27,8 +27,24 @@ EventFlow was extracted from the event subsystem of
 is maintained here as a standalone library. The source project is not needed
 to install or use this package.
 
+<a id="next-release"></a>
+## Coming in the next release
+
+Development since v1.4.1 has focused on keeping publication responsive as
+history grows and subscriptions change.
+
+- **Faster changing subscriptions.** With 2,048 async subscribers, a round that adds a nonmatching subscription, publishes and cancels dropped from **371 µs to 13 µs**.
+- **Less overhead when every callback runs.** Sequential async publication to 2,048 empty callbacks went from **647 µs to 555 µs**.
+- **Lower latency during large replays.** With one million retained events and four simultaneous replay subscribers, opt-in [block history](#history) reduced publication p95 from **145 ms to 0.89 ms**.
+- **More responsive async replay.** Yielding every 512 records reduced event loop delay p95 from **12.44 ms to 0.20 ms** while finding an old match in 100,000 events. Total replay took longer in that test. Named channels can skip unrelated history when events already have a natural routing key.
+
+These are separate controlled workloads on one Linux host with the GIL
+disabled. See the [unreleased changelog][unreleased], [async benchmark report][async-performance]
+and [block history measurements][history-performance] for methods and tradeoffs.
+
 ## Contents
 
+- [Coming in the next release](#next-release)
 - [Getting started](#getting-started)
   - [Install](#install)
   - [Version](#version)
@@ -137,6 +153,9 @@ from eventflow import __version__
 
 print(__version__)  # 1.4.1
 ~~~
+
+The [next release notes](#next-release) describe changes on the development
+branch. Check the changelog for the release that includes them.
 
 <a id="first-event"></a>
 ### Publish your first event
@@ -1766,3 +1785,6 @@ See [LICENSE](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE) an
 [version-shield]: https://img.shields.io/badge/version-v1.4.1-b7a3e3.svg?style=for-the-badge
 [python-shield]: https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?style=for-the-badge&logo=python&logoColor=white
 [license-shield]: https://img.shields.io/badge/license-MIT-blue.svg?style=for-the-badge
+[unreleased]: https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md#unreleased
+[async-performance]: https://github.com/TahsinCr/python-eventflow/blob/main/benchmarks/results/unreleased/async-churn-replay.md
+[history-performance]: https://github.com/TahsinCr/python-eventflow/blob/main/benchmarks/results/unreleased/history-dispatch-optimization.md
