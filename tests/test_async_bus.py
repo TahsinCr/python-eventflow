@@ -33,6 +33,44 @@ from eventflow._compatibility import ExceptionGroup
 
 
 class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
+    async def test_type_candidates_preserve_dynamic_checks_and_subscription_order(self) -> None:
+        checks: list[int] = []
+        received: list[str] = []
+        allow = False
+
+        class DynamicType(type):
+            def __instancecheck__(cls, event):
+                checks.append(event)
+                return allow
+
+        class Dynamic(metaclass=DynamicType):
+            pass
+
+        async def first(event: int) -> None:
+            received.append("first")
+
+        async def last(event: int) -> None:
+            received.append("last")
+
+        async def unused(event: int) -> None:
+            self.fail("type-mismatched callback ran")
+
+        async with AsyncEventBus[int]() as bus:
+            subscription = await bus.subscribe(first, event_type=Dynamic)
+            for _ in range(64):
+                await bus.subscribe(unused, event_type=str)
+            await bus.subscribe(last, event_type=int)
+            for event in (1, 2, 3):
+                await bus.publish(event)
+            self.assertEqual(received, ["last"] * 3)
+            allow = True
+            await bus.publish(4)
+            self.assertEqual(received[-2:], ["first", "last"])
+            await subscription.cancel()
+            await bus.publish(5)
+            self.assertEqual(checks, [1, 2, 3, 4])
+            self.assertEqual(received, ["last", "last", "last", "first", "last", "last"])
+
     async def test_filtered_replay_and_live_events_share_delivery_quota(self) -> None:
         for replay, quota, once, expected in (
             (1, None, True, [4]),

@@ -28,6 +28,10 @@ from .subscription import AsyncSubscription
 
 T = TypeVar("T")
 
+# Exact instances of these types cannot supply a dynamic __class__.
+_STABLE_EVENT_TYPES = frozenset(map(id, (bool, int, float, str, bytes, tuple, type(None))))
+_TYPE_CANDIDATE_MIN = 64
+
 
 @dataclass(slots=True)
 class _AsyncSubscriber(Generic[T]):
@@ -137,6 +141,7 @@ class AsyncEventBus(BaseEventBus[T]):
         self._max_schedules = max_schedules
         self._subscribers: dict[int, _AsyncSubscriber[T]] = {}
         self._subscribers_snapshot: tuple[_AsyncSubscriber[T], ...] | None = None
+        self._type_candidates: dict[int, tuple[_AsyncSubscriber[T], ...] | None] | None = None
         self._next_id = 0
         self._closed = False
         self._lock = asyncio.Lock()
@@ -253,6 +258,7 @@ class AsyncEventBus(BaseEventBus[T]):
             async with self._lock:
                 if self._subscribers.pop(subscription_id, None) is not None:
                     self._subscribers_snapshot = None
+                    self._type_candidates = None
 
         subscription = AsyncSubscription(subscription_id, cancel)
         subscriber = _AsyncSubscriber(
@@ -266,6 +272,7 @@ class AsyncEventBus(BaseEventBus[T]):
         )
         self._subscribers[subscription_id] = subscriber
         self._subscribers_snapshot = None
+        self._type_candidates = None
         return subscription, subscriber
 
     async def once(
@@ -300,7 +307,36 @@ class AsyncEventBus(BaseEventBus[T]):
             return None
         self._record(event)
         self._published += 1
+        if len(subscribers) >= _TYPE_CANDIDATE_MIN:
+            event_type_id = id(type(event))
+            if event_type_id in _STABLE_EVENT_TYPES:
+                return self._candidates_for_type(event, event_type_id, subscribers)
         return subscribers
+
+    def _candidates_for_type(
+        self, event: T, event_type_id: int, subscribers: tuple[_AsyncSubscriber[T], ...]
+    ) -> tuple[_AsyncSubscriber[T], ...]:
+        cache = self._type_candidates
+        if cache is None:
+            self._type_candidates = cache = {}
+        if event_type_id not in cache:
+            # One-off types and short-lived subscription snapshots do not pay for a scan.
+            cache[event_type_id] = None
+            return subscribers
+        cached = cache[event_type_id]
+        if cached is not None:
+            return cached
+        candidates = []
+        for subscriber in subscribers:
+            event_filter = subscriber.event_filter
+            if type(event_filter) is EventFilter:
+                target = event_filter.event_type
+                if type(target) is type and not isinstance(event, target):
+                    continue
+            candidates.append(subscriber)
+        cached = subscribers if len(candidates) == len(subscribers) else tuple(candidates)
+        cache[event_type_id] = cached
+        return cached
 
     async def publish(self, event: T) -> PublishResult:
         self._bind_loop()
@@ -672,6 +708,7 @@ class AsyncEventBus(BaseEventBus[T]):
             )
             self._subscribers.clear()
             self._subscribers_snapshot = None
+            self._type_candidates = None
             waiters = tuple(self._waiters)
             for waiter in waiters:
                 if not waiter.done():
@@ -698,6 +735,7 @@ class AsyncEventBus(BaseEventBus[T]):
             async with self._lock:
                 if self._subscribers.pop(subscription.id, None) is not None:
                     self._subscribers_snapshot = None
+                    self._type_candidates = None
         current_task = asyncio.current_task()
         for schedule, task in schedules:
             if task is not current_task:
