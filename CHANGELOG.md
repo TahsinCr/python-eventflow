@@ -6,6 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
+- Verify isolated interpreter fallback and garbage collection explicitly, and model publication errors from custom history and type filters under both error policies.
 - Retain 480 replay contention profiles and 19,200 publisher observations across GIL-enabled and free-threaded builds, including snapshot costs and publication latency percentiles.
 - Add a replay contention diagnostic for snapshot rebuilds and timing, lock acquisition probes, concurrent publish latency and full history type queries.
 - Exercise repeated isolated interpreter shutdown, concurrent native subscription cycle cleanup on free-threaded Python, and cooldown waiter reclamation after timeouts and concurrent updates.

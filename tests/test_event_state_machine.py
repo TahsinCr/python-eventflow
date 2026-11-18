@@ -1,13 +1,22 @@
 """Shrinkable reference traces for routed, finite EventBus subscriptions."""
 
+import unittest
 from collections import deque
 from dataclasses import dataclass
 
 from hypothesis import settings
 from hypothesis import strategies as st
-from hypothesis.stateful import Bundle, RuleBasedStateMachine, invariant, precondition, rule
+from hypothesis.stateful import (
+    Bundle,
+    RuleBasedStateMachine,
+    initialize,
+    invariant,
+    precondition,
+    rule,
+)
 
-from eventflow import EventBus, Subscription
+from eventflow import ErrorPolicy, EventBus, EventFilter, MemoryEventHistory, Subscription
+from eventflow._compatibility import ExceptionGroup
 
 
 @dataclass
@@ -127,4 +136,90 @@ class EventBusModel(RuleBasedStateMachine):
 TestEventBusModel = EventBusModel.TestCase
 TestEventBusModel.settings = settings(
     max_examples=60, stateful_step_count=35, deadline=None, derandomize=True
+)
+
+
+class SelectiveHistory(MemoryEventHistory[object]):
+    def append(self, event: object) -> None:
+        if event == -1:
+            raise OverflowError("history rejects event")
+        super().append(event)
+
+
+class TextFilter(EventFilter[object]):
+    def matches(self, event: object) -> bool:
+        if not super().matches(event):
+            return False
+        if event == "reject":
+            raise LookupError("filter rejects event")
+        return event == "accept"
+
+
+class PublicationErrorModel(RuleBasedStateMachine):
+    @initialize(policy=st.sampled_from([ErrorPolicy.ISOLATE, ErrorPolicy.RAISE]))
+    def setup(self, policy):
+        self.policy = policy
+        self.check = unittest.TestCase()
+        self.bus = EventBus[object](history=SelectiveHistory(capacity=5), error_policy=policy)
+        self.history = deque(maxlen=5)
+        self.received = []
+        self.expected = []
+        self.handle = None
+        self.remaining = self.published = self.failed = 0
+
+    @precondition(lambda self: self.remaining == 0)
+    @rule(quota=st.integers(1, 3))
+    def subscribe(self, quota):
+        self.handle = self.bus.subscribe(
+            self.received.append, event_filter=TextFilter(event_type=str), times=quota
+        )
+        self.remaining = quota
+
+    @rule(event=st.sampled_from([-1, 0, "skip", "reject", "accept"]))
+    def publish(self, event):
+        if event == -1:
+            with self.check.assertRaises(OverflowError):
+                self.bus.publish(event)
+            return
+        self.history.append(event)
+        self.published += 1
+        if event == "reject" and self.remaining:
+            self.failed += 1
+            if self.policy is ErrorPolicy.RAISE:
+                with self.check.assertRaises(ExceptionGroup) as caught:
+                    self.bus.publish(event)
+                assert tuple(map(type, caught.exception.exceptions)) == (LookupError,)
+            else:
+                result = self.bus.publish(event)
+                assert (result.matched, result.delivered, result.failed) == (0, 0, 1)
+                assert tuple(map(type, result.errors)) == (LookupError,)
+            return
+        delivers = bool(self.remaining and event == "accept")
+        if delivers:
+            self.remaining -= 1
+            self.expected.append(event)
+        result = self.bus.publish(event)
+        assert (result.matched, result.delivered, result.failed) == (delivers, delivers, 0)
+
+    @invariant()
+    def state_matches(self):
+        assert self.bus.query() == tuple(self.history)
+        assert self.received == self.expected
+        assert self.bus.subscriber_count == bool(self.remaining)
+        if self.handle is not None:
+            assert self.handle.active == bool(self.remaining)
+        stats = self.bus.stats
+        assert (stats.published, stats.delivered, stats.failed) == (
+            self.published,
+            len(self.expected),
+            self.failed,
+        )
+
+    def teardown(self):
+        self.bus.close()
+
+
+TestPublicationErrors = PublicationErrorModel.TestCase
+TestPublicationErrors.settings = settings(
+    max_examples=45, stateful_step_count=25, deadline=None, derandomize=True
 )

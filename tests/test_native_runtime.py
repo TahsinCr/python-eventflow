@@ -72,10 +72,25 @@ class NativeRuntimeTests(unittest.TestCase):
             self.assertIsNone(event_ref())
 
     @unittest.skipUnless(sys.version_info >= (3, 14), "requires concurrent.interpreters")
-    def test_repeated_isolated_interpreter_shutdown(self) -> None:
+    def test_repeated_isolated_interpreter_shutdown_uses_python_fallback(self) -> None:
         workload = textwrap.dedent("""
-            from eventflow import EventBus
+            import gc
+            from concurrent import interpreters
+            from importlib.util import find_spec
+            from weakref import ref
+
+            from eventflow import EventBus, _native
             from eventflow.observability import OperationStats
+
+            assert interpreters.get_current().id != interpreters.get_main().id
+            if find_spec('eventflow._core') is not None:
+                try:
+                    import eventflow._core
+                except ImportError:
+                    pass
+                else:
+                    raise AssertionError('the extension loaded in an isolated interpreter')
+            assert _native.CORE is None
 
             def setup():
                 bus = EventBus(history=2, routing_key=lambda event: event % 2)
@@ -88,6 +103,11 @@ class NativeRuntimeTests(unittest.TestCase):
                 return bus
 
             cycle = setup()
+            reference = ref(cycle)
+            del cycle
+            gc.collect()
+            assert reference() is None
+            cycle_at_shutdown = setup()
         """)
         code = textwrap.dedent("""
             import sys
@@ -99,7 +119,7 @@ class NativeRuntimeTests(unittest.TestCase):
                     interpreter.exec(sys.argv[1])
                 finally:
                     interpreter.close()
-            assert len(interpreters.list_all()) == 1
+                assert interpreters.list_all() == [interpreters.get_main()]
         """)
         result = subprocess.run(
             [sys.executable, "-c", code, workload], capture_output=True, text=True, timeout=60
