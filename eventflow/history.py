@@ -43,7 +43,8 @@ def _query_by_type(
     limit: int | None,
 ) -> tuple[T, ...]:
     if limit is None:
-        return tuple(event for event in events if isinstance(event, event_type))
+        matches = [event for event in events if isinstance(event, event_type)]
+        return tuple(matches)
 
     matched: list[T] = []
     for event in reversed(events):

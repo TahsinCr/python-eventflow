@@ -27,6 +27,7 @@ All notable changes to this project are documented in this file.
 
 ### Changed
 
+- Build complete history type query results without yielding each matching event through a generator, while reevaluating live type membership.
 - Skip statically impossible async deliveries for repeated built-in event types on large, stable subscriber snapshots while preserving dynamic filters and delivery order.
 - Clarify replay predicate requirements and the cost of full history type queries, and document both Ruff checks used by CI.
 - Document when history queries reevaluate type membership and when the bus holds its publication lock during replay setup.
