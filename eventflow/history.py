@@ -107,6 +107,7 @@ class _Blocks(Generic[T]):
         self.head: deque[T] = deque()
         self.blocks: deque[tuple[T, ...]] = deque()
         self.tail: list[T] = []
+        self.snapshot: _BlockSnapshot[T] | None = None
 
     def append(self, event: T) -> None:
         full = self.size == self.capacity
@@ -126,9 +127,12 @@ class _Blocks(Generic[T]):
                 self.head = new_head
                 self.blocks.popleft()
             self.head.popleft()
+        self.snapshot = None
 
     def capture(self) -> _BlockSnapshot[T]:
-        return _BlockSnapshot((tuple(self.head), *self.blocks, tuple(self.tail)))
+        if self.snapshot is None:
+            self.snapshot = _BlockSnapshot((tuple(self.head), *self.blocks, tuple(self.tail)))
+        return self.snapshot
 
     def latest(self) -> T:
         if self.tail:

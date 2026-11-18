@@ -41,6 +41,7 @@ class BlockHistoryTests(unittest.TestCase):
         references = [ref(payload) for payload in payloads]
         for payload in payloads:
             history.append(payload)
+            history.query()
         del payload, payloads
         self.assertEqual(
             [reference() is None for reference in references], [True, True, False, False, False]

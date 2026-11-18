@@ -6,7 +6,7 @@ All notable changes to this project are documented in this file.
 
 ### Added
 
-- Add opt-in block storage for large, frequently updated memory histories to reduce snapshot work under the replay publication lock.
+- Add opt-in block storage for large, frequently updated memory histories to reduce snapshot work under the replay publication lock and share captures between writes.
 - Measure the first lock acquisition inside publish and async loop delay for replay, and retain the measured profiles with up to eight concurrent replay subscribers.
 - Verify isolated interpreter fallback and garbage collection explicitly, and model publication errors from custom history and type filters under both error policies.
 - Retain 480 replay contention profiles and 19,200 publisher observations across GIL-enabled and free-threaded builds, including snapshot costs and publication latency percentiles.
