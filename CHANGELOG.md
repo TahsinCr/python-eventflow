@@ -4,6 +4,10 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+### Fixed
+
+- Restrict wheel verification to distribution artifacts so diagnostic logs from other jobs cannot block a tagged release.
+
 ## [v1.4.2] - 2026-11-18
 
 ### Added
