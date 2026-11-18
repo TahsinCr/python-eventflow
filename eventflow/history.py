@@ -5,8 +5,8 @@ from __future__ import annotations
 import threading
 from abc import ABC, abstractmethod
 from collections import deque
-from collections.abc import Callable
-from itertools import islice
+from collections.abc import Callable, Iterator, Reversible
+from itertools import chain, islice
 from typing import Generic, TypeVar
 
 from .filtering import EventFilter, EventType, _matches_all
@@ -15,7 +15,7 @@ T = TypeVar("T")
 
 
 def _recent_matches(
-    events: tuple[T, ...], limit: int, matches: Callable[[T], bool]
+    events: Reversible[T], limit: int, matches: Callable[[T], bool]
 ) -> tuple[T, ...]:
     matched: list[T] = []
     for event in reversed(events):
@@ -38,7 +38,7 @@ def _validate_query_limit(limit: int | None) -> None:
 
 
 def _query_by_type(
-    events: tuple[T, ...],
+    events: Reversible[T],
     event_type: EventType,
     limit: int | None,
 ) -> tuple[T, ...]:
@@ -85,19 +85,106 @@ class EventHistory(Generic[T], ABC):
     def __len__(self) -> int: ...
 
 
+class _BlockSnapshot(Generic[T]):
+    def __init__(self, blocks: tuple[tuple[T, ...], ...]) -> None:
+        self._blocks = blocks
+
+    def __iter__(self) -> Iterator[T]:
+        return chain.from_iterable(self._blocks)
+
+    def __reversed__(self) -> Iterator[T]:
+        return chain.from_iterable(map(reversed, reversed(self._blocks)))
+
+
+class _Blocks(Generic[T]):
+    """Keep sealed blocks immutable and copy only the two mutable edges on capture."""
+
+    def __init__(self, capacity: int, block_size: int) -> None:
+        self.capacity = capacity
+        self.block_size = block_size
+        self.size = 0
+        self.head: deque[T] = deque()
+        self.blocks: deque[tuple[T, ...]] = deque()
+        self.tail: list[T] = []
+
+    def append(self, event: T) -> None:
+        full = self.size == self.capacity
+        new_head = deque(self.blocks[0]) if full and not self.head else None
+        self.tail.append(event)
+        if len(self.tail) == self.block_size:
+            try:
+                self.blocks.append(tuple(self.tail))
+            except MemoryError:
+                self.tail.pop()
+                raise
+            self.tail.clear()
+        if not full:
+            self.size += 1
+        else:
+            if new_head is not None:
+                self.head = new_head
+                self.blocks.popleft()
+            self.head.popleft()
+
+    def capture(self) -> _BlockSnapshot[T]:
+        return _BlockSnapshot((tuple(self.head), *self.blocks, tuple(self.tail)))
+
+    def latest(self) -> T:
+        if self.tail:
+            return self.tail[-1]
+        if self.blocks:
+            return self.blocks[-1][-1]
+        return self.head[-1]
+
+    def __iter__(self) -> Iterator[T]:
+        return chain(self.head, chain.from_iterable(self.blocks), self.tail)
+
+    def __reversed__(self) -> Iterator[T]:
+        return chain(
+            reversed(self.tail),
+            chain.from_iterable(map(reversed, reversed(self.blocks))),
+            reversed(self.head),
+        )
+
+    def __len__(self) -> int:
+        return self.size
+
+
 class MemoryEventHistory(EventHistory[T]):
     """Thread-safe bounded history preserving publication order."""
 
-    def __init__(self, capacity: int = 1_000) -> None:
+    def __init__(self, capacity: int = 1_000, *, block_size: int | None = None) -> None:
         if isinstance(capacity, bool) or not isinstance(capacity, int) or capacity <= 0:
             raise ValueError("Event history capacity must be a positive integer")
-        self._events: deque[T] = deque(maxlen=capacity)
+        if block_size is not None and (
+            isinstance(block_size, bool)
+            or not isinstance(block_size, int)
+            or not 1 <= block_size <= capacity
+        ):
+            raise ValueError("Event history block size must be an integer between 1 and capacity")
+        self._capacity = capacity
+        self._block_size = block_size
+        self._events: deque[T] | _Blocks[T] = (
+            deque(maxlen=capacity) if block_size is None else _Blocks(capacity, block_size)
+        )
         self._lock = threading.RLock()
         self._snapshot_cache: tuple[T, ...] | None = None
 
     @property
     def capacity(self) -> int:
-        return self._events.maxlen or 0
+        return self._capacity
+
+    def _capture_locked(self) -> Reversible[T]:
+        events = self._events
+        return events.capture() if isinstance(events, _Blocks) else self._snapshot_locked()
+
+    def _replay_snapshot(self) -> Reversible[T]:
+        with self._lock:
+            return self._capture_locked()
+
+    def _last_locked(self) -> T:
+        events = self._events
+        return events.latest() if isinstance(events, _Blocks) else events[-1]
 
     def _snapshot_locked(self) -> tuple[T, ...]:
         if self._snapshot_cache is None:
@@ -117,12 +204,12 @@ class MemoryEventHistory(EventHistory[T]):
         )
         with self._lock:
             if event_filter is None or _matches_all(event_filter):
-                return self._events[-1] if self._events else None
+                return self._last_locked() if self._events else None
             if event_type is not None and self._events:
-                last = self._events[-1]
+                last = self._last_locked()
                 if _exact_type_match(last, event_type):
                     return last
-            events = self._snapshot_locked()
+            events = self._capture_locked()
         if event_type is not None:
             return next(
                 (event for event in reversed(events) if isinstance(event, event_type)), None
@@ -144,18 +231,22 @@ class MemoryEventHistory(EventHistory[T]):
             if type(event_filter) is EventFilter and event_filter.predicate is None
             else None
         )
-        with self._lock:
-            if event_filter is None or _matches_all(event_filter):
-                if limit is None:
+        if event_filter is None or _matches_all(event_filter):
+            with self._lock:
+                if limit is not None:
+                    recent = list(islice(reversed(self._events), limit))
+                    recent.reverse()
+                    return tuple(recent)
+                if not isinstance(self._events, _Blocks):
                     return self._snapshot_locked()
-                recent = list(islice(reversed(self._events), limit))
-                recent.reverse()
-                return tuple(recent)
+                unfiltered = self._events.capture()
+            return tuple(unfiltered)
+        with self._lock:
             if limit == 1 and event_type is not None and self._events:
-                last = self._events[-1]
+                last = self._last_locked()
                 if _exact_type_match(last, event_type):
                     return (last,)
-            events = self._snapshot_locked()
+            events = self._capture_locked()
         # Event class membership can change without modifying the stored sequence.
         if event_type is not None:
             return _query_by_type(events, event_type, limit)
@@ -165,7 +256,11 @@ class MemoryEventHistory(EventHistory[T]):
 
     def clear(self) -> None:
         with self._lock:
-            self._events.clear()
+            events = self._events
+            if isinstance(events, _Blocks):
+                self._events = _Blocks(events.capacity, events.block_size)
+            else:
+                events.clear()
             self._snapshot_cache = None
 
     def __len__(self) -> int:

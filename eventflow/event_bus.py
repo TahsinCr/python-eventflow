@@ -6,7 +6,7 @@ import inspect
 import threading
 import time
 from collections import deque
-from collections.abc import Callable, Hashable
+from collections.abc import Callable, Hashable, Reversible
 from concurrent.futures import Future, ThreadPoolExecutor
 from contextvars import copy_context
 from dataclasses import dataclass, field
@@ -338,7 +338,7 @@ class EventBus(BaseEventBus[T]):
 
         try:
             if subscriber.replaying:
-                pending: tuple[T, ...] | None = replay_snapshot
+                pending: Reversible[T] | None = replay_snapshot
                 if routing_key is not None:
 
                     def matches_route(event: T) -> bool:

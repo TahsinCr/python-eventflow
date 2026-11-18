@@ -392,7 +392,8 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
         self.assertEqual(received, [1, 2])
 
     async def test_async_replay_overflow_isolated_from_healthy_subscribers(self) -> None:
-        bus = AsyncEventBus[int](history=1, replay_buffer_limit=1)
+        history = MemoryEventHistory[int](capacity=2, block_size=1)
+        bus = AsyncEventBus[int](history=history, replay_buffer_limit=1)
         await bus.publish(1)
         entered = asyncio.Event()
         release = asyncio.Event()
@@ -402,7 +403,9 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
                 entered.set()
                 await release.wait()
 
-        replay = asyncio.create_task(bus.subscribe(slow, replay=1))
+        replay = asyncio.create_task(
+            bus.subscribe(slow, predicate=lambda event: event > 0, replay=1)
+        )
         await entered.wait()
         healthy: list[int] = []
 

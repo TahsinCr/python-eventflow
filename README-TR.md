@@ -440,6 +440,15 @@ Kuyruk taşarsa ilgili abonelik iptal edilir ve taşma bus'ın hata politikasıy
 raporlanır. Replay kurulumu veya filtre değerlendirmesi hata verirse kısmi
 abonelik kaldırılır ve hata çağırana iletilir.
 
+Büyük, sık güncellenen bir geçmişten düzenli olarak replay yapıyorsanız
+`MemoryEventHistory(capacity=100_000, block_size=256)` oluşturup bus'a
+`history=` ile verin. Replay, tamamlanmış blokların referanslarını alır ve
+yalnızca uçlardaki kısmi blokları kopyalar. Böylece yayın kilidi altında daha
+az iş yapılır ancak geçmişe yazma maliyeti artar. Küçük geçmişlerde veya
+ağırlıklı olarak yayın yapan uygulamalarda varsayılan depolamayla başlayın.
+Seyrek eşleşen bir filtre yine tüm geçmişi tarayıp async event loop'u meşgul
+edebilir.
+
 Özel geçmiş deposu için `EventHistory` arayüzünün `append()`, `latest()`,
 `query()`, `clear()` ve `__len__()` metotlarını uygulayın. Uygulama bu beş
 işlemin eşzamanlı çağrılarını kendi içinde senkronize etmeli; sorguları tutarlı

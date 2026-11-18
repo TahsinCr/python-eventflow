@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import asyncio
 from collections import deque
-from collections.abc import Awaitable, Callable
+from collections.abc import Awaitable, Callable, Reversible
 from concurrent.futures import Future
 from dataclasses import dataclass
 from typing import Generic, TypeVar, cast
@@ -207,7 +207,7 @@ class AsyncEventBus(BaseEventBus[T]):
 
         try:
             if subscriber.replaying:
-                pending: tuple[T, ...] | None = replay_snapshot
+                pending: Reversible[T] | None = replay_snapshot
                 if not subscriber.match_all:
                     pending = _recent_matches(replay_snapshot, replay, normalized_filter.matches)
                 del replay_snapshot

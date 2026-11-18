@@ -45,15 +45,17 @@ class TimedLock:
         return getattr(self.lock, name)
 
 
-def history_for(capacity: int) -> MemoryEventHistory[int]:
-    history = MemoryEventHistory[int](capacity=capacity)
+def history_for(capacity: int, block_size: int | None) -> MemoryEventHistory[int]:
+    history = MemoryEventHistory[int](capacity=capacity, block_size=block_size)
     for event in range(capacity):
         history.append(event)
     return history
 
 
-def threaded_rounds(capacity: int, rounds: int, replayers: int, instrument: bool) -> list[dict]:
-    history = history_for(capacity)
+def threaded_rounds(
+    capacity: int, rounds: int, replayers: int, instrument: bool, block_size: int | None
+) -> list[dict]:
+    history = history_for(capacity, block_size)
     timing = TimedLock() if instrument else None
     if timing is None:
         bus = EventBus[int](history=history)
@@ -99,8 +101,8 @@ def threaded_rounds(capacity: int, rounds: int, replayers: int, instrument: bool
     return rows
 
 
-async def async_rounds(capacity: int, rounds: int, cold: bool) -> list[int]:
-    history = history_for(capacity)
+async def async_rounds(capacity: int, rounds: int, cold: bool, block_size: int | None) -> list[int]:
+    history = history_for(capacity, block_size)
     loop = asyncio.get_running_loop()
     delays: list[int] = []
     async with AsyncEventBus[int](history=history) as bus:
@@ -108,7 +110,7 @@ async def async_rounds(capacity: int, rounds: int, cold: bool) -> list[int]:
             if cold:
                 await bus.publish(capacity)
             else:
-                history.query()
+                history._replay_snapshot()
             start = perf_counter_ns()
             loop.call_soon(lambda start=start: delays.append(perf_counter_ns() - start))
             handle = await bus.subscribe(
@@ -125,9 +127,17 @@ def main() -> None:
         "--capacity", nargs="+", type=positive_int, default=[1000, 100_000, 1_000_000]
     )
     parser.add_argument("--rounds", type=positive_int, default=24)
+    parser.add_argument("--block-size", type=positive_int)
     parser.add_argument("--output", type=Path, required=True)
     args = parser.parse_args()
-    result = {"metadata": benchmark_metadata(), "python": platform.python_version(), "profiles": []}
+    if args.block_size is not None and args.block_size > min(args.capacity):
+        parser.error("--block-size must not exceed the smallest capacity")
+    result = {
+        "metadata": benchmark_metadata(),
+        "python": platform.python_version(),
+        "block_size": args.block_size,
+        "profiles": [],
+    }
     for capacity in args.capacity:
         for replayers in (0, 1, 2, 4, 8):
             for instrument in (False, True):
@@ -136,7 +146,9 @@ def main() -> None:
                         "capacity": capacity,
                         "replayers": replayers,
                         "instrumented": instrument,
-                        "rounds": threaded_rounds(capacity, args.rounds, replayers, instrument),
+                        "rounds": threaded_rounds(
+                            capacity, args.rounds, replayers, instrument, args.block_size
+                        ),
                     }
                 )
         for cold in (False, True):
@@ -144,7 +156,9 @@ def main() -> None:
                 {
                     "capacity": capacity,
                     "cold": cold,
-                    "loop_delay_ns": asyncio.run(async_rounds(capacity, args.rounds, cold)),
+                    "loop_delay_ns": asyncio.run(
+                        async_rounds(capacity, args.rounds, cold, args.block_size)
+                    ),
                 }
             )
     args.output.write_text(json.dumps(result, separators=(",", ":")) + "\n", encoding="utf-8")

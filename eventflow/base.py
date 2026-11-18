@@ -6,7 +6,7 @@ import math
 import threading
 import weakref
 from abc import ABC, abstractmethod
-from collections.abc import Callable
+from collections.abc import Callable, Reversible
 from typing import Any, Generic, TypeVar
 
 from .contracts import ErrorPolicy, EventBusStats
@@ -125,10 +125,12 @@ class BaseEventBus(Generic[T], ABC):
         history: EventHistory[T] | None,
         replay: int,
         has_filter: bool,
-    ) -> tuple[T, ...]:
+    ) -> Reversible[T]:
         if not replay or history is None:
             return ()
         if has_filter:
+            if type(history) is MemoryEventHistory and history._block_size is not None:
+                return history._replay_snapshot()
             return history.query()
         return history.query(limit=replay)
 

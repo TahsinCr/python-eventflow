@@ -427,6 +427,14 @@ overflows, that subscription is cancelled and the overflow is reported using
 the bus's error policy. If replay setup or filter evaluation fails, EventFlow
 removes the partial subscription before propagating the failure.
 
+For large histories that change frequently and serve replay, opt in to block
+storage with `MemoryEventHistory(capacity=100_000, block_size=256)` and pass
+that instance as `history=`. Replay captures references to sealed blocks and
+copies only the partially filled edges. This reduces the work inside the
+publication lock at the cost of slower appends. For small histories or workloads
+that mainly publish, start with the default storage. A selective predicate can
+still scan the entire history and occupy an async event loop.
+
 To provide a custom history store, implement `EventHistory`:
 `append()`, `latest()`, `query()`, `clear()`, and `__len__()`. Implementations
 must synchronize all five operations and return `latest()`/`query()` results
