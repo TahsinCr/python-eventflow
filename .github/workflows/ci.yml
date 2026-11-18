@@ -365,7 +365,7 @@ jobs:
           python-version: "3.14"
 
       - name: Install isolated coverage tools
-        run: python -m pip install "setuptools>=77" "gcovr==8.8" "pyperf==2.11.0"
+        run: python -m pip install "setuptools>=77" "gcovr==8.8" "pyperf==2.11.0" "hypothesis>=6,<7"
 
       - name: Build, test, and measure the native C extension
         run: python tools/native_coverage.py --output-dir build/native-c-coverage

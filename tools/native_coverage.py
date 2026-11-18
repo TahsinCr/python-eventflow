@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import argparse
 import hashlib
+import importlib.util
 import json
 import os
 import platform
@@ -159,6 +160,16 @@ def main() -> int:
     gcovr = shutil.which("gcovr")
     if gcc is None or gcov is None or gcovr is None:
         parser.error("Install GCC, its matching gcov, and gcovr==8.8 before running coverage.")
+
+    missing = [
+        name
+        for name in ("setuptools", "hypothesis", "pyperf")
+        if not importlib.util.find_spec(name)
+    ]
+    if missing:
+        parser.error(
+            f"Missing coverage build/test dependencies: {', '.join(missing)}. Install .[dev] and setuptools>=77."
+        )
 
     output_dir = args.output_dir if args.output_dir.is_absolute() else ROOT / args.output_dir
     output_dir = output_dir.resolve()
