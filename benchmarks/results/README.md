@@ -26,6 +26,10 @@ history up to one million events with two publishers, including snapshot
 rebuilds, lock probes, publication tails and full type queries on CPython
 with and without the GIL.
 
+The [replay scheduling report](unreleased/replay-scheduling.md) measures
+lock acquisition inside publication with multiple concurrent replay subscribers,
+and callback delay during cold and warm async replay.
+
 ## Datasets
 
 - [`v1.3.2/`](v1.3.2/) contains the 2026-11-09 broad performance screen: 31
