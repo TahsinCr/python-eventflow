@@ -70,6 +70,16 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
             await bus.publish(5)
             self.assertEqual(checks, [1, 2, 3, 4])
             self.assertEqual(received, ["last", "last", "last", "first", "last", "last"])
+            once = await bus.subscribe(first, event_type=int, once=True)
+            await bus.publish(6)
+            await bus.publish(7)
+            self.assertFalse(once.active)
+            self.assertEqual(received[-3:], ["last", "first", "last"])
+            with patch("eventflow.async_event_bus._could_match_type", side_effect=MemoryError):
+                handle = await bus.subscribe(first, event_type=int)
+            await bus.publish(8)
+            self.assertTrue(handle.active)
+            self.assertEqual(received[-2:], ["last", "first"])
 
     async def test_filtered_replay_and_live_events_share_delivery_quota(self) -> None:
         for replay, quota, once, expected in (

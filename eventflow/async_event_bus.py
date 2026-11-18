@@ -29,8 +29,16 @@ from .subscription import AsyncSubscription
 T = TypeVar("T")
 
 # Exact instances of these types cannot supply a dynamic __class__.
-_STABLE_EVENT_TYPES = frozenset(map(id, (bool, int, float, str, bytes, tuple, type(None))))
+_STABLE_EVENT_TYPES = {id(kind): kind for kind in (bool, int, float, str, bytes, tuple, type(None))}
 _TYPE_CANDIDATE_MIN = 64
+_TYPE_CANDIDATE_PATCH_LIMIT = 32
+
+
+def _could_match_type(event_filter: EventFilter[T], kind: type) -> bool:
+    if type(event_filter) is not EventFilter:
+        return True
+    target = event_filter.event_type
+    return type(target) is not type or issubclass(kind, target)
 
 
 @dataclass(slots=True)
@@ -256,9 +264,7 @@ class AsyncEventBus(BaseEventBus[T]):
 
         async def cancel() -> None:
             async with self._lock:
-                if self._subscribers.pop(subscription_id, None) is not None:
-                    self._subscribers_snapshot = None
-                    self._type_candidates = None
+                self._remove_subscriber_locked(subscription_id)
 
         subscription = AsyncSubscription(subscription_id, cancel)
         subscriber = _AsyncSubscriber(
@@ -271,9 +277,34 @@ class AsyncEventBus(BaseEventBus[T]):
             pending=deque(maxlen=self._replay_buffer_limit) if replaying else None,
         )
         self._subscribers[subscription_id] = subscriber
-        self._subscribers_snapshot = None
-        self._type_candidates = None
+        self._patch_candidates_locked(subscriber, added=True)
         return subscription, subscriber
+
+    def _remove_subscriber_locked(self, subscription_id: int) -> None:
+        subscriber = self._subscribers.pop(subscription_id, None)
+        if subscriber is not None:
+            self._patch_candidates_locked(subscriber, added=False)
+
+    def _patch_candidates_locked(self, subscriber: _AsyncSubscriber[T], *, added: bool) -> None:
+        self._subscribers_snapshot = None
+        cache = self._type_candidates
+        if cache is None:
+            return
+        try:
+            for kind_id in tuple(cache):
+                candidates = cache[kind_id]
+                if candidates is None or not _could_match_type(
+                    subscriber.event_filter, _STABLE_EVENT_TYPES[kind_id]
+                ):
+                    continue
+                if len(candidates) > _TYPE_CANDIDATE_PATCH_LIMIT:
+                    del cache[kind_id]
+                elif added:
+                    cache[kind_id] = (*candidates, subscriber)
+                else:
+                    cache[kind_id] = tuple(item for item in candidates if item is not subscriber)
+        except MemoryError:
+            self._type_candidates = None
 
     async def once(
         self,
@@ -297,6 +328,13 @@ class AsyncEventBus(BaseEventBus[T]):
 
     def _begin_publish_locked(self, event: T) -> tuple[_AsyncSubscriber[T], ...] | None:
         self._ensure_open()
+        cache = self._type_candidates
+        if cache is not None and len(self._subscribers) >= _TYPE_CANDIDATE_MIN:
+            cached = cache.get(id(type(event)))
+            if cached is not None:
+                self._record(event)
+                self._published += 1
+                return cached
         subscribers = self._subscribers_snapshot
         if subscribers is None:
             subscribers = tuple(self._subscribers.values())
@@ -310,11 +348,11 @@ class AsyncEventBus(BaseEventBus[T]):
         if len(subscribers) >= _TYPE_CANDIDATE_MIN:
             event_type_id = id(type(event))
             if event_type_id in _STABLE_EVENT_TYPES:
-                return self._candidates_for_type(event, event_type_id, subscribers)
+                return self._candidates_for_type(event_type_id, subscribers)
         return subscribers
 
     def _candidates_for_type(
-        self, event: T, event_type_id: int, subscribers: tuple[_AsyncSubscriber[T], ...]
+        self, event_type_id: int, subscribers: tuple[_AsyncSubscriber[T], ...]
     ) -> tuple[_AsyncSubscriber[T], ...]:
         cache = self._type_candidates
         if cache is None:
@@ -323,17 +361,8 @@ class AsyncEventBus(BaseEventBus[T]):
             # One-off types and short-lived subscription snapshots do not pay for a scan.
             cache[event_type_id] = None
             return subscribers
-        cached = cache[event_type_id]
-        if cached is not None:
-            return cached
-        candidates = []
-        for subscriber in subscribers:
-            event_filter = subscriber.event_filter
-            if type(event_filter) is EventFilter:
-                target = event_filter.event_type
-                if type(target) is type and not isinstance(event, target):
-                    continue
-            candidates.append(subscriber)
+        kind = _STABLE_EVENT_TYPES[event_type_id]
+        candidates = [item for item in subscribers if _could_match_type(item.event_filter, kind)]
         cached = subscribers if len(candidates) == len(subscribers) else tuple(candidates)
         cache[event_type_id] = cached
         return cached
@@ -364,15 +393,19 @@ class AsyncEventBus(BaseEventBus[T]):
         delivered = 0
         if self._delivery_mode is DeliveryMode.SEQUENTIAL:
             for subscriber in matched:
-                claimed, final = subscriber.claim()
-                if not claimed:
-                    continue
-                if final:
-                    try:
-                        await subscriber.subscription._consume()
-                    except BaseException:
-                        subscriber.restore_claim()
-                        raise
+                if subscriber.remaining is None:
+                    if not subscriber.subscription.active:
+                        continue
+                else:
+                    claimed, final = subscriber.claim()
+                    if not claimed:
+                        continue
+                    if final:
+                        try:
+                            await subscriber.subscription._consume()
+                        except BaseException:
+                            subscriber.restore_claim()
+                            raise
                 try:
                     await subscriber.callback(event)
                 except Exception as exc:
@@ -733,9 +766,7 @@ class AsyncEventBus(BaseEventBus[T]):
         for subscription in subscriptions:
             await subscription.cancel()
             async with self._lock:
-                if self._subscribers.pop(subscription.id, None) is not None:
-                    self._subscribers_snapshot = None
-                    self._type_candidates = None
+                self._remove_subscriber_locked(subscription.id)
         current_task = asyncio.current_task()
         for schedule, task in schedules:
             if task is not current_task:
