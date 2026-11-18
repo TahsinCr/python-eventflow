@@ -449,6 +449,19 @@ ağırlıklı olarak yayın yapan uygulamalarda varsayılan depolamayla başlay�
 Seyrek eşleşen bir filtre yine tüm geçmişi tarayıp async event loop'u meşgul
 edebilir.
 
+Uzun filtreli taramalarda `AsyncEventBus(replay_scan_batch_size=512)`
+ayarıyla kayıt grupları arasında diğer task'lara sıra verebilirsiniz.
+Bu, event loop'un daha hızlı tepki vermesini sağlayabilir ancak replay'in
+toplam süresini uzatabilir. Varsayılan değer `None`'dır. Tarama beklerken
+gelen canlı olaylar abone için tamponlanır ve replay'den sonra teslim edilir.
+
+Her replay belirli bir anahtarı hedefliyorsa, adlandırılmış
+`AsyncEventEngine` kanallarında anahtar başına ayrı geçmiş tutabilirsiniz.
+Olayı ilgili kanala yayınlayıp replay aboneliğini de aynı kanalda açın.
+Böylece diğer anahtarların kayıtları taranmaz. Her kanalın saklama sınırı
+ayrıdır. Replay birden çok anahtarı yayın sırasıyla kapsamalıysa ortak geçmiş
+kullanın.
+
 Özel geçmiş deposu için `EventHistory` arayüzünün `append()`, `latest()`,
 `query()`, `clear()` ve `__len__()` metotlarını uygulayın. Uygulama bu beş
 işlemin eşzamanlı çağrılarını kendi içinde senkronize etmeli; sorguları tutarlı
@@ -1561,6 +1574,7 @@ açık retry, deadline ve ortak işlem metriklerini birleştirir.
 | `delivery_mode` | Kullanılmaz | `DeliveryMode.SEQUENTIAL` |
 | `max_concurrency` | Kullanılmaz | `None` (sınırsız) |
 | `replay_buffer_limit` | 1000 | 1000 |
+| `replay_scan_batch_size` | — | `None` |
 | `max_schedules` | 64 | 64 |
 | `shutdown_timeout` | 5 saniye | Kullanılmaz |
 | `actions` veya doğrudan `on_*` hook'ları | None | None |

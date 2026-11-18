@@ -7,6 +7,8 @@ from collections import deque
 from collections.abc import Awaitable, Callable, Reversible
 from concurrent.futures import Future
 from dataclasses import dataclass
+from itertools import islice
+from sys import maxsize
 from typing import Generic, TypeVar, cast
 
 from ._callbacks import is_async_callable
@@ -100,6 +102,7 @@ class AsyncEventBus(BaseEventBus[T]):
         delivery_mode: DeliveryMode = DeliveryMode.SEQUENTIAL,
         max_concurrency: int | None = None,
         replay_buffer_limit: int = 1_000,
+        replay_scan_batch_size: int | None = None,
         max_schedules: int = 64,
         actions: AsyncEventBusActions[T] | None = None,
         on_before: Callable[[T], Awaitable[None]] | None = None,
@@ -146,6 +149,11 @@ class AsyncEventBus(BaseEventBus[T]):
         if self._max_concurrency is not None and self._delivery_mode is not DeliveryMode.CONCURRENT:
             raise ValueError("max_concurrency requires DeliveryMode.CONCURRENT")
         self._replay_buffer_limit = replay_buffer_limit
+        self._replay_scan_batch_size = (
+            None
+            if replay_scan_batch_size is None
+            else validate_positive_capacity(replay_scan_batch_size, name="Replay scan batch size")
+        )
         self._max_schedules = max_schedules
         self._subscribers: dict[int, _AsyncSubscriber[T]] = {}
         self._subscribers_snapshot: tuple[_AsyncSubscriber[T], ...] | None = None
@@ -222,7 +230,14 @@ class AsyncEventBus(BaseEventBus[T]):
             if subscriber.replaying:
                 pending: Reversible[T] | None = replay_snapshot
                 if not subscriber.match_all:
-                    pending = _recent_matches(replay_snapshot, replay, normalized_filter.matches)
+                    batch_size = self._replay_scan_batch_size
+                    pending = (
+                        _recent_matches(replay_snapshot, replay, normalized_filter.matches)
+                        if batch_size is None
+                        else await self._scan_replay(
+                            replay_snapshot, replay, subscriber, batch_size
+                        )
+                    )
                 del replay_snapshot
                 while pending is not None:
                     for event in pending:
@@ -251,6 +266,30 @@ class AsyncEventBus(BaseEventBus[T]):
             await asyncio.shield(subscription.cancel())
             raise
         return subscription
+
+    @staticmethod
+    async def _scan_replay(
+        snapshot: Reversible[T], replay: int, subscriber: _AsyncSubscriber[T], batch_size: int
+    ) -> tuple[T, ...]:
+        events = reversed(snapshot)
+        matched: list[T] = []
+        matches = subscriber.event_filter.matches
+        batch_size = min(batch_size, maxsize)
+        while subscriber.subscription.active:
+            _scanned = 0
+            for _scanned, event in enumerate(islice(events, batch_size), 1):
+                if matches(event):
+                    matched.append(event)
+                    if len(matched) == replay:
+                        break
+            else:
+                if _scanned < batch_size:
+                    break
+                await asyncio.sleep(0)
+                continue
+            break
+        matched.reverse()
+        return tuple(matched)
 
     def _subscribe_locked(
         self,

@@ -435,6 +435,18 @@ publication lock at the cost of slower appends. For small histories or workloads
 that mainly publish, start with the default storage. A selective predicate can
 still scan the entire history and occupy an async event loop.
 
+For long filtered scans, set `AsyncEventBus(replay_scan_batch_size=512)`
+to let other tasks run between groups of records. This can improve event
+loop responsiveness while making replay itself take longer. The option
+defaults to `None`. Events published while a scan yields are buffered for
+that subscriber and delivered after replay.
+
+If every replay targets a known key, consider keeping a separate history per
+key on named `AsyncEventEngine` channels. Publish to the appropriate channel
+and subscribe to that channel for replay. This skips unrelated records
+entirely. Each channel has its own retention window, so use a shared history
+when replay must span keys in publication order.
+
 To provide a custom history store, implement `EventHistory`:
 `append()`, `latest()`, `query()`, `clear()`, and `__len__()`. Implementations
 must synchronize all five operations and return `latest()`/`query()` results
@@ -1536,6 +1548,7 @@ concurrency limit, explicit retries, a deadline and shared operation metrics.
 | `delivery_mode` | Not used | `DeliveryMode.SEQUENTIAL` |
 | `max_concurrency` | Not used | `None` (unbounded) |
 | `replay_buffer_limit` | 1000 | 1000 |
+| `replay_scan_batch_size` | — | `None` |
 | `max_schedules` | 64 | 64 |
 | `shutdown_timeout` | 5 seconds | Not used |
 | `actions` or direct `on_*` hooks | None | None |

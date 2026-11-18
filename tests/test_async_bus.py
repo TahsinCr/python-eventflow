@@ -81,6 +81,38 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(handle.active)
             self.assertEqual(received[-2:], ["last", "first"])
 
+    async def test_cooperative_replay_yields_to_live_publish_and_cancellation(self) -> None:
+        for cancel in (False, True):
+            with self.subTest(cancel=cancel):
+                history = MemoryEventHistory[int](16, block_size=4)
+                for event in range(10):
+                    history.append(event)
+                entered = asyncio.Event()
+                delivered = []
+
+                def matches(event: int) -> bool:
+                    entered.set()
+                    return event in (0, 2, 10)
+
+                async def receive(event: int) -> None:
+                    delivered.append(event)
+
+                async with AsyncEventBus[int](history=history, replay_scan_batch_size=2) as bus:
+                    task = asyncio.create_task(bus.subscribe(receive, replay=2, predicate=matches))
+                    await asyncio.wait_for(entered.wait(), timeout=5)
+                    self.assertFalse(task.done())
+                    await bus.publish(10)
+                    self.assertEqual(delivered, [])
+                    if cancel:
+                        task.cancel()
+                        with self.assertRaises(asyncio.CancelledError):
+                            await task
+                        self.assertEqual(bus.subscriber_count, 0)
+                        self.assertEqual(delivered, [])
+                    else:
+                        await task
+                        self.assertEqual(delivered, [0, 2, 10])
+
     async def test_filtered_replay_and_live_events_share_delivery_quota(self) -> None:
         for replay, quota, once, expected in (
             (1, None, True, [4]),
