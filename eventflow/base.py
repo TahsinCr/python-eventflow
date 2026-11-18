@@ -7,6 +7,7 @@ import threading
 import weakref
 from abc import ABC, abstractmethod
 from collections.abc import Callable, Reversible
+from operator import index
 from typing import Any, Generic, TypeVar
 
 from .contracts import ErrorPolicy, EventBusStats
@@ -20,7 +21,7 @@ T = TypeVar("T")
 def validate_positive_capacity(value: int, *, name: str) -> int:
     """Validate a bounded collection/schedule capacity."""
 
-    if isinstance(value, bool) or not isinstance(value, int) or value <= 0:
+    if isinstance(value, bool) or not isinstance(value, int) or (value := index(value)) <= 0:
         raise ValueError(f"{name} must be a positive integer")
     return value
 

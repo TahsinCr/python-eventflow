@@ -11,6 +11,17 @@ from eventflow import EventBus, EventFilter, MemoryEventHistory
 
 
 class BlockHistoryTests(unittest.TestCase):
+    def test_integer_subclasses_use_their_numeric_capacity_and_block_size(self):
+        class TaggedSize(int):
+            def __eq__(self, other):
+                return False
+
+        history = MemoryEventHistory[int](TaggedSize(2), block_size=TaggedSize(1))
+        for event in range(5):
+            history.append(event)
+        self.assertEqual(history.capacity, 2)
+        self.assertEqual(history.query(), (3, 4))
+
     def test_retention_and_query_order_across_partial_blocks(self):
         even = EventFilter[int](predicate=lambda event: event % 2 == 0)
         for capacity, block_size in ((1, 1), (5, 2), (7, 7), (13, 4)):

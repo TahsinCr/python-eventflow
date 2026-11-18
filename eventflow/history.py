@@ -7,6 +7,7 @@ from abc import ABC, abstractmethod
 from collections import deque
 from collections.abc import Callable, Iterator, Reversible
 from itertools import chain, islice
+from operator import index
 from typing import Generic, TypeVar
 
 from .filtering import EventFilter, EventType, _matches_all
@@ -159,12 +160,16 @@ class MemoryEventHistory(EventHistory[T]):
     """Thread-safe bounded history preserving publication order."""
 
     def __init__(self, capacity: int = 1_000, *, block_size: int | None = None) -> None:
-        if isinstance(capacity, bool) or not isinstance(capacity, int) or capacity <= 0:
+        if (
+            isinstance(capacity, bool)
+            or not isinstance(capacity, int)
+            or (capacity := index(capacity)) <= 0
+        ):
             raise ValueError("Event history capacity must be a positive integer")
         if block_size is not None and (
             isinstance(block_size, bool)
             or not isinstance(block_size, int)
-            or not 1 <= block_size <= capacity
+            or not 1 <= (block_size := index(block_size)) <= capacity
         ):
             raise ValueError("Event history block size must be an integer between 1 and capacity")
         self._capacity = capacity

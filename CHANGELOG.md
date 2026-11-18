@@ -45,6 +45,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Normalize integer capacity and block size values before storage and replay arithmetic.
 - Synchronize cooldown tests on registered waiters and verify both block and clear orderings without a worker startup barrier.
 - Install and check the test dependencies before running the isolated native C coverage suite.
 - Apply Ruff formatting to the history implementation and regression tests so the CI formatting check passes.
