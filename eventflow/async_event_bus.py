@@ -263,7 +263,7 @@ class AsyncEventBus(BaseEventBus[T]):
                                 break
                     pending = subscriber.finish_replay()
         except BaseException:
-            await asyncio.shield(subscription.cancel())
+            await finish_cleanup(subscription.cancel())
             raise
         return subscription
 
@@ -387,7 +387,10 @@ class AsyncEventBus(BaseEventBus[T]):
         if len(subscribers) >= _TYPE_CANDIDATE_MIN:
             event_type_id = id(type(event))
             if event_type_id in _STABLE_EVENT_TYPES:
-                return self._candidates_for_type(event_type_id, subscribers)
+                try:
+                    return self._candidates_for_type(event_type_id, subscribers)
+                except MemoryError:
+                    self._type_candidates = None
         return subscribers
 
     def _candidates_for_type(

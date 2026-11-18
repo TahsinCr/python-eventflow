@@ -81,9 +81,9 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
             self.assertTrue(handle.active)
             self.assertEqual(received[-2:], ["last", "first"])
 
-    async def test_cooperative_replay_yields_to_live_publish_and_cancellation(self) -> None:
-        for cancel in (False, True):
-            with self.subTest(cancel=cancel):
+    async def test_cooperative_replay_handles_live_publish_cancel_close_and_overflow(self) -> None:
+        for action in ("continue", "cancel", "close", "overflow"):
+            with self.subTest(action=action):
                 history = MemoryEventHistory[int](16, block_size=4)
                 for event in range(10):
                     history.append(event)
@@ -97,21 +97,50 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
                 async def receive(event: int) -> None:
                     delivered.append(event)
 
-                async with AsyncEventBus[int](history=history, replay_scan_batch_size=2) as bus:
+                async with AsyncEventBus[int](
+                    history=history, replay_scan_batch_size=2, replay_buffer_limit=1
+                ) as bus:
                     task = asyncio.create_task(bus.subscribe(receive, replay=2, predicate=matches))
                     await asyncio.wait_for(entered.wait(), timeout=5)
                     self.assertFalse(task.done())
                     await bus.publish(10)
                     self.assertEqual(delivered, [])
-                    if cancel:
+                    if action == "cancel":
                         task.cancel()
                         with self.assertRaises(asyncio.CancelledError):
                             await task
                         self.assertEqual(bus.subscriber_count, 0)
                         self.assertEqual(delivered, [])
-                    else:
+                    elif action == "continue":
                         await task
                         self.assertEqual(delivered, [0, 2, 10])
+                    else:
+                        if action == "close":
+                            await bus.close()
+                        else:
+                            overflow = await bus.publish(10)
+                            self.assertEqual(overflow.failed, 1)
+                            self.assertIsInstance(overflow.errors[0], BufferError)
+                        self.assertFalse((await task).active)
+                        self.assertEqual(bus.subscriber_count, 0)
+                        self.assertEqual(delivered, [])
+
+    async def test_candidate_allocation_failure_falls_back_to_delivery(self) -> None:
+        received: list[int] = []
+
+        async def receive(event: int) -> None:
+            received.append(event)
+
+        async with AsyncEventBus[int](history=4) as bus:
+            for _ in range(64):
+                await bus.subscribe(receive, event_type=int)
+            await bus.publish(1)
+            with patch("eventflow.async_event_bus._could_match_type", side_effect=MemoryError):
+                result = await bus.publish(2)
+            self.assertEqual((result.matched, result.delivered, result.failed), (64, 64, 0))
+            self.assertEqual(bus.query(), (1, 2))
+            self.assertEqual(received, [1] * 64 + [2] * 64)
+            self.assertEqual((bus.stats.published, bus.stats.delivered), (2, 128))
 
     async def test_filtered_replay_and_live_events_share_delivery_quota(self) -> None:
         for replay, quota, once, expected in (
@@ -535,12 +564,13 @@ class AsyncEventBusTests(unittest.IsolatedAsyncioTestCase):
             subscribing.cancel()
             await asyncio.sleep(0)
             subscribing.cancel()
-            with self.assertRaises(asyncio.CancelledError):
-                await subscribing
+            await asyncio.sleep(0)
+            self.assertFalse(subscribing.done())
         finally:
             bus._lock.release()
 
-        await asyncio.sleep(0)
+        with self.assertRaises(asyncio.CancelledError):
+            await asyncio.wait_for(subscribing, timeout=5)
         self.assertEqual(bus.subscriber_count, 0)
         await bus.close()
 

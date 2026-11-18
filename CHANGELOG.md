@@ -45,6 +45,7 @@ All notable changes to this project are documented in this file.
 
 ### Fixed
 
+- Continue async delivery if the candidate cache cannot be allocated, and complete replay cleanup before propagating repeated cancellation.
 - Normalize integer capacity and block size values before storage and replay arithmetic.
 - Synchronize cooldown tests on registered waiters and verify both block and clear orderings without a worker startup barrier.
 - Install and check the test dependencies before running the isolated native C coverage suite.
