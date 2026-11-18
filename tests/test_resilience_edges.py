@@ -17,53 +17,67 @@ from eventflow.timing import Deadline
 
 
 class CooldownThreadTests(unittest.TestCase):
-    def test_wait_groups_are_reclaimed_after_timeout_and_concurrent_clears(self):
+    @staticmethod
+    def track_waiters(registry, registered, expected):
+        class TrackedCondition(threading.Condition):
+            def wait(self, timeout=None):
+                if registry.stats().waiters == expected:
+                    registered.set()
+                return super().wait(timeout)
+
+        return patch("eventflow.resilience.Condition", TrackedCondition)
+
+    def test_wait_group_is_reclaimed_after_timeout_for_each_key(self):
         clock = ManualClock()
         registry = CooldownRegistry(clock=clock)
         registered = threading.Event()
-
-        class TrackedCondition(threading.Condition):
-            def wait(self, timeout=None):
-                registered.set()
-                return super().wait(timeout)
-
-        with (
-            ThreadPoolExecutor(8) as pool,
-            patch("eventflow.resilience.Condition", TrackedCondition),
-        ):
+        with ThreadPoolExecutor(1) as pool, self.track_waiters(registry, registered, 1):
             for key in range(16):
-                registered.clear()
-                registry.block(key, 60)
-                waiter = pool.submit(registry.wait, key, 1)
-                self.assertTrue(registered.wait(2))
-                with registry._lock:
-                    clock.advance(2)
+                with self.subTest(key=key):
+                    registered.clear()
                     registry.block(key, 60)
-                self.assertFalse(waiter.result(timeout=2))
+                    waiter = pool.submit(registry.wait, key, 1)
+                    try:
+                        self.assertTrue(registered.wait(10), "waiter did not register")
+                        with registry._lock:
+                            clock.advance(2)
+                            registry.block(key, 60)
+                        self.assertFalse(waiter.result(timeout=10))
+                        self.assertFalse(registry._sync_waiters)
+                    finally:
+                        registry.clear(key)
+
+    def test_shared_waiters_follow_both_update_orders(self):
+        for clear_first in (True, False):
+            with self.subTest(clear_first=clear_first):
+                registry = CooldownRegistry(clock=ManualClock())
+                registered = threading.Event()
+                registry.block("shared", 60)
+                with ThreadPoolExecutor(7) as pool, self.track_waiters(registry, registered, 7):
+                    waiters = [pool.submit(registry.wait, "shared") for _ in range(7)]
+                    try:
+                        self.assertTrue(registered.wait(10), "waiters did not register")
+                        with registry._lock:
+                            self.assertEqual(registry.stats().waiters, 7)
+                            if clear_first:
+                                registered.clear()
+                                registry.clear("shared")
+                                registry.block("shared", 60)
+                            else:
+                                registry.block("shared", 60)
+                                registry.clear("shared")
+                        if clear_first:
+                            self.assertTrue(
+                                registered.wait(10), "waiters did not recheck the block"
+                            )
+                            self.assertTrue(registry.is_blocked("shared"))
+                            self.assertFalse(any(waiter.done() for waiter in waiters))
+                    finally:
+                        if clear_first or registry.is_blocked("shared"):
+                            registry.clear("shared")
+                    self.assertTrue(all(waiter.result(timeout=10) for waiter in waiters))
+                self.assertEqual(registry.stats().waiters, 0)
                 self.assertFalse(registry._sync_waiters)
-                registry.clear(key)
-
-            registry.block("shared", 60)
-            ready = threading.Barrier(8)
-
-            def wait_for_clear():
-                ready.wait(timeout=2)
-                return registry.wait("shared")
-
-            waiters = [pool.submit(wait_for_clear) for _ in range(7)]
-            try:
-                ready.wait(timeout=2)
-                deadline = Deadline.after(2)
-                while registry.stats().waiters != 7 and not deadline.expired:
-                    threading.Event().wait(0.001)
-                self.assertEqual(registry.stats().waiters, 7)
-                blocker = pool.submit(registry.block, "shared", 60)
-                registry.clear("shared")
-                blocker.result(timeout=2)
-            finally:
-                registry.clear("shared")
-            self.assertTrue(all(waiter.result(timeout=2) for waiter in waiters))
-        self.assertFalse(registry._sync_waiters)
 
 
 class AsyncCoordinationEdgeTests(unittest.IsolatedAsyncioTestCase):
