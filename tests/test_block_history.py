@@ -21,6 +21,15 @@ class BlockHistoryTests(unittest.TestCase):
             history.append(event)
         self.assertEqual(history.capacity, 2)
         self.assertEqual(history.query(), (3, 4))
+        self.assertEqual(history.query(EventFilter(event_type=int), limit=TaggedSize(1)), (4,))
+        self.assertEqual(history.query(limit=1 << 100), (3, 4))
+        with EventBus[int](history=history) as bus:
+            received = []
+            handle = bus.subscribe(
+                received.append, predicate=lambda _: True, replay=TaggedSize(1), times=TaggedSize(1)
+            )
+            self.assertFalse(handle.active)
+            self.assertEqual(received, [4])
 
     def test_retention_and_query_order_across_partial_blocks(self):
         even = EventFilter[int](predicate=lambda event: event % 2 == 0)

@@ -8,6 +8,7 @@ from collections import deque
 from collections.abc import Callable, Iterator, Reversible
 from itertools import chain, islice
 from operator import index
+from sys import maxsize
 from typing import Generic, TypeVar
 
 from .filtering import EventFilter, EventType, _matches_all
@@ -33,9 +34,12 @@ def _exact_type_match(event: object, target: EventType | None) -> bool:
     return type(event) is (target[0] if type(target) is tuple else target)
 
 
-def _validate_query_limit(limit: int | None) -> None:
-    if limit is not None and (isinstance(limit, bool) or not isinstance(limit, int) or limit <= 0):
+def _validate_query_limit(limit: int | None) -> int | None:
+    if limit is not None and (
+        isinstance(limit, bool) or not isinstance(limit, int) or (limit := index(limit)) <= 0
+    ):
         raise ValueError("Event history query limit must be a positive integer")
+    return limit
 
 
 def _query_by_type(
@@ -235,7 +239,7 @@ class MemoryEventHistory(EventHistory[T]):
         *,
         limit: int | None = None,
     ) -> tuple[T, ...]:
-        _validate_query_limit(limit)
+        limit = _validate_query_limit(limit)
         event_type = (
             event_filter.event_type
             if type(event_filter) is EventFilter and event_filter.predicate is None
@@ -244,7 +248,7 @@ class MemoryEventHistory(EventHistory[T]):
         if event_filter is None or _matches_all(event_filter):
             with self._lock:
                 if limit is not None:
-                    recent = list(islice(reversed(self._events), limit))
+                    recent = list(islice(reversed(self._events), min(limit, maxsize)))
                     recent.reverse()
                     return tuple(recent)
                 if not isinstance(self._events, _Blocks):

@@ -59,7 +59,7 @@ def validate_nonnegative_timeout(value: float | None, *, name: str) -> float | N
 def validate_nonnegative_count(value: int, *, name: str) -> int:
     """Validate a count that may be zero."""
 
-    if isinstance(value, bool) or not isinstance(value, int) or value < 0:
+    if isinstance(value, bool) or not isinstance(value, int) or (value := index(value)) < 0:
         raise ValueError(f"{name} must be a non-negative integer")
     return value
 
@@ -138,8 +138,7 @@ class BaseEventBus(Generic[T], ABC):
     @staticmethod
     def _delivery_limit(*, once: bool, times: int | None) -> int | None:
         if times is not None:
-            if isinstance(times, bool) or not isinstance(times, int) or times <= 0:
-                raise ValueError("Subscription times must be a positive integer")
+            times = validate_positive_capacity(times, name="Subscription times")
             if once and times != 1:
                 raise ValueError("Use once=True or times, not both")
             return times
@@ -171,7 +170,7 @@ class BaseEventBus(Generic[T], ABC):
         predicate: Callable[[T], bool] | None = None,
         limit: int | None = None,
     ) -> tuple[T, ...]:
-        _validate_query_limit(limit)
+        limit = _validate_query_limit(limit)
         normalized_filter = coerce_event_filter(
             event_filter,
             event_type=event_type,
