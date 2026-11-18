@@ -30,6 +30,10 @@ The [replay scheduling report](unreleased/replay-scheduling.md) measures
 lock acquisition inside publication with multiple concurrent replay subscribers,
 and callback delay during cold and warm async replay.
 
+The [history and async dispatch comparison](unreleased/history-dispatch-optimization.md)
+records the append cost of block storage, replay tail latency, full type query
+timings and async dispatch with sparse matches and subscription churn.
+
 ## Datasets
 
 - [`v1.3.2/`](v1.3.2/) contains the 2026-11-09 broad performance screen: 31
