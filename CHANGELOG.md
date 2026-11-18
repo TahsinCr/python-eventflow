@@ -4,12 +4,12 @@ All notable changes to this project are documented in this file.
 
 ## [Unreleased]
 
+## [v1.4.2] - 2026-11-18
+
 ### Added
 
-- Document the upcoming performance improvements in both READMEs and retain paired async churn, replay responsiveness, channel partitioning and fan-out measurements.
-
+- Document the v1.4.2 performance improvements in both READMEs and retain paired async churn, replay responsiveness, channel partitioning and fan-out measurements.
 - Add an opt-in async replay scan batch size so long filtered replays can yield to the owning event loop while preserving buffered delivery order.
-
 - Record block history and async dispatch measurements on GIL-enabled and free-threaded CPython, including replay tails, append cost and subscriber churn.
 - Add opt-in block storage for large, frequently updated memory histories to reduce snapshot work under the replay publication lock and share captures between writes.
 - Measure the first lock acquisition inside publish and async loop delay for replay, and retain the measured profiles with up to eight concurrent replay subscribers.

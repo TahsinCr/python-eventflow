@@ -75,8 +75,8 @@ dispatch architecture is unchanged.
 python -m benchmarks.benchmark_replay --events 100000 --replay 1 --affinity 15 \
     --processes 3 --values 4 --warmups 2 --min-time 0.025 -o replay.json
 python -m pyperf compare_to \
-    benchmarks/results/unreleased/replay-history-base.json.gz \
-    benchmarks/results/unreleased/replay-history-fixed.json.gz --table
+    benchmarks/results/v1.4.2/replay-history-base.json.gz \
+    benchmarks/results/v1.4.2/replay-history-fixed.json.gz --table
 ```
 
 The pyperf settings are intended for a focused comparison. Small differences

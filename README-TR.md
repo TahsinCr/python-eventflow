@@ -1,4 +1,4 @@
-[![Sürüm: v1.4.1][version-shield]](https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md)
+[![Sürüm: v1.4.2][version-shield]](https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md)
 [![Python 3.10+][python-shield]](https://www.python.org/downloads/)
 [![MIT Lisansı][license-shield]](https://github.com/TahsinCr/python-eventflow/blob/main/LICENSE)
 
@@ -27,11 +27,11 @@ projesinin event alt sisteminden çıkarılmış ve burada bağımsız bir küt�
 olarak geliştirilmektedir. Paketi kurmak ve kullanmak için kaynak projeye
 ihtiyaç yoktur.
 
-<a id="next-release"></a>
-## Sıradaki sürümde
+<a id="v142"></a>
+## v1.4.2 ile gelenler
 
-v1.4.1 sonrasındaki çalışmalar, geçmiş büyüdüğünde ve abonelikler sık
-değiştiğinde yayın gecikmesini düşürmeye odaklanıyor.
+EventFlow v1.4.2, geçmiş büyüdüğünde ve abonelikler sık değiştiğinde
+yayın gecikmesini düşürüyor.
 
 - **Abonelikler değişirken daha hızlı yayın.** 2.048 async abonenin olduğu ölçümde, eşleşmeyecek bir aboneyi ekleme, yayın yapma ve aboneliği iptal etme turu **371 µs’den 13 µs’ye** indi.
 - **Tüm abonelere teslimatta daha az ek yük.** 2.048 boş callback’e sıralı async yayın süresi **647 µs’den 555 µs’ye** indi.
@@ -39,12 +39,12 @@ değiştiğinde yayın gecikmesini düşürmeye odaklanıyor.
 - **Uzun async replay’de event loop daha az bekliyor.** 100 bin olay içinde eski bir eşleşme aranırken her 512 kayıtta sıra vermek, event loop gecikmesi p95’ini **12,44 ms’den 0,20 ms’ye** indirdi. Bu ölçümde replay’in toplam süresi arttı. Olaylar doğal bir yönlendirme anahtarına sahipse adlandırılmış kanallar ilgisiz kayıtların taranmasını önleyebilir.
 
 Bunlar GIL kapalıyken tek bir Linux makinesinde ölçülen ayrı iş yükleri.
-Yöntemler ve karşılaştırmalar için [yayımlanmamış değişikliklere][unreleased],
+Yöntemler ve karşılaştırmalar için [v1.4.2 değişiklik kaydına][release-notes],
 [async benchmark raporuna][async-performance] ve [bloklu geçmiş ölçümlerine][history-performance] bakın.
 
 ## İçindekiler
 
-- [Sıradaki sürümde](#next-release)
+- [v1.4.2 ile gelenler](#v142)
 - [Başlangıç](#getting-started)
   - [Kurulum](#install)
   - [Sürüm bilgisi](#version)
@@ -156,11 +156,11 @@ Kurulu paketin sürüm numarasına `eventflow.__version__` üzerinden erişebili
 ~~~python
 from eventflow import __version__
 
-print(__version__)  # 1.4.1
+print(__version__)  # 1.4.2
 ~~~
 
-[Sıradaki sürüm notları](#next-release) geliştirme dalındaki değişiklikleri
-anlatır. Değişikliklerin hangi sürümde yer aldığını changelog’dan takip edin.
+Öne çıkan yenilikler için [v1.4.2 ile gelenlere](#v142), tam liste için
+[v1.4.2 değişiklik kaydına][release-notes] bakın.
 
 <a id="first-event"></a>
 ### İlk event yayını
@@ -1813,9 +1813,9 @@ Copyright © 2026 TahsinCr. EventFlow, MIT Lisansı ile lisanslanmıştır.
 [CHANGELOG](https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md)
 dosyalarına bakın.
 
-[version-shield]: https://img.shields.io/badge/version-v1.4.1-b7a3e3.svg?style=for-the-badge
+[version-shield]: https://img.shields.io/badge/version-v1.4.2-b7a3e3.svg?style=for-the-badge
 [python-shield]: https://img.shields.io/badge/Python-3.10%2B-3776AB.svg?style=for-the-badge&logo=python&logoColor=white
 [license-shield]: https://img.shields.io/badge/license-MIT-blue.svg?style=for-the-badge
-[unreleased]: https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md#unreleased
-[async-performance]: https://github.com/TahsinCr/python-eventflow/blob/main/benchmarks/results/unreleased/async-churn-replay.md
-[history-performance]: https://github.com/TahsinCr/python-eventflow/blob/main/benchmarks/results/unreleased/history-dispatch-optimization.md
+[release-notes]: https://github.com/TahsinCr/python-eventflow/blob/main/CHANGELOG.md#v142---2026-11-18
+[async-performance]: https://github.com/TahsinCr/python-eventflow/blob/main/benchmarks/results/v1.4.2/async-churn-replay.md
+[history-performance]: https://github.com/TahsinCr/python-eventflow/blob/main/benchmarks/results/v1.4.2/history-dispatch-optimization.md
